@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="utf-8"?>
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:aapt="http://schemas.android.com/aapt"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Outer ambient glowing sphere halo -->
+    <path
+        android:fillColor="#152FA3FF"
+        android:pathData="M54,54m-30,0a30,30 0,1 1,60 0a30,30 0,1 1,-60 0" />
+
+    <!-- Central core solid Celestial Sphere -->
+    <path
+        android:pathData="M54,54m-18,0a18,18 0,1 1,36 0a18,18 0,1 1,-36 0">
+        <aapt:attr name="android:fillColor">
+            <gradient
+                android:startX="36"
+                android:startY="36"
+                android:endX="72"
+                android:endY="72"
+                android:type="linear">
+                <item android:color="#00E5FF" android:offset="0.0"/>
+                <item android:color="#2FA3FF" android:offset="1.0"/>
+            </gradient>
+        </aapt:attr>
+    </path>
+
+    <!-- Celestial Orbital Ring 1 (Vibrant Cyan) -->
+    <path
+        android:strokeColor="#00E5FF"
+        android:strokeWidth="1.8"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M24,54 A30,10 45,1,1 84,54 A30,10 45,1,1 24,54" />
+
+    <!-- Celestial Orbital Ring 2 (Warm Gold Contrast) -->
+    <path
+        android:strokeColor="#FFC107"
+        android:strokeWidth="1.2"
+        android:fillColor="#00000000"
+        android:strokeLineCap="round"
+        android:pathData="M24,54 A30,8 -30,1,1 84,54 A30,8 -30,1,1 24,54" />
+</vector>

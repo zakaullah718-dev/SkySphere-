@@ -1,0 +1,6 @@
+{
+  "name": "SkySphere",
+  "description": "SkySphere is a premium, beautifully crafted weather application with a luxury aesthetic, featuring seamless navigation, rounded elevation cards, custom fluid gradients, and a modern Material 3 design system.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
