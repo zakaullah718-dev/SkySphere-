@@ -8,7 +8,8 @@ data class LocationDto(
     @Json(name = "country") val country: String,
     @Json(name = "lat") val lat: Double,
     @Json(name = "lon") val lon: Double,
-    @Json(name = "tz_id") val tzId: String?
+    @Json(name = "tz_id") val tzId: String?,
+    @Json(name = "localtime") val localtime: String? = null
 )
 
 data class ConditionDto(

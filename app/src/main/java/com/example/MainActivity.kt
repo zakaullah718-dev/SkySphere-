@@ -20,7 +20,7 @@ class MainActivity : ComponentActivity() {
         enableEdgeToEdge()
         
         // Single global repository source
-        val repository = WeatherRepository()
+        val repository = WeatherRepository(applicationContext)
 
         setContent {
             // State-driven theme configuration managed from settings

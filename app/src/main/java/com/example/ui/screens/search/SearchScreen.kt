@@ -20,15 +20,19 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.FavoriteBorder
+import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -54,6 +58,8 @@ fun SearchScreen(
     val query by viewModel.searchQuery.collectAsState()
     val searchResults by viewModel.searchResults.collectAsState()
     val isCelsius by viewModel.isCelsius.collectAsState()
+    val recentSearches by viewModel.recentSearches.collectAsState()
+    val errorState by viewModel.errorState.collectAsState()
     val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
 
     Column(
@@ -80,6 +86,50 @@ fun SearchScreen(
         )
 
         Spacer(modifier = Modifier.height(20.dp))
+
+        // ERROR NOTIFICATION BANNER
+        if (errorState != null) {
+            SkySphereCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 16.dp)
+                    .testTag("search_error_banner"),
+                onClick = { viewModel.clearError() }
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Warning,
+                            contentDescription = "Warning",
+                            tint = Color(0xFFFF5252),
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Spacer(modifier = Modifier.width(10.dp))
+                        Text(
+                            text = errorState!!,
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                        )
+                    }
+                    IconButton(onClick = { viewModel.clearError() }) {
+                        Icon(
+                            imageVector = Icons.Default.Close,
+                            contentDescription = "Dismiss error",
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.size(16.dp)
+                        )
+                    }
+                }
+            }
+        }
 
         // SEARCH TEXT FIELD
         OutlinedTextField(
@@ -129,6 +179,88 @@ fun SearchScreen(
         )
 
         Spacer(modifier = Modifier.height(24.dp))
+
+        // CONDITIONAL RENDERING: Recent Searches history vs Search Results list
+        if (query.isEmpty() && recentSearches.isNotEmpty()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "RECENT SEARCHES",
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        color = MaterialTheme.colorScheme.primary,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 1.sp
+                    )
+                )
+                TextButton(
+                    onClick = { viewModel.clearRecentSearches() },
+                    contentPadding = PaddingValues(0.dp)
+                ) {
+                    Text(
+                        text = "CLEAR ALL",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = Color(0xFFFF5252),
+                            fontWeight = FontWeight.Bold
+                        )
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(8.dp))
+
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(recentSearches) { searchItem ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(MaterialTheme.shapes.medium)
+                            .background(if (isDark) Color(0xFF13172E) else Color(0xFFF1F5F9))
+                            .clickable {
+                                viewModel.selectCity(searchItem)
+                                onCitySelected()
+                            }
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                imageVector = Icons.Default.History,
+                                contentDescription = null,
+                                tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                            Spacer(modifier = Modifier.width(12.dp))
+                            Text(
+                                text = searchItem,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                            )
+                        }
+                        IconButton(
+                            onClick = { viewModel.deleteRecentSearch(searchItem) },
+                            modifier = Modifier.size(24.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Delete,
+                                contentDescription = "Delete search",
+                                tint = Color(0xFFFF5252).copy(alpha = 0.8f),
+                                modifier = Modifier.size(16.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            Spacer(modifier = Modifier.height(24.dp))
+        }
 
         // SEARCH RESULTS
         if (searchResults.isEmpty()) {
@@ -211,12 +343,23 @@ fun SearchCityCard(
                             )
                         )
                         Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = city.country,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = city.country,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             )
-                        )
+                            if (!city.localTime.isNullOrBlank()) {
+                                Text(
+                                    text = "  •  " + city.localTime,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                )
+                            }
+                        }
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
                             text = details.condition.displayName,
@@ -228,46 +371,48 @@ fun SearchCityCard(
                     }
                 }
 
-                // Right Section: Temperature + Favorite Action Button
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.End
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.End,
-                        modifier = Modifier.padding(end = 12.dp)
+                // Right Section: Temperature + Favorite Action Button (Visible if weatherDetails have values)
+                if (details.currentTemp != 0) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.End
                     ) {
-                        Text(
-                            text = "${formatTemp(details.currentTemp, isCelsius)}°",
-                            style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Light,
-                                color = MaterialTheme.colorScheme.onBackground,
-                                fontSize = 28.sp
+                        Column(
+                            horizontalAlignment = Alignment.End,
+                            modifier = Modifier.padding(end = 12.dp)
+                        ) {
+                            Text(
+                                text = "${formatTemp(details.currentTemp, isCelsius)}°",
+                                style = MaterialTheme.typography.titleLarge.copy(
+                                    fontWeight = FontWeight.Light,
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    fontSize = 28.sp
+                                )
                             )
-                        )
-                        Text(
-                            text = "H: ${formatTemp(details.highTemp, isCelsius)}° L: ${formatTemp(details.lowTemp, isCelsius)}°",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 10.sp
+                            Text(
+                                text = "H: ${formatTemp(details.highTemp, isCelsius)}° L: ${formatTemp(details.lowTemp, isCelsius)}°",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontSize = 10.sp
+                                )
                             )
-                        )
-                    }
+                        }
 
-                    IconButton(
-                        onClick = onToggleFavorite,
-                        modifier = Modifier
-                            .size(40.dp)
-                            .clip(CircleShape)
-                            .background(if (isDark) Color(0xFF1E254C) else Color(0xFFE2E8F0))
-                            .testTag("search_favorite_toggle_${city.cityName.lowercase()}")
-                    ) {
-                        Icon(
-                            imageVector = if (city.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
-                            contentDescription = "Favorite Toggle",
-                            tint = if (city.isFavorite) Color(0xFFFF5252) else MaterialTheme.colorScheme.onBackground,
-                            modifier = Modifier.size(18.dp)
-                        )
+                        IconButton(
+                            onClick = onToggleFavorite,
+                            modifier = Modifier
+                                .size(40.dp)
+                                .clip(CircleShape)
+                                .background(if (isDark) Color(0xFF1E254C) else Color(0xFFE2E8F0))
+                                .testTag("search_favorite_toggle_${city.cityName.lowercase()}")
+                        ) {
+                            Icon(
+                                imageVector = if (city.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                contentDescription = "Favorite Toggle",
+                                tint = if (city.isFavorite) Color(0xFFFF5252) else MaterialTheme.colorScheme.onBackground,
+                                modifier = Modifier.size(18.dp)
+                            )
+                        }
                     }
                 }
             }

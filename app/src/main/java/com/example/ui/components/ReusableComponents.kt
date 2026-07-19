@@ -3,6 +3,8 @@ package com.example.ui.components
 import androidx.compose.animation.core.InfiniteTransition
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Path
 import com.example.data.models.WeatherCondition
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -316,22 +318,41 @@ fun WeatherAnimatedBackground(
     condition: WeatherCondition,
     sunrise: String,
     sunset: String,
+    visibilityKm: Double = 10.0,
+    windSpeed: Double = 0.0,
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
     val isDay = isDayTime(sunrise, sunset)
     
-    val gradientColors = if (isDay) {
-        when (condition) {
-            WeatherCondition.SUNNY -> listOf(Color(0xFFFFF176), Color(0xFFFF8A65))
-            WeatherCondition.PARTLY_CLOUDY -> listOf(Color(0xFFE3F2FD), Color(0xFF90CAF9))
-            WeatherCondition.CLOUDY -> listOf(Color(0xFFECEFF1), Color(0xFFB0BEC5))
-            WeatherCondition.RAINY -> listOf(Color(0xFFB3E5FC), Color(0xFF4FC3F7))
-            WeatherCondition.STORM -> listOf(Color(0xFFD1C4E9), Color(0xFF7E57C2))
-            WeatherCondition.SNOWY -> listOf(Color(0xFFE0F7FA), Color(0xFF80DEEA))
-        }
-    } else {
-        listOf(Color(0xFF030712), Color(0xFF0F172A), Color(0xFF1E1B4B))
+    val backgroundType = when {
+        !isDay -> "night"
+        visibilityKm <= 1.0 -> "fog"
+        visibilityKm <= 3.0 -> "mist"
+        visibilityKm <= 5.0 -> "haze"
+        condition == WeatherCondition.RAINY && windSpeed >= 20.0 -> "heavy_rain"
+        condition == WeatherCondition.RAINY -> "rain"
+        condition == WeatherCondition.STORM -> "thunderstorm"
+        condition == WeatherCondition.SNOWY -> "snow"
+        condition == WeatherCondition.CLOUDY -> "cloudy"
+        condition == WeatherCondition.PARTLY_CLOUDY -> "partly_cloudy"
+        condition == WeatherCondition.SUNNY -> "sunny"
+        else -> "sunny"
+    }
+
+    val gradientColors = when (backgroundType) {
+        "night" -> listOf(Color(0xFF02040A), Color(0xFF0F172A), Color(0xFF1E1B4B))
+        "fog" -> listOf(Color(0xFFCFD8DC), Color(0xFFECEFF1), Color(0xFFB0BEC5))
+        "mist" -> listOf(Color(0xFFE2E8F0), Color(0xFFECEFF1), Color(0xFFCFD8DC))
+        "haze" -> listOf(Color(0xFFF5F5F5), Color(0xFFE0E0E0), Color(0xFFD7CCC8))
+        "heavy_rain" -> listOf(Color(0xFF1A237E), Color(0xFF37474F), Color(0xFF263238))
+        "rain" -> listOf(Color(0xFF37474F), Color(0xFF546E7A), Color(0xFF90A4AE))
+        "thunderstorm" -> listOf(Color(0xFF212121), Color(0xFF311B92), Color(0xFF1A237E))
+        "snow" -> listOf(Color(0xFFE0F7FA), Color(0xFFB2EBF2), Color(0xFF80DEEA))
+        "cloudy" -> listOf(Color(0xFF78909C), Color(0xFF90A4AE), Color(0xFFCFD8DC))
+        "partly_cloudy" -> listOf(Color(0xFF4FC3F7), Color(0xFF81D4FA), Color(0xFFE1F5FE))
+        "sunny" -> listOf(Color(0xFFFFB300), Color(0xFFFF8F00), Color(0xFFFF7043))
+        else -> listOf(Color(0xFF4FC3F7), Color(0xFFE1F5FE))
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "BackgroundAnimation")
@@ -340,7 +361,7 @@ fun WeatherAnimatedBackground(
         initialValue = 0f,
         targetValue = 1000f,
         animationSpec = infiniteRepeatable(
-            animation = tween(20000, easing = LinearEasing),
+            animation = tween(25000, easing = LinearEasing),
             repeatMode = RepeatMode.Reverse
         ),
         label = "SkyGradientShift"
@@ -358,16 +379,18 @@ fun WeatherAnimatedBackground(
                 drawRect(brush = brush)
             }
     ) {
-        if (!isDay) {
-            NightStarsOverlay(infiniteTransition)
-        } else {
-            when (condition) {
-                WeatherCondition.SUNNY -> SunnyRaysOverlay(infiniteTransition)
-                WeatherCondition.PARTLY_CLOUDY, WeatherCondition.CLOUDY -> CloudDriftOverlay(infiniteTransition, condition)
-                WeatherCondition.RAINY -> RainFallOverlay(infiniteTransition)
-                WeatherCondition.STORM -> StormLightningOverlay(infiniteTransition)
-                WeatherCondition.SNOWY -> SnowDriftOverlay(infiniteTransition)
-            }
+        when (backgroundType) {
+            "night" -> NightStarsOverlay(infiniteTransition)
+            "fog" -> FogOverlay(infiniteTransition)
+            "mist" -> MistOverlay(infiniteTransition)
+            "haze" -> HazeOverlay(infiniteTransition)
+            "heavy_rain" -> HeavyRainOverlay(infiniteTransition)
+            "rain" -> RainFallOverlay(infiniteTransition)
+            "thunderstorm" -> StormLightningOverlay(infiniteTransition)
+            "snow" -> SnowDriftOverlay(infiniteTransition)
+            "cloudy" -> DenseCloudOverlay(infiniteTransition)
+            "partly_cloudy" -> CloudDriftOverlay(infiniteTransition, WeatherCondition.PARTLY_CLOUDY)
+            "sunny" -> SunnyRaysOverlay(infiniteTransition)
         }
         content()
     }
@@ -377,14 +400,14 @@ fun WeatherAnimatedBackground(
 fun NightStarsOverlay(infiniteTransition: InfiniteTransition) {
     val alpha1 by infiniteTransition.animateFloat(
         initialValue = 0.2f,
-        targetValue = 1f,
+        targetValue = 1.0f,
         animationSpec = infiniteRepeatable(tween(1500, easing = LinearEasing), RepeatMode.Reverse),
         label = "StarAlpha1"
     )
     val alpha2 by infiniteTransition.animateFloat(
-        initialValue = 1f,
+        initialValue = 1.0f,
         targetValue = 0.1f,
-        animationSpec = infiniteRepeatable(tween(2000, easing = LinearEasing), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(tween(2500, easing = LinearEasing), RepeatMode.Reverse),
         label = "StarAlpha2"
     )
 
@@ -393,12 +416,14 @@ fun NightStarsOverlay(infiniteTransition: InfiniteTransition) {
         val height = size.height
         if (width > 0 && height > 0) {
             val stars1 = listOf(
-                Pair(0.1f, 0.15f), Pair(0.3f, 0.08f), Pair(0.7f, 0.2f), 
-                Pair(0.85f, 0.12f), Pair(0.45f, 0.25f), Pair(0.6f, 0.05f)
+                Pair(0.12f, 0.15f), Pair(0.35f, 0.08f), Pair(0.72f, 0.25f), 
+                Pair(0.88f, 0.12f), Pair(0.48f, 0.35f), Pair(0.62f, 0.05f),
+                Pair(0.22f, 0.45f), Pair(0.95f, 0.38f)
             )
             val stars2 = listOf(
-                Pair(0.2f, 0.25f), Pair(0.5f, 0.15f), Pair(0.8f, 0.28f), 
-                Pair(0.95f, 0.06f), Pair(0.35f, 0.35f), Pair(0.65f, 0.18f)
+                Pair(0.25f, 0.28f), Pair(0.55f, 0.18f), Pair(0.82f, 0.32f), 
+                Pair(0.92f, 0.06f), Pair(0.38f, 0.48f), Pair(0.68f, 0.22f),
+                Pair(0.08f, 0.32f), Pair(0.50f, 0.02f)
             )
             stars1.forEach { (x, y) ->
                 drawCircle(
@@ -414,6 +439,39 @@ fun NightStarsOverlay(infiniteTransition: InfiniteTransition) {
                     center = Offset(x * width, y * height)
                 )
             }
+
+            val moonX = width * 0.82f
+            val moonY = 150.dp.toPx()
+            val moonR = 30.dp.toPx()
+
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color(0xFFFFFDE7).copy(alpha = 0.25f), Color.Transparent),
+                    center = Offset(moonX, moonY),
+                    radius = moonR * 2.2f
+                ),
+                radius = moonR * 2.2f,
+                center = Offset(moonX, moonY)
+            )
+
+            val moonPath = Path().apply {
+                moveTo(moonX + moonR * 0.5f, moonY - moonR)
+                cubicTo(
+                    moonX - moonR * 0.8f, moonY - moonR * 0.8f,
+                    moonX - moonR * 0.8f, moonY + moonR * 0.8f,
+                    moonX + moonR * 0.5f, moonY + moonR
+                )
+                cubicTo(
+                    moonX - moonR * 0.1f, moonY + moonR * 0.6f,
+                    moonX - moonR * 0.1f, moonY - moonR * 0.6f,
+                    moonX + moonR * 0.5f, moonY - moonR
+                )
+                close()
+            }
+            drawPath(
+                path = moonPath,
+                color = Color(0xFFFFFDE7)
+            )
         }
     }
 }
@@ -471,6 +529,56 @@ fun RainFallOverlay(infiniteTransition: InfiniteTransition) {
 }
 
 @Composable
+fun HeavyRainOverlay(infiniteTransition: InfiniteTransition) {
+    val rainYOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1200f,
+        animationSpec = infiniteRepeatable(tween(800, easing = LinearEasing), RepeatMode.Restart),
+        label = "HeavyRainY"
+    )
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val splashRadius by infiniteTransition.animateFloat(
+        initialValue = with(density) { 2.dp.toPx() },
+        targetValue = with(density) { 12.dp.toPx() },
+        animationSpec = infiniteRepeatable(tween(800, easing = LinearEasing), RepeatMode.Restart),
+        label = "SplashRadius"
+    )
+
+    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+        val width = size.width
+        val height = size.height
+        if (width > 0 && height > 0) {
+            val rainLinesCount = 60
+            for (i in 0 until rainLinesCount) {
+                val startX = (i * 29) % width.toInt()
+                val startYBase = (i * 131) % height.toInt()
+                val currentY = (startYBase + rainYOffset) % height
+                val slant = 10.dp.toPx()
+                drawLine(
+                    color = Color(0xFFA5D6A7).copy(alpha = 0.35f),
+                    start = Offset(startX.toFloat(), currentY),
+                    end = Offset(startX.toFloat() - slant, currentY + 22.dp.toPx()),
+                    strokeWidth = 2.dp.toPx()
+                )
+            }
+
+            val splashPoints = listOf(
+                Pair(0.15f, 0.92f), Pair(0.35f, 0.95f), Pair(0.55f, 0.91f), 
+                Pair(0.75f, 0.94f), Pair(0.9f, 0.93f), Pair(0.25f, 0.96f)
+            )
+            splashPoints.forEach { (x, y) ->
+                drawOval(
+                    color = Color.White.copy(alpha = (1f - (splashRadius / 12.dp.toPx())).coerceIn(0f, 1f) * 0.4f),
+                    topLeft = Offset(x * width - splashRadius, y * height - splashRadius / 3f),
+                    size = Size(splashRadius * 2f, splashRadius * 0.6f),
+                    style = Stroke(width = 1.dp.toPx())
+                )
+            }
+        }
+    }
+}
+
+@Composable
 fun StormLightningOverlay(infiniteTransition: InfiniteTransition) {
     val lightningFlash by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -483,7 +591,7 @@ fun StormLightningOverlay(infiniteTransition: InfiniteTransition) {
                      else 0f
 
     Box(modifier = Modifier.fillMaxSize()) {
-        RainFallOverlay(infiniteTransition = infiniteTransition)
+        HeavyRainOverlay(infiniteTransition = infiniteTransition)
         if (flashAlpha > 0f) {
             Box(
                 modifier = Modifier
@@ -549,6 +657,156 @@ fun CloudDriftOverlay(infiniteTransition: InfiniteTransition, condition: Weather
                 color = Color.White.copy(alpha = alpha),
                 radius = 120.dp.toPx(),
                 center = Offset((cloudOffset + 120f).dp.toPx(), 220.dp.toPx())
+            )
+        }
+    }
+}
+
+@Composable
+fun DenseCloudOverlay(infiniteTransition: InfiniteTransition) {
+    val cloudOffset1 by infiniteTransition.animateFloat(
+        initialValue = -250f,
+        targetValue = 450f,
+        animationSpec = infiniteRepeatable(tween(40000, easing = LinearEasing), RepeatMode.Restart),
+        label = "DenseCloud1"
+    )
+    val cloudOffset2 by infiniteTransition.animateFloat(
+        initialValue = -150f,
+        targetValue = 550f,
+        animationSpec = infiniteRepeatable(tween(55000, easing = LinearEasing), RepeatMode.Restart),
+        label = "DenseCloud2"
+    )
+
+    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+        val width = size.width
+        if (width > 0) {
+            val cloudColor = Color.White.copy(alpha = 0.12f)
+            drawCircle(
+                color = cloudColor,
+                radius = 180.dp.toPx(),
+                center = Offset(cloudOffset1.dp.toPx(), 140.dp.toPx())
+            )
+            drawCircle(
+                color = cloudColor,
+                radius = 140.dp.toPx(),
+                center = Offset((cloudOffset1 + 130f).dp.toPx(), 180.dp.toPx())
+            )
+            drawCircle(
+                color = cloudColor,
+                radius = 200.dp.toPx(),
+                center = Offset(cloudOffset2.dp.toPx(), 220.dp.toPx())
+            )
+            drawCircle(
+                color = cloudColor,
+                radius = 150.dp.toPx(),
+                center = Offset((cloudOffset2 - 120f).dp.toPx(), 200.dp.toPx())
+            )
+        }
+    }
+}
+
+@Composable
+fun FogOverlay(infiniteTransition: InfiniteTransition) {
+    val fogOffset1 by infiniteTransition.animateFloat(
+        initialValue = -200f,
+        targetValue = 600f,
+        animationSpec = infiniteRepeatable(tween(35000, easing = LinearEasing), RepeatMode.Restart),
+        label = "FogOffset1"
+    )
+    val fogOffset2 by infiniteTransition.animateFloat(
+        initialValue = 600f,
+        targetValue = -200f,
+        animationSpec = infiniteRepeatable(tween(45000, easing = LinearEasing), RepeatMode.Restart),
+        label = "FogOffset2"
+    )
+    val fogAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.5f,
+        animationSpec = infiniteRepeatable(tween(5000, easing = LinearEasing), RepeatMode.Reverse),
+        label = "FogAlpha"
+    )
+
+    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+        val width = size.width
+        val height = size.height
+        if (width > 0 && height > 0) {
+            drawOval(
+                color = Color.White.copy(alpha = fogAlpha * 0.4f),
+                topLeft = Offset(fogOffset1.dp.toPx(), height * 0.4f),
+                size = Size(width * 0.8f, height * 0.3f)
+            )
+            drawOval(
+                color = Color.White.copy(alpha = fogAlpha * 0.35f),
+                topLeft = Offset(fogOffset2.dp.toPx(), height * 0.6f),
+                size = Size(width * 0.9f, height * 0.35f)
+            )
+        }
+    }
+}
+
+@Composable
+fun MistOverlay(infiniteTransition: InfiniteTransition) {
+    val driftX by infiniteTransition.animateFloat(
+        initialValue = -50f,
+        targetValue = 150f,
+        animationSpec = infiniteRepeatable(tween(12000, easing = LinearEasing), RepeatMode.Restart),
+        label = "MistDriftX"
+    )
+    val driftY by infiniteTransition.animateFloat(
+        initialValue = -20f,
+        targetValue = 20f,
+        animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing), RepeatMode.Reverse),
+        label = "MistDriftY"
+    )
+
+    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+        val width = size.width
+        val height = size.height
+        if (width > 0 && height > 0) {
+            val mistParticleCount = 20
+            for (i in 0 until mistParticleCount) {
+                val startX = (i * 113) % width.toInt()
+                val startY = (i * 73) % (height * 0.7f).toInt()
+                val currentX = (startX + driftX) % width
+                val currentY = startY + driftY
+                drawCircle(
+                    color = Color.White.copy(alpha = 0.15f),
+                    radius = (10 + (i % 8)).dp.toPx(),
+                    center = Offset(currentX, currentY)
+                )
+            }
+        }
+    }
+}
+
+@Composable
+fun HazeOverlay(infiniteTransition: InfiniteTransition) {
+    val alpha by infiniteTransition.animateFloat(
+        initialValue = 0.15f,
+        targetValue = 0.25f,
+        animationSpec = infiniteRepeatable(tween(6000, easing = LinearEasing), RepeatMode.Reverse),
+        label = "HazeAlpha"
+    )
+
+    androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+        val width = size.width
+        val height = size.height
+        if (width > 0 && height > 0) {
+            val hazeColor = Color(0xFFD7CCC8)
+            drawRect(
+                color = hazeColor.copy(alpha = alpha * 0.5f),
+                topLeft = Offset(0f, height * 0.2f),
+                size = Size(width, 40.dp.toPx())
+            )
+            drawRect(
+                color = hazeColor.copy(alpha = alpha * 0.7f),
+                topLeft = Offset(0f, height * 0.45f),
+                size = Size(width, 60.dp.toPx())
+            )
+            drawRect(
+                color = hazeColor.copy(alpha = alpha * 0.4f),
+                topLeft = Offset(0f, height * 0.7f),
+                size = Size(width, 50.dp.toPx())
             )
         }
     }

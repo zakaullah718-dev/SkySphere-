@@ -7,6 +7,7 @@ import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -57,6 +58,8 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Close
 import com.example.data.models.CityWeather
 import com.example.data.models.WeatherDetails
 import com.example.ui.components.SkySphereCard
@@ -68,6 +71,18 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeOut
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animateFloat
@@ -87,6 +102,12 @@ import android.location.Location
 import android.location.LocationListener
 import android.location.LocationManager
 import android.os.Bundle
+import androidx.compose.animation.Crossfade
+import androidx.compose.animation.core.tween
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material.icons.filled.Psychology
+import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.core.content.ContextCompat
 
 @Composable
@@ -95,10 +116,14 @@ fun HomeScreen(
     modifier: Modifier = Modifier
 ) {
     val cityWeather by viewModel.selectedCityWeather.collectAsState()
+    val allCities by viewModel.allCities.collectAsState()
     val isCelsius by viewModel.isCelsius.collectAsState()
     val windUnit by viewModel.windUnit.collectAsState()
+    val errorState by viewModel.errorState.collectAsState()
     val context = LocalContext.current
     val locationManager = remember { context.getSystemService(Context.LOCATION_SERVICE) as LocationManager }
+
+    var showIntelligentHub by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -107,36 +132,57 @@ fun HomeScreen(
         val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
         if (fineGranted || coarseGranted) {
             fetchGpsLocation(context, locationManager, viewModel)
+        } else {
+            viewModel.setError("Location permissions were denied. Please enable them in your device settings.")
         }
     }
 
-    // Smooth entry transition
-    AnimatedVisibility(
-        visible = true,
-        enter = fadeIn() + slideInVertically(initialOffsetY = { 50 }),
-        modifier = modifier.fillMaxSize()
-    ) {
-        HomeScreenContent(
-            cityWeather = cityWeather,
-            isCelsius = isCelsius,
-            windUnit = windUnit,
-            onToggleFavorite = { viewModel.toggleFavorite(cityWeather.cityName) },
-            onGpsClick = {
-                val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                if (fineGranted || coarseGranted) {
-                    fetchGpsLocation(context, locationManager, viewModel)
-                } else {
-                    permissionLauncher.launch(
-                        arrayOf(
-                            Manifest.permission.ACCESS_FINE_LOCATION,
-                            Manifest.permission.ACCESS_COARSE_LOCATION
-                        )
-                    )
-                }
-            },
-            onRefresh = { viewModel.refreshActiveCity() }
-        )
+    Crossfade(
+        targetState = showIntelligentHub,
+        animationSpec = tween(500),
+        label = "ScreenTransition"
+    ) { isHubVisible ->
+        if (isHubVisible) {
+            IntelligentHub(
+                cityWeather = cityWeather,
+                allCities = allCities,
+                isCelsius = isCelsius,
+                onClose = { showIntelligentHub = false },
+                modifier = modifier
+            )
+        } else {
+            // Smooth entry transition
+            AnimatedVisibility(
+                visible = true,
+                enter = fadeIn() + slideInVertically(initialOffsetY = { 50 }),
+                modifier = modifier.fillMaxSize()
+            ) {
+                HomeScreenContent(
+                    cityWeather = cityWeather,
+                    isCelsius = isCelsius,
+                    windUnit = windUnit,
+                    errorState = errorState,
+                    onClearError = { viewModel.clearError() },
+                    onToggleFavorite = { viewModel.toggleFavorite(cityWeather.cityName) },
+                    onGpsClick = {
+                        val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                        if (fineGranted || coarseGranted) {
+                            fetchGpsLocation(context, locationManager, viewModel)
+                        } else {
+                            permissionLauncher.launch(
+                                arrayOf(
+                                    Manifest.permission.ACCESS_FINE_LOCATION,
+                                    Manifest.permission.ACCESS_COARSE_LOCATION
+                                )
+                            )
+                        }
+                    },
+                    onRefresh = { viewModel.refreshActiveCity() },
+                    onOpenHub = { showIntelligentHub = true }
+                )
+            }
+        }
     }
 }
 
@@ -171,10 +217,16 @@ private fun fetchGpsLocation(context: Context, locationManager: LocationManager,
                         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
                     }
                 )
+            } else {
+                viewModel.setError("GPS location services are disabled on this device. Please turn them on in system settings.")
             }
         } catch (e: SecurityException) {
-            e.printStackTrace()
+            viewModel.setError("Location permission is required to detect your location.")
+        } catch (e: Exception) {
+            viewModel.setError("GPS location detection failed. Please search for a city manually.")
         }
+    } else {
+        viewModel.setError("Location permission denied. Please allow location access in your device settings.")
     }
 }
 
@@ -183,25 +235,198 @@ fun HomeScreenContent(
     cityWeather: CityWeather,
     isCelsius: Boolean,
     windUnit: String,
+    errorState: String?,
+    onClearError: () -> Unit,
     onToggleFavorite: () -> Unit,
     onGpsClick: () -> Unit,
-    onRefresh: () -> Unit
+    onRefresh: () -> Unit,
+    onOpenHub: () -> Unit
 ) {
     val details = cityWeather.weatherDetails
     val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
 
+    val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+    var pullOffset by remember { mutableFloatStateOf(0f) }
+    var isPullRefreshing by remember { mutableStateOf(false) }
+
+    val nestedScrollConnection = remember {
+        object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+            override fun onPreScroll(
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+            ): androidx.compose.ui.geometry.Offset {
+                if (isPullRefreshing) return androidx.compose.ui.geometry.Offset.Zero
+                val delta = available.y
+                if (delta < 0 && pullOffset > 0f) {
+                    val newOffset = (pullOffset + delta).coerceAtLeast(0f)
+                    val consumed = newOffset - pullOffset
+                    pullOffset = newOffset
+                    return androidx.compose.ui.geometry.Offset(0f, consumed)
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+
+            override fun onPostScroll(
+                consumed: androidx.compose.ui.geometry.Offset,
+                available: androidx.compose.ui.geometry.Offset,
+                source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
+            ): androidx.compose.ui.geometry.Offset {
+                if (isPullRefreshing) return androidx.compose.ui.geometry.Offset.Zero
+                val delta = available.y
+                if (delta > 0 && lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0) {
+                    pullOffset += delta * 0.45f
+                    return androidx.compose.ui.geometry.Offset(0f, delta)
+                }
+                return androidx.compose.ui.geometry.Offset.Zero
+            }
+
+            override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
+                if (pullOffset > 0f && !isPullRefreshing) {
+                    if (pullOffset > 180f) {
+                        isPullRefreshing = true
+                        pullOffset = 120f
+                        onRefresh()
+                        coroutineScope.launch {
+                            delay(1500)
+                            isPullRefreshing = false
+                            pullOffset = 0f
+                        }
+                    } else {
+                        pullOffset = 0f
+                    }
+                    return available
+                }
+                return androidx.compose.ui.unit.Velocity.Zero
+            }
+        }
+    }
+
+    val animatedPullOffset by animateFloatAsState(
+        targetValue = pullOffset,
+        animationSpec = tween(300),
+        label = "PullOffsetAnimation"
+    )
+
     WeatherAnimatedBackground(
         condition = details.condition,
         sunrise = details.sunrise,
-        sunset = details.sunset
+        sunset = details.sunset,
+        visibilityKm = details.visibilityKm,
+        windSpeed = details.windSpeed
     ) {
-        LazyColumn(
+        if (cityWeather.cityName == "Loading...") {
+            HomeScreenSkeleton()
+        } else {
+            Box(
             modifier = Modifier
                 .fillMaxSize()
-                .testTag("home_screen_content"),
-            contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 100.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp)
+                .nestedScroll(nestedScrollConnection)
         ) {
+            // Elegant glowing refresh spinner indicator
+            if (animatedPullOffset > 0f) {
+                val progressFraction = (animatedPullOffset / 180f).coerceIn(0f, 1f)
+                val rotationAngle = if (isPullRefreshing) {
+                    val infiniteTransition = rememberInfiniteTransition(label = "PullRefresh")
+                    val spin by infiniteTransition.animateFloat(
+                        initialValue = 0f,
+                        targetValue = 360f,
+                        animationSpec = infiniteRepeatable(
+                            animation = tween(1000, easing = LinearEasing),
+                            repeatMode = RepeatMode.Restart
+                        ),
+                        label = "PullSpin"
+                    )
+                    spin
+                } else {
+                    progressFraction * 360f
+                }
+
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .padding(top = (animatedPullOffset * 0.35f).dp.coerceAtMost(28.dp))
+                        .size(42.dp)
+                        .clip(CircleShape)
+                        .background(if (isDark) Color(0x9913172E) else Color(0x99FFFFFF))
+                        .border(1.dp, if (isDark) Color(0x3DFFFFFF) else Color(0x24000000), CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.Refresh,
+                        contentDescription = "Refreshing",
+                        tint = if (isPullRefreshing) Color(0xFF2FA3FF) else Color(0xFF2FA3FF).copy(alpha = progressFraction),
+                        modifier = Modifier
+                            .size(20.dp)
+                            .rotate(rotationAngle)
+                    )
+                }
+            }
+
+            LazyColumn(
+                state = lazyListState,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .graphicsLayer { translationY = animatedPullOffset }
+                    .testTag("home_screen_content"),
+                contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 100.dp),
+                verticalArrangement = Arrangement.spacedBy(24.dp)
+            ) {
+            // ERROR WARNING BANNER
+            if (errorState != null) {
+                item {
+                    SkySphereCard(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .testTag("home_error_banner"),
+                        onClick = onClearError
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Warning,
+                                    contentDescription = "Warning",
+                                    tint = Color(0xFFFF5252),
+                                    modifier = Modifier.size(24.dp)
+                                )
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
+                                    Text(
+                                        text = "METEOROLOGICAL TELEMETRY ALERT",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            color = Color(0xFFFF5252),
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 1.sp
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.height(2.dp))
+                                    Text(
+                                        text = errorState,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            color = MaterialTheme.colorScheme.onBackground
+                                        )
+                                    )
+                                }
+                            }
+                            IconButton(onClick = onClearError) {
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Dismiss error",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             // TOP HEADER
             item {
                 Row(
@@ -219,12 +444,23 @@ fun HomeScreenContent(
                             ),
                             modifier = Modifier.testTag("home_city_name")
                         )
-                        Text(
-                            text = cityWeather.country,
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = cityWeather.country,
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             )
-                        )
+                            if (!cityWeather.localTime.isNullOrBlank()) {
+                                Text(
+                                    text = "  •  " + cityWeather.localTime,
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = MaterialTheme.colorScheme.primary,
+                                        fontWeight = FontWeight.Medium
+                                    )
+                                )
+                            }
+                        }
                     }
 
                     Row(
@@ -296,6 +532,71 @@ fun HomeScreenContent(
             }
         }
 
+        // COGNITIVE INTELLIGENT HUB ENTRANCE
+        item {
+            SkySphereCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("intelligent_hub_entrance_card"),
+                onClick = onOpenHub
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(Color(0xFF2FA3FF), Color(0xFF00C6FF))
+                                )
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Psychology,
+                            contentDescription = "Intelligent Cognitive Hub",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "COGNITIVE WEATHER HUB",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = Color(0xFF2FA3FF),
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "AI Assistant, Smart Alerts & Scores",
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Explore natural summaries, comparisons & travel planners.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Filled.ChevronRight,
+                        contentDescription = "Open Hub",
+                        tint = Color(0x7FFFFFFF),
+                        modifier = Modifier.size(20.dp)
+                    )
+                }
+            }
+        }
+
         // CURRENT WEATHER SUMMARY
         item {
             Column(
@@ -308,33 +609,59 @@ fun HomeScreenContent(
                     modifier = Modifier.fillMaxWidth(),
                     contentAlignment = Alignment.Center
                 ) {
-                    // Weather illustration backing
-                    WeatherConditionIcon(
-                        condition = details.condition,
-                        modifier = Modifier.size(130.dp),
-                        tint = details.condition.startColor.copy(alpha = 0.15f)
-                    )
+                    // Animated weather illustration backing
+                    AnimatedContent(
+                        targetState = details.condition,
+                        transitionSpec = {
+                            scaleIn(animationSpec = tween(500)) + fadeIn(animationSpec = tween(500)) togetherWith
+                                    scaleOut(animationSpec = tween(500)) + fadeOut(animationSpec = tween(500))
+                        },
+                        label = "IconAnimation"
+                    ) { targetCondition ->
+                        WeatherConditionIcon(
+                            condition = targetCondition,
+                            modifier = Modifier.size(130.dp),
+                            tint = targetCondition.startColor.copy(alpha = 0.15f)
+                        )
+                    }
                     
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = formatTemp(details.currentTemp, isCelsius),
-                            style = MaterialTheme.typography.displayLarge.copy(
-                                color = MaterialTheme.colorScheme.onBackground,
-                                fontWeight = FontWeight.ExtraLight
-                            ),
-                            modifier = Modifier.testTag("home_current_temp")
-                        )
-                        Text(
-                            text = "°",
-                            style = MaterialTheme.typography.displayMedium.copy(
-                                color = LuxurySkyBlue,
-                                fontWeight = FontWeight.Light
-                            ),
-                            modifier = Modifier.padding(bottom = 24.dp)
-                        )
+                    // Animated temperature rolling odometer
+                    AnimatedContent(
+                        targetState = details.currentTemp,
+                        transitionSpec = {
+                            if (targetState > initialState) {
+                                slideInVertically { height -> height } + fadeIn() togetherWith
+                                        slideOutVertically { height -> -height } + fadeOut()
+                            } else {
+                                slideInVertically { height -> -height } + fadeIn() togetherWith
+                                        slideOutVertically { height -> height } + fadeOut()
+                            }.using(
+                                SizeTransform(clip = false)
+                            )
+                        },
+                        label = "TempAnimation"
+                    ) { targetTemp ->
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.Center
+                        ) {
+                            Text(
+                                text = formatTemp(targetTemp, isCelsius),
+                                style = MaterialTheme.typography.displayLarge.copy(
+                                    color = MaterialTheme.colorScheme.onBackground,
+                                    fontWeight = FontWeight.ExtraLight
+                                ),
+                                modifier = Modifier.testTag("home_current_temp")
+                            )
+                            Text(
+                                text = "°",
+                                style = MaterialTheme.typography.displayMedium.copy(
+                                    color = LuxurySkyBlue,
+                                    fontWeight = FontWeight.Light
+                                ),
+                                modifier = Modifier.padding(bottom = 24.dp)
+                            )
+                        }
                     }
                 }
 
@@ -360,8 +687,8 @@ fun HomeScreenContent(
 
         // SMART WEATHER INSIGHTS CARD (Premium Flagship Feature)
         item {
-            val insights = remember(details, isCelsius) {
-                generateSmartInsights(details, isCelsius)
+            val advices = remember(details, isCelsius) {
+                com.example.data.processing.WeatherAdviceGenerator.generateAdvice(details, isCelsius)
             }
             SkySphereCard(
                 modifier = Modifier.fillMaxWidth()
@@ -385,27 +712,62 @@ fun HomeScreenContent(
                         )
                     )
                 }
-                Spacer(modifier = Modifier.height(14.dp))
-                insights.forEach { insight ->
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                advices.forEachIndexed { index, advice ->
+                    val priorityColor = when (advice.priority) {
+                        com.example.data.processing.AdvicePriority.CRITICAL -> Color(0xFFFF5252)
+                        com.example.data.processing.AdvicePriority.WARNING -> Color(0xFFFFB74D)
+                        com.example.data.processing.AdvicePriority.INFO -> Color(0xFF40C4FF)
+                        com.example.data.processing.AdvicePriority.COMFORT -> Color(0xFF69F0AE)
+                    }
+                    
                     Row(
                         verticalAlignment = Alignment.Top,
-                        modifier = Modifier.padding(vertical = 4.dp)
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp)
                     ) {
                         Box(
+                            contentAlignment = Alignment.Center,
                             modifier = Modifier
-                                .padding(top = 6.dp)
-                                .size(6.dp)
+                                .size(36.dp)
                                 .clip(CircleShape)
-                                .background(Color(0xFF00E5FF))
-                        )
-                        Spacer(modifier = Modifier.width(10.dp))
-                        Text(
-                            text = insight,
-                            style = MaterialTheme.typography.bodyMedium.copy(
-                                lineHeight = 20.sp,
-                                color = MaterialTheme.colorScheme.onBackground
+                                .background(priorityColor.copy(alpha = 0.15f))
+                        ) {
+                            Icon(
+                                imageVector = advice.icon,
+                                contentDescription = null,
+                                tint = priorityColor,
+                                modifier = Modifier.size(20.dp)
                             )
-                        )
+                        }
+                        
+                        Spacer(modifier = Modifier.width(12.dp))
+                        
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = advice.title,
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = advice.description,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    lineHeight = 20.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            )
+                        }
+                    }
+                    
+                    if (index < advices.lastIndex) {
+                        Spacer(modifier = Modifier.height(8.dp))
                     }
                 }
             }
@@ -591,7 +953,7 @@ fun HomeScreenContent(
             }
         }
 
-        // TELEMETRY DETAILED GRID (Balanced 2x3 Grid with Full-Width Sunrise/Sunset Arc Card)
+        // TELEMETRY DETAILED GRID (Balanced Grid with Full-Width Sunrise/Sunset Arc Card)
         item {
             Column {
                 Text(
@@ -617,18 +979,32 @@ fun HomeScreenContent(
                             iconColor = LuxuryCyan
                         )
                         TelemetryCard(
-                            title = "WIND SPEED",
+                            title = "WIND",
                             value = formatWind(details.windSpeed, windUnit),
-                            subtitle = "$windUnit • NE",
+                            subtitle = "Direction: ${details.windDirection}",
                             icon = Icons.Filled.Air,
                             iconColor = LuxurySkyBlue
                         )
                         TelemetryCard(
                             title = "BAROMETER",
-                            value = "${details.pressureHpa}",
-                            subtitle = "hPa • Steady",
+                            value = "${details.pressureHpa} hPa",
+                            subtitle = "Steady pressure",
                             icon = Icons.Filled.Compress,
                             iconColor = Color(0xFFB0BEC5)
+                        )
+                        TelemetryCard(
+                            title = "FEELS LIKE",
+                            value = "${formatTemp(details.feelsLike, isCelsius)}°",
+                            subtitle = "Relative thermal index",
+                            icon = Icons.Filled.Thermostat,
+                            iconColor = Color(0xFFFFB74D)
+                        )
+                        TelemetryCard(
+                            title = "CLOUD COVERAGE",
+                            value = "${details.cloudCoverage}%",
+                            subtitle = if (details.cloudCoverage < 10) "Completely clear" else if (details.cloudCoverage < 50) "Scattered clouds" else "Overcast skies",
+                            icon = Icons.Filled.WbSunny,
+                            iconColor = LuxurySkyBlue
                         )
                     }
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
@@ -642,15 +1018,22 @@ fun HomeScreenContent(
                         TelemetryCard(
                             title = "HUMIDITY",
                             value = "${details.humidity}%",
-                            subtitle = "Dew point is ${formatTemp(52, isCelsius)}°",
+                            subtitle = "Water vapor in air",
                             icon = Icons.Filled.WaterDrop,
                             iconColor = LuxurySkyBlue
                         )
                         TelemetryCard(
                             title = "VISIBILITY",
                             value = "${details.visibilityKm} km",
-                            subtitle = "Perfect clear view",
+                            subtitle = "Atmospheric clarity",
                             icon = Icons.Filled.Visibility,
+                            iconColor = LuxuryCyan
+                        )
+                        TelemetryCard(
+                            title = "DEW POINT",
+                            value = "${formatTemp(details.currentTemp - ((100 - details.humidity) / 5), isCelsius)}°",
+                            subtitle = "Condensation index",
+                            icon = Icons.Filled.WaterDrop,
                             iconColor = LuxuryCyan
                         )
                     }
@@ -679,8 +1062,38 @@ fun HomeScreenContent(
                 }
             }
         }
+        }
+
+        // FLOATING ACTION BUTTON short-cut to launch Intelligent AI Weather Hub
+        FloatingActionButton(
+            onClick = onOpenHub,
+            containerColor = Color.Transparent,
+            contentColor = Color.White,
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .padding(16.dp)
+                .testTag("ai_hub_fab")
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(56.dp)
+                    .background(
+                        Brush.linearGradient(colors = listOf(Color(0xFF2FA3FF), Color(0xFF00C6FF))),
+                        shape = CircleShape
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.AutoAwesome,
+                    contentDescription = "AI Hub shortcut",
+                    modifier = Modifier.size(24.dp)
+                )
+            }
+        }
+
+        }
+        }
     }
-}
 }
 
 @Composable
@@ -762,65 +1175,7 @@ private fun formatWind(speedKph: Double, unit: String): String {
 }
 
 fun generateSmartInsights(details: WeatherDetails, isCelsius: Boolean): List<String> {
-    val insights = mutableListOf<String>()
-    
-    val tempF = details.currentTemp
-    val tempC = (((tempF - 32) * 5) / 9)
-    val tC = tempC.toInt()
-    val tF = tempF.toInt()
-    
-    if (isCelsius) {
-        when {
-            tC < 10 -> insights.add("It feels chilly at ${tC}°C. Layer up!")
-            tC in 10..17 -> insights.add("Feels cool (${tC}°C). A light jacket is recommended.")
-            tC in 18..25 -> insights.add("Feels pleasant (${tC}°C). Great weather for walking!")
-            tC in 26..33 -> insights.add("Feels warm (${tC}°C). Stay hydrated out there.")
-            else -> insights.add("Extreme heat alert (${tC}°C). Limit outdoor exposure.")
-        }
-    } else {
-        when {
-            tF < 50 -> insights.add("It feels chilly at ${tF}°F. Layer up!")
-            tF in 50..64 -> insights.add("Feels cool (${tF}°F). A light jacket is recommended.")
-            tF in 65..77 -> insights.add("Feels pleasant (${tF}°F). Great weather for walking!")
-            tF in 78..92 -> insights.add("Feels warm (${tF}°F). Stay hydrated out there.")
-            else -> insights.add("Extreme heat alert (${tF}°F). Limit outdoor exposure.")
-        }
-    }
-
-    val hasRainChance = details.dailyForecast.any { it.precipitationChance > 30 } || details.hourlyForecast.any { it.precipitationChance > 30 }
-    if (hasRainChance) {
-        val rainHour = details.hourlyForecast.firstOrNull { it.precipitationChance > 30 }
-        if (rainHour != null) {
-            insights.add("Carry an umbrella; rain is expected around ${rainHour.time}.")
-        } else {
-            insights.add("Carry an umbrella; high probability of rain today.")
-        }
-    } else {
-        insights.add("No rain expected today.")
-    }
-
-    if (details.windSpeed > 24.0) {
-        insights.add("Secure loose outdoor items against strong wind gusts.")
-    } else {
-        insights.add("Winds are gentle and calming.")
-    }
-
-    when {
-        details.uvIndex <= 2 -> insights.add("UV index is low. Safe to enjoy the day.")
-        details.uvIndex in 3..5 -> insights.add("UV index is moderate. Apply sunscreen if outdoors.")
-        details.uvIndex in 6..7 -> insights.add("UV index is high. Sunglasses and hats recommended.")
-        else -> insights.add("Very high UV index. Limit sun exposure between 11 AM and 3 PM.")
-    }
-
-    if (details.airQuality.aqi > 100) {
-        insights.add("Air quality is poor; unhealthy for sensitive groups.")
-    } else if (details.airQuality.aqi > 50) {
-        insights.add("Air quality is moderate today.")
-    } else {
-        insights.add("Air quality is pristine. Perfect for deep breathing.")
-    }
-
-    return insights
+    return com.example.data.processing.WeatherAdviceGenerator.generateSimpleInsights(details, isCelsius)
 }
 
 @Composable
@@ -831,7 +1186,7 @@ fun SunriseSunsetArc(
 ) {
     val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
     
-    val progress = remember(sunrise, sunset) {
+    val state = remember(sunrise, sunset) {
         try {
             val now = java.util.Calendar.getInstance()
             val hour = now.get(java.util.Calendar.HOUR_OF_DAY)
@@ -853,21 +1208,32 @@ fun SunriseSunsetArc(
 
             val sunriseMin = parseTimeToMinutes(sunrise)
             val sunsetMin = parseTimeToMinutes(sunset)
-            val totalDaylight = sunsetMin - sunriseMin
             
-            if (currentMinutes <= sunriseMin) 0f
-            else if (currentMinutes >= sunsetMin) 1f
-            else (currentMinutes - sunriseMin).toFloat() / totalDaylight.toFloat()
+            if (currentMinutes in (sunriseMin + 1)..<sunsetMin) {
+                val totalDaylight = sunsetMin - sunriseMin
+                val progress = (currentMinutes - sunriseMin).toFloat() / totalDaylight.toFloat()
+                Pair(progress, true) // (progress, isDay)
+            } else {
+                // Nighttime progress
+                val totalNight = (1440 - sunsetMin) + sunriseMin
+                val progress = if (currentMinutes >= sunsetMin) {
+                    (currentMinutes - sunsetMin).toFloat() / totalNight.toFloat()
+                } else {
+                    ((1440 - sunsetMin) + currentMinutes).toFloat() / totalNight.toFloat()
+                }
+                Pair(progress, false) // (progress, isDay)
+            }
         } catch (e: Exception) {
-            0.5f
+            Pair(0.5f, true)
         }
     }
 
     val animatedProgress by animateFloatAsState(
-        targetValue = progress,
+        targetValue = state.first,
         animationSpec = tween(1500, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         label = "SunProgress"
     )
+    val isDay = state.second
 
     Column(
         modifier = modifier
@@ -889,6 +1255,7 @@ fun SunriseSunsetArc(
             val arcLeft = padding
             val arcTop = height - (arcHeight / 2) - 10.dp.toPx()
             
+            // Base dotted arc path
             drawArc(
                 color = if (isDark) Color(0x3DFFFFFF) else Color(0x24000000),
                 startAngle = 180f,
@@ -902,8 +1269,9 @@ fun SunriseSunsetArc(
                 size = Size(arcWidth, arcHeight)
             )
 
+            // Dynamic progress arc path
             drawArc(
-                color = Color(0xFFFFD54F),
+                color = if (isDay) Color(0xFFFFD54F) else Color(0xFF81D4FA),
                 startAngle = 180f,
                 sweepAngle = 180f * animatedProgress,
                 useCenter = false,
@@ -914,6 +1282,7 @@ fun SunriseSunsetArc(
                 size = Size(arcWidth, arcHeight)
             )
 
+            // Horizon separator line
             drawLine(
                 color = if (isDark) Color(0x2BFFFFFF) else Color(0x1B000000),
                 start = Offset(0f, height - 12.dp.toPx()),
@@ -926,21 +1295,47 @@ fun SunriseSunsetArc(
             val sunX = (width / 2) + (arcWidth / 2) * Math.cos(angleRad)
             val sunY = (height - 10.dp.toPx() + arcHeight / 2) + (arcHeight / 2) * Math.sin(angleRad) - (arcHeight / 2)
 
-            drawCircle(
-                brush = Brush.radialGradient(
-                    colors = listOf(Color(0xFFFFD54F).copy(alpha = 0.4f), Color.Transparent),
-                    center = Offset(sunX.toFloat(), sunY.toFloat()),
-                    radius = 18.dp.toPx()
-                ),
-                radius = 18.dp.toPx(),
-                center = Offset(sunX.toFloat(), sunY.toFloat())
-            )
+            if (isDay) {
+                // Glowing Sun
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFFFFD54F).copy(alpha = 0.4f), Color.Transparent),
+                        center = Offset(sunX.toFloat(), sunY.toFloat()),
+                        radius = 18.dp.toPx()
+                    ),
+                    radius = 18.dp.toPx(),
+                    center = Offset(sunX.toFloat(), sunY.toFloat())
+                )
 
-            drawCircle(
-                color = Color(0xFFFFB300),
-                radius = 5.dp.toPx(),
-                center = Offset(sunX.toFloat(), sunY.toFloat())
-            )
+                drawCircle(
+                    color = Color(0xFFFFB300),
+                    radius = 5.dp.toPx(),
+                    center = Offset(sunX.toFloat(), sunY.toFloat())
+                )
+            } else {
+                // Glowing crescent Moon
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(Color(0xFF81D4FA).copy(alpha = 0.35f), Color.Transparent),
+                        center = Offset(sunX.toFloat(), sunY.toFloat()),
+                        radius = 18.dp.toPx()
+                    ),
+                    radius = 18.dp.toPx(),
+                    center = Offset(sunX.toFloat(), sunY.toFloat())
+                )
+
+                drawCircle(
+                    color = Color(0xFFE3F2FD),
+                    radius = 6.dp.toPx(),
+                    center = Offset(sunX.toFloat(), sunY.toFloat())
+                )
+
+                drawCircle(
+                    color = if (isDark) Color(0xFF1E254C) else Color(0xFFE2E8F0),
+                    radius = 5.dp.toPx(),
+                    center = Offset(sunX.toFloat() - 3.dp.toPx(), sunY.toFloat() - 2.dp.toPx())
+                )
+            }
         }
         
         Row(
@@ -984,6 +1379,250 @@ fun SunriseSunsetArc(
                         fontSize = 9.sp
                     )
                 )
+            }
+        }
+    }
+}
+
+@Composable
+fun Modifier.shimmerEffect(): Modifier {
+    val transition = rememberInfiniteTransition(label = "ShimmerTransition")
+    val translateAnim by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1000f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ShimmerTranslate"
+    )
+
+    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val shimmerColors = if (isDark) {
+        listOf(
+            Color(0x1F1E254C),
+            Color(0x501E254C),
+            Color(0x1F1E254C)
+        )
+    } else {
+        listOf(
+            Color(0x0F000000),
+            Color(0x2B000000),
+            Color(0x0F000000)
+        )
+    }
+
+    return this.background(
+        brush = Brush.linearGradient(
+            colors = shimmerColors,
+            start = Offset(translateAnim - 400f, translateAnim - 400f),
+            end = Offset(translateAnim + 400f, translateAnim + 400f)
+        )
+    )
+}
+
+@Composable
+fun HomeScreenSkeleton() {
+    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxSize()
+            .testTag("home_skeleton_loader"),
+        contentPadding = PaddingValues(start = 20.dp, end = 20.dp, top = 24.dp, bottom = 100.dp),
+        verticalArrangement = Arrangement.spacedBy(24.dp)
+    ) {
+        // Header skeleton
+        item {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    Box(
+                        modifier = Modifier
+                            .width(180.dp)
+                            .height(28.dp)
+                            .clip(MaterialTheme.shapes.medium)
+                            .shimmerEffect()
+                    )
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Box(
+                        modifier = Modifier
+                            .width(80.dp)
+                            .height(16.dp)
+                            .clip(MaterialTheme.shapes.small)
+                            .shimmerEffect()
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .size(40.dp)
+                        .clip(CircleShape)
+                        .shimmerEffect()
+                )
+            }
+        }
+
+        // Summary skeleton
+        item {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(130.dp)
+                        .clip(CircleShape)
+                        .shimmerEffect()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                Box(
+                    modifier = Modifier
+                        .width(140.dp)
+                        .height(24.dp)
+                        .clip(MaterialTheme.shapes.medium)
+                        .shimmerEffect()
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Box(
+                    modifier = Modifier
+                        .width(220.dp)
+                        .height(16.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .shimmerEffect()
+                )
+            }
+        }
+
+        // Smart Insights skeleton
+        item {
+            SkySphereCard(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Box(
+                    modifier = Modifier
+                        .width(150.dp)
+                        .height(16.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .shimmerEffect()
+                )
+                Spacer(modifier = Modifier.height(16.dp))
+                repeat(2) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .shimmerEffect()
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Column(modifier = Modifier.weight(1f)) {
+                            Box(
+                                modifier = Modifier
+                                    .width(100.dp)
+                                    .height(14.dp)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .shimmerEffect()
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(12.dp)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .shimmerEffect()
+                            )
+                        }
+                    }
+                    Spacer(modifier = Modifier.height(12.dp))
+                }
+            }
+        }
+
+        // Hourly Forecast skeleton
+        item {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .width(120.dp)
+                        .height(16.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .shimmerEffect()
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                LazyRow(
+                    horizontalArrangement = Arrangement.spacedBy(14.dp)
+                ) {
+                    items(5) {
+                        Box(
+                            modifier = Modifier
+                                .width(82.dp)
+                                .height(110.dp)
+                                .clip(MaterialTheme.shapes.medium)
+                                .border(
+                                    1.dp,
+                                    if (isDark) Color(0xFF1D2447) else Color(0xFFE2E8F0),
+                                    MaterialTheme.shapes.medium
+                                )
+                                .shimmerEffect()
+                        )
+                    }
+                }
+            }
+        }
+
+        // 7-day outlook skeleton
+        item {
+            Column {
+                Box(
+                    modifier = Modifier
+                        .width(120.dp)
+                        .height(16.dp)
+                        .clip(MaterialTheme.shapes.small)
+                        .shimmerEffect()
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                SkySphereCard(
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    repeat(3) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .width(60.dp)
+                                    .height(16.dp)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .shimmerEffect()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .size(24.dp)
+                                    .clip(CircleShape)
+                                    .shimmerEffect()
+                            )
+                            Box(
+                                modifier = Modifier
+                                    .width(80.dp)
+                                    .height(16.dp)
+                                    .clip(MaterialTheme.shapes.small)
+                                    .shimmerEffect()
+                            )
+                        }
+                    }
+                }
             }
         }
     }

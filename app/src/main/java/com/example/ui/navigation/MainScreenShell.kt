@@ -4,8 +4,11 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.runtime.remember
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -52,6 +55,7 @@ import com.example.ui.screens.search.SearchScreen
 import com.example.ui.screens.search.SearchViewModel
 import com.example.ui.screens.settings.SettingsScreen
 import com.example.ui.screens.splash.SplashScreen
+import com.example.ui.screens.map.MapScreen
 
 @Composable
 fun MainScreenShell(
@@ -91,7 +95,10 @@ fun MainScreenShell(
                 modifier = Modifier.fillMaxSize()
             ) {
                 // SPLASH ROUTE
-                composable(Screen.Splash.route) {
+                composable(
+                    Screen.Splash.route,
+                    exitTransition = { fadeOut(animationSpec = tween(500)) }
+                ) {
                     SplashScreen(
                         onNavigateToHome = {
                             navController.navigate(Screen.Home.route) {
@@ -102,12 +109,40 @@ fun MainScreenShell(
                 }
 
                 // HOME ROUTE
-                composable(Screen.Home.route) {
+                composable(
+                    Screen.Home.route,
+                    enterTransition = {
+                        slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400)) + fadeIn(animationSpec = tween(400))
+                    },
+                    exitTransition = {
+                        slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(400)) + fadeOut(animationSpec = tween(400))
+                    },
+                    popEnterTransition = {
+                        slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(400)) + fadeIn(animationSpec = tween(400))
+                    },
+                    popExitTransition = {
+                        slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400)) + fadeOut(animationSpec = tween(400))
+                    }
+                ) {
                     HomeScreen(viewModel = homeViewModel)
                 }
 
                 // SEARCH ROUTE
-                composable(Screen.Search.route) {
+                composable(
+                    Screen.Search.route,
+                    enterTransition = {
+                        slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400)) + fadeIn(animationSpec = tween(400))
+                    },
+                    exitTransition = {
+                        slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(400)) + fadeOut(animationSpec = tween(400))
+                    },
+                    popEnterTransition = {
+                        slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(400)) + fadeIn(animationSpec = tween(400))
+                    },
+                    popExitTransition = {
+                        slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400)) + fadeOut(animationSpec = tween(400))
+                    }
+                ) {
                     SearchScreen(
                         viewModel = searchViewModel,
                         onCitySelected = {
@@ -118,8 +153,41 @@ fun MainScreenShell(
                     )
                 }
 
+                // MAP ROUTE
+                composable(
+                    Screen.Map.route,
+                    enterTransition = {
+                        slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400)) + fadeIn(animationSpec = tween(400))
+                    },
+                    exitTransition = {
+                        slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(400)) + fadeOut(animationSpec = tween(400))
+                    },
+                    popEnterTransition = {
+                        slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(400)) + fadeIn(animationSpec = tween(400))
+                    },
+                    popExitTransition = {
+                        slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400)) + fadeOut(animationSpec = tween(400))
+                    }
+                ) {
+                    MapScreen(repository = repository)
+                }
+
                 // FAVORITES ROUTE
-                composable(Screen.Favorites.route) {
+                composable(
+                    Screen.Favorites.route,
+                    enterTransition = {
+                        slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400)) + fadeIn(animationSpec = tween(400))
+                    },
+                    exitTransition = {
+                        slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(400)) + fadeOut(animationSpec = tween(400))
+                    },
+                    popEnterTransition = {
+                        slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(400)) + fadeIn(animationSpec = tween(400))
+                    },
+                    popExitTransition = {
+                        slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400)) + fadeOut(animationSpec = tween(400))
+                    }
+                ) {
                     FavoritesScreen(
                         viewModel = favoritesViewModel,
                         onCitySelected = {
@@ -131,14 +199,31 @@ fun MainScreenShell(
                 }
 
                 // SETTINGS ROUTE
-                composable(Screen.Settings.route) {
+                composable(
+                    Screen.Settings.route,
+                    enterTransition = {
+                        slideInHorizontally(initialOffsetX = { it }, animationSpec = tween(400)) + fadeIn(animationSpec = tween(400))
+                    },
+                    exitTransition = {
+                        slideOutHorizontally(targetOffsetX = { -it }, animationSpec = tween(400)) + fadeOut(animationSpec = tween(400))
+                    },
+                    popEnterTransition = {
+                        slideInHorizontally(initialOffsetX = { -it }, animationSpec = tween(400)) + fadeIn(animationSpec = tween(400))
+                    },
+                    popExitTransition = {
+                        slideOutHorizontally(targetOffsetX = { it }, animationSpec = tween(400)) + fadeOut(animationSpec = tween(400))
+                    }
+                ) {
+                    val selectedProvider by repository.selectedProvider.collectAsState()
                     SettingsScreen(
                         darkTheme = darkTheme,
                         onThemeToggle = onThemeToggle,
                         isCelsius = isCelsius,
                         onCelsiusToggle = { repository.setCelsius(it) },
                         windUnit = windUnit,
-                        onWindUnitChange = { repository.setWindUnit(it) }
+                        onWindUnitChange = { repository.setWindUnit(it) },
+                        selectedProvider = selectedProvider,
+                        onProviderChange = { repository.setProvider(it) }
                     )
                 }
             }

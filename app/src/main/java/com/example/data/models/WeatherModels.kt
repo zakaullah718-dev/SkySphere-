@@ -55,12 +55,15 @@ data class WeatherDetails(
     val airQuality: AirQuality,
     val hourlyForecast: List<ForecastHour>,
     val dailyForecast: List<ForecastDay>,
-    val aiSummary: String // Elegant AI summary feature (ready for Milestone 2 API)
+    val aiSummary: String, // Elegant AI summary feature (ready for Milestone 2 API)
+    val cloudCoverage: Int = 0,
+    val windDirection: String = "N"
 )
 
 data class CityWeather(
     val cityName: String,
     val country: String,
     val isFavorite: Boolean = false,
-    val weatherDetails: WeatherDetails
+    val weatherDetails: WeatherDetails,
+    val localTime: String? = null
 )

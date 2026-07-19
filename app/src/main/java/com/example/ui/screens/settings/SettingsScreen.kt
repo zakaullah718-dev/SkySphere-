@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Speed
@@ -41,6 +42,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.example.data.repository.WeatherRepository.ProviderType
 import com.example.ui.components.SkySphereCard
 
 @Composable
@@ -51,6 +53,8 @@ fun SettingsScreen(
     onCelsiusToggle: (Boolean) -> Unit,
     windUnit: String,
     onWindUnitChange: (String) -> Unit,
+    selectedProvider: ProviderType,
+    onProviderChange: (ProviderType) -> Unit,
     modifier: Modifier = Modifier
 ) {
     val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
@@ -80,6 +84,39 @@ fun SettingsScreen(
                     )
                 )
             }
+        }
+
+        // SEGMENTED WEATHER PROVIDER OPTION
+        item {
+            SettingsSectionHeader(title = "METEOROLOGICAL BACKEND PROVIDER", icon = Icons.Default.Cloud)
+            Spacer(modifier = Modifier.height(10.dp))
+
+            SegmentedControl(
+                options = listOf("OPEN-METEO", "WEATHERAPI", "OPENWEATHER"),
+                selectedIndex = when (selectedProvider) {
+                    ProviderType.OPEN_METEO -> 0
+                    ProviderType.WEATHER_API_COM -> 1
+                    ProviderType.OPEN_WEATHER -> 2
+                },
+                onOptionSelected = { index ->
+                    val provider = when (index) {
+                        0 -> ProviderType.OPEN_METEO
+                        1 -> ProviderType.WEATHER_API_COM
+                        else -> ProviderType.OPEN_WEATHER
+                    }
+                    onProviderChange(provider)
+                },
+                modifier = Modifier.testTag("weather_provider_control")
+            )
+            Spacer(modifier = Modifier.height(4.dp))
+            Text(
+                text = "Note: WeatherAPI and OpenWeather require an active API Key. Open-Meteo runs on public access with zero setup.",
+                style = MaterialTheme.typography.bodySmall.copy(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                    fontSize = 11.sp
+                ),
+                modifier = Modifier.padding(horizontal = 4.dp)
+            )
         }
 
         // SEGMENTED TEMPERATURE OPTION
@@ -167,25 +204,27 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(4.dp))
                         Text(
-                            text = "Version 1.0.0 (Milestone 1)",
+                            text = "Version 2.0.0 (Global Weather Engine)",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
                         )
                         Spacer(modifier = Modifier.height(14.dp))
                         Text(
-                            text = "Architectural Readiness:",
+                            text = "Architectural Upgrades (Phase 2):",
                             style = MaterialTheme.typography.titleSmall.copy(
                                 fontWeight = FontWeight.Bold,
                                 color = MaterialTheme.colorScheme.onBackground
                             )
                         )
                         Spacer(modifier = Modifier.height(6.dp))
-                        ArchitecturalPoint(point = "• Clean MVVM Pattern with reactive Kotlin Flows.")
-                        ArchitecturalPoint(point = "• Seamless Navigation Compose backstack routing.")
-                        ArchitecturalPoint(point = "• Double-Theme design tokens with Material 3 integration.")
-                        ArchitecturalPoint(point = "• Scalable Domain model ready for Gemini AI summarizers.")
-                        ArchitecturalPoint(point = "• Local SQLite cache integration with Room Database API.")
+                        ArchitecturalPoint(point = "• Production-ready, zero-mock Weather Platform engine.")
+                        ArchitecturalPoint(point = "• Dynamic switching between Open-Meteo, WeatherAPI, and OpenWeather.")
+                        ArchitecturalPoint(point = "• Room-Database local persistence cache for offline metrics.")
+                        ArchitecturalPoint(point = "• 30-Minute automatic cache validation for minimized API overhead.")
+                        ArchitecturalPoint(point = "• Room-Database recent search query recorder with clear capability.")
+                        ArchitecturalPoint(point = "• Exact timezone matching and local time tracking per location.")
+                        ArchitecturalPoint(point = "• GPS telemetry with geocoding, exception handling and denied permissions routing.")
                         
                         Spacer(modifier = Modifier.height(16.dp))
                         Text(
@@ -254,55 +293,49 @@ fun SegmentedControl(
     modifier: Modifier = Modifier
 ) {
     val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
-    val containerBg = if (isDark) Color(0xFF13172E) else Color(0xFFFFFFFF)
-    val borderColor = if (isDark) Color(0xFF1D2447) else Color(0xFFE2E8F0)
 
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(52.dp)
+            .height(48.dp)
             .clip(CircleShape)
-            .background(containerBg)
-            .border(1.dp, borderColor, CircleShape),
-        verticalAlignment = Alignment.CenterVertically
+            .background(if (isDark) Color(0xFF13172E) else Color(0xFFF1F5F9))
+            .border(1.dp, if (isDark) Color(0xFF1D2447) else Color(0xFFE2E8F0), CircleShape)
+            .padding(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        options.forEachIndexed { index, option ->
+        options.forEachIndexed { index, text ->
             val isSelected = index == selectedIndex
-            
-            // Premium background coloring
-            val tabBg by animateColorAsState(
-                targetValue = if (isSelected) {
-                    Color(0xFF2FA3FF) // Luxury sky blue background for selected tab
-                } else {
-                    Color.Transparent
-                },
-                label = "Segment Bg color animation"
-            )
+            val targetBgColor = if (isSelected) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                Color.Transparent
+            }
+            val bgAnimateColor by animateColorAsState(targetBgColor, label = "bg_color")
 
-            val tabTextColor by animateColorAsState(
-                targetValue = if (isSelected) {
-                    Color.White
-                } else {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                },
-                label = "Segment text color animation"
-            )
+            val targetTextColor = if (isSelected) {
+                Color.White
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            }
+            val textAnimateColor by animateColorAsState(targetTextColor, label = "text_color")
 
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .clip(CircleShape)
-                    .background(tabBg)
+                    .background(bgAnimateColor)
                     .clickable { onOptionSelected(index) }
-                    .padding(vertical = 12.dp),
+                    .padding(vertical = 8.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
-                    text = option,
-                    style = MaterialTheme.typography.labelMedium.copy(
-                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        letterSpacing = 1.sp,
-                        color = tabTextColor
+                    text = text,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                        color = textAnimateColor,
+                        fontSize = 10.sp,
+                        letterSpacing = 0.5.sp
                     )
                 )
             }

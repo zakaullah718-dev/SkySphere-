@@ -11,6 +11,9 @@ import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
 
+import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.outlined.Map
+
 sealed class Screen(
     val route: String,
     val title: String,
@@ -33,6 +36,13 @@ sealed class Screen(
         inactiveIcon = Icons.Outlined.Search
     )
     
+    object Map : Screen(
+        route = "map",
+        title = "Radar Map",
+        activeIcon = Icons.Filled.Map,
+        inactiveIcon = Icons.Outlined.Map
+    )
+    
     object Favorites : Screen(
         route = "favorites",
         title = "Vault",
@@ -48,6 +58,6 @@ sealed class Screen(
     )
 
     companion object {
-        val bottomNavItems = listOf(Home, Search, Favorites, Settings)
+        val bottomNavItems = listOf(Home, Search, Map, Favorites, Settings)
     }
 }
