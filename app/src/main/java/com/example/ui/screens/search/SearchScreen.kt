@@ -60,7 +60,7 @@ fun SearchScreen(
     val isCelsius by viewModel.isCelsius.collectAsState()
     val recentSearches by viewModel.recentSearches.collectAsState()
     val errorState by viewModel.errorState.collectAsState()
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
 
     Column(
         modifier = modifier
@@ -165,10 +165,10 @@ fun SearchScreen(
             singleLine = true,
             shape = CircleShape,
             colors = OutlinedTextFieldDefaults.colors(
-                focusedContainerColor = if (isDark) Color(0xFF13172E) else Color(0xFFFFFFFF),
-                unfocusedContainerColor = if (isDark) Color(0xFF13172E) else Color(0xFFFFFFFF),
+                focusedContainerColor = Color(0xFF1E1E2E), // Solid accessible dark gray card background (as requested)
+                unfocusedContainerColor = Color(0xFF1E1E2E),
                 focusedBorderColor = MaterialTheme.colorScheme.primary,
-                unfocusedBorderColor = if (isDark) Color(0xFF1D2447) else Color(0xFFE2E8F0),
+                unfocusedBorderColor = Color(0xFF374151), // Solid high-contrast border for high accessibility (as requested)
                 focusedTextColor = MaterialTheme.colorScheme.onBackground,
                 unfocusedTextColor = MaterialTheme.colorScheme.onBackground
             ),
@@ -220,7 +220,7 @@ fun SearchScreen(
                         modifier = Modifier
                             .fillMaxWidth()
                             .clip(MaterialTheme.shapes.medium)
-                            .background(if (isDark) Color(0xFF13172E) else Color(0xFFF1F5F9))
+                            .background(Color(0xFF1E1E2E)) // Solid accessible dark gray card background (as requested)
                             .clickable {
                                 viewModel.selectCity(searchItem)
                                 onCitySelected()
@@ -274,12 +274,17 @@ fun SearchScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                items(searchResults, key = { it.cityName }) { city ->
+                items(searchResults, key = { "${it.cityName},${it.region ?: ""},${it.country}" }) { city ->
                     SearchCityCard(
                         city = city,
                         isCelsius = isCelsius,
                         onSelect = {
-                            viewModel.selectCity(city.cityName)
+                            val selectQuery = if (city.latitude != null && city.longitude != null) {
+                                "COORDS:${city.latitude},${city.longitude}|${city.cityName}|${city.region ?: ""}|${city.country}"
+                            } else {
+                                city.cityName
+                            }
+                            viewModel.selectCity(selectQuery)
                             onCitySelected()
                         },
                         onToggleFavorite = { viewModel.toggleFavorite(city.cityName) }
@@ -298,7 +303,7 @@ fun SearchCityCard(
     onToggleFavorite: () -> Unit
 ) {
     val details = city.weatherDetails
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
 
     // Smooth subtle side-to-side gradient for visual luxury
     val cardBrush = Brush.linearGradient(
@@ -344,8 +349,13 @@ fun SearchCityCard(
                         )
                         Spacer(modifier = Modifier.height(2.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
+                            val locationSubtitle = if (!city.region.isNullOrBlank()) {
+                                "${city.region}, ${city.country}"
+                            } else {
+                                city.country
+                            }
                             Text(
-                                text = city.country,
+                                text = locationSubtitle,
                                 style = MaterialTheme.typography.bodySmall.copy(
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -453,7 +463,7 @@ fun EmptySearchState(query: String) {
                 text = if (query.isEmpty()) {
                     "Type a global city name above to inspect dynamic high-fidelity atmosphere profiles and weather forecasts."
                 } else {
-                    "We couldn't find any weather spheres matching '$query'. Check spelling or search a different global center."
+                    "No matching city found. Please check the spelling."
                 },
                 style = MaterialTheme.typography.bodyMedium.copy(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,

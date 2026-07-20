@@ -8,18 +8,18 @@ val LuxuryCyan = Color(0xFF00E5FF)          // Radiant atmospheric Cyan
 val LuxuryGold = Color(0xFFFFC107)          // Sunny Celestial Gold
 val LuxuryRuby = Color(0xFFFF5252)          // Warm warning/sunset Ruby
 
-// Obsidian Theme (Dark Luxury)
+// Obsidian Theme (Dark Luxury - Deep Space Midnight)
 val ObsidianBg = Color(0xFF070913)          // Space Dark Midnight Black
-val ObsidianCard = Color(0xFF13172E)        // Deep Indigo Obsidian Surface
-val ObsidianCardBorder = Color(0xFF1D2447)  // Border for translucent outline
-val ObsidianTextPrimary = Color(0xFFF1F5F9) // High-contrast White-Slate
-val ObsidianTextSecondary = Color(0xFF94A3B8)// Slate Muted Text
-val ObsidianAccentGlow = Color(0x1F2FA3FF)   // Sky Blue Glow
+val ObsidianCard = Color(0xFF1E1E2E)        // Accessible Dark Gray Card Background (as requested)
+val ObsidianCardBorder = Color(0xFF374151)  // Strong high-contrast border for high accessibility
+val ObsidianTextPrimary = Color(0xFFFFFFFF) // High-contrast Pure White text (as requested)
+val ObsidianTextSecondary = Color(0xFFD1D5DB)// High-contrast Light Gray text (as requested)
+val ObsidianAccentGlow = Color(0x2D2FA3FF)   // Sky Blue Ambient Glow
 
-// Pearlescent Theme (Light Luxury)
-val PearlBg = Color(0xFFF1F5F9)             // Clean elegant Alabaster Slate
-val PearlCard = Color(0xFFFFFFFF)           // Crisp white container card
-val PearlCardBorder = Color(0xFFE2E8F0)     // Soft light border
-val PearlTextPrimary = Color(0xFF0F172A)    // Dark Slate Header
-val PearlTextSecondary = Color(0xFF475569)  // Medium Slate Subheader
-val PearlAccentGlow = Color(0x0C2FA3FF)     // Soft Sky Blue Ambient tint
+// Pearlescent Theme (Redesigned as a Premium Charcoal Space Dark Theme for 100% accessibility in both visual modes)
+val PearlBg = Color(0xFF0C0D12)             // Deep Space Charcoal Gray
+val PearlCard = Color(0xFF1E1E2F)           // Charcoal Card Background (as requested)
+val PearlCardBorder = Color(0xFF313143)     // Soft but highly clear accessible card border
+val PearlTextPrimary = Color(0xFFFFFFFF)    // Main text: pure white (as requested)
+val PearlTextSecondary = Color(0xFFD1D5DB)  // Secondary text: light gray (as requested)
+val PearlAccentGlow = Color(0x2D00E5FF)     // Soft Cyan Ambient Glow

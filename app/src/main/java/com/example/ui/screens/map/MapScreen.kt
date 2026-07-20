@@ -645,8 +645,8 @@ fun MapScreen(
                 modifier = Modifier
                     .padding(horizontal = 16.dp)
                     .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xD013172E))
-                    .border(1.dp, Color(0xFF1D2447), RoundedCornerShape(24.dp))
+                    .background(Color(0xFF1E1E2E)) // Solid accessible dark gray card background (as requested)
+                    .border(1.dp, Color(0xFF374151), RoundedCornerShape(24.dp)) // High-contrast border for high accessibility (as requested)
                     .padding(vertical = 8.dp, horizontal = 12.dp)
             ) {
                 MapLayer.values().forEach { layer ->
@@ -664,7 +664,7 @@ fun MapScreen(
                             Icon(
                                 imageVector = layer.icon,
                                 contentDescription = layer.displayName,
-                                tint = if (isSelected) Color.White else Color(0xFF94A3B8),
+                                tint = if (isSelected) Color.White else Color(0xFFD1D5DB), // High-contrast Light Gray text (as requested)
                                 modifier = Modifier.size(16.dp)
                             )
                             Spacer(modifier = Modifier.width(6.dp))
@@ -672,7 +672,7 @@ fun MapScreen(
                                 text = layer.displayName,
                                 style = MaterialTheme.typography.labelMedium.copy(
                                     fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) Color.White else Color(0xFF94A3B8)
+                                    color = if (isSelected) Color.White else Color(0xFFD1D5DB) // High-contrast Light Gray text (as requested)
                                 )
                             )
                         }
@@ -714,8 +714,8 @@ fun MapScreen(
                     .weight(1f)
                     .height(50.dp)
                     .clip(RoundedCornerShape(25.dp))
-                    .background(Color(0xD013172E))
-                    .border(1.dp, Color(0xFF1D2447), RoundedCornerShape(25.dp))
+                    .background(Color(0xFF1E1E2E)) // Solid accessible dark gray card background (as requested)
+                    .border(1.dp, Color(0xFF374151), RoundedCornerShape(25.dp)) // High-contrast border for high accessibility (as requested)
                     .padding(horizontal = 16.dp),
                 contentAlignment = Alignment.CenterStart
             ) {
@@ -726,7 +726,7 @@ fun MapScreen(
                     Icon(
                         imageVector = Icons.Filled.Search,
                         contentDescription = "Search",
-                        tint = Color(0xFF94A3B8),
+                        tint = Color(0xFFD1D5DB), // High-contrast Light Gray text (as requested)
                         modifier = Modifier.size(20.dp)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
@@ -743,7 +743,7 @@ fun MapScreen(
                                 if (searchQuery.isEmpty()) {
                                     Text(
                                         text = "Search worldwide cities (e.g. Paris)...",
-                                        style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF64748B))
+                                        style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFFD1D5DB)) // High-contrast Light Gray text (as requested)
                                     )
                                 }
                                 innerTextField()
@@ -813,8 +813,8 @@ fun MapScreen(
                 modifier = Modifier
                     .size(50.dp)
                     .clip(CircleShape)
-                    .background(Color(0xD013172E))
-                    .border(1.dp, Color(0xFF1D2447), CircleShape)
+                    .background(Color(0xFF1E1E2E)) // Solid accessible dark gray card background (as requested)
+                    .border(1.dp, Color(0xFF374151), CircleShape) // High-contrast border for high accessibility (as requested)
                     .testTag("map_gps_trigger")
             ) {
                 Icon(
@@ -832,19 +832,19 @@ fun MapScreen(
                 .align(Alignment.CenterEnd)
                 .padding(end = 16.dp)
                 .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xD013172E))
-                .border(1.dp, Color(0xFF1D2447), RoundedCornerShape(20.dp))
+                .background(Color(0xFF1E1E2E)) // Solid accessible dark gray card background (as requested)
+                .border(1.dp, Color(0xFF374151), RoundedCornerShape(20.dp)) // High-contrast border for high accessibility (as requested)
                 .padding(6.dp),
             verticalArrangement = Arrangement.Center
         ) {
             IconButton(onClick = { scale = (scale * 1.3f).coerceAtMost(20f) }) {
                 Icon(imageVector = Icons.Filled.Add, contentDescription = "Zoom In", tint = Color.White)
             }
-            Divider(color = Color(0xFF1D2447), modifier = Modifier.width(28.dp))
+            Divider(color = Color(0xFF374151), modifier = Modifier.width(28.dp)) // Clear divider
             IconButton(onClick = { scale = (scale / 1.3f).coerceAtLeast(0.8f) }) {
                 Icon(imageVector = Icons.Filled.Remove, contentDescription = "Zoom Out", tint = Color.White)
             }
-            Divider(color = Color(0xFF1D2447), modifier = Modifier.width(28.dp))
+            Divider(color = Color(0xFF374151), modifier = Modifier.width(28.dp)) // Clear divider
             IconButton(onClick = {
                 scale = 1.8f
                 offset = Offset(-200f, 150f)
@@ -868,8 +868,8 @@ fun MapScreen(
             Row(
                 modifier = Modifier
                     .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xF013172E))
-                    .border(1.dp, Color(0xFF1D2447), RoundedCornerShape(24.dp))
+                    .background(Color(0xFF1E1E2E)) // Solid accessible dark gray card background (as requested)
+                    .border(1.dp, Color(0xFF374151), RoundedCornerShape(24.dp)) // High-contrast border for high accessibility (as requested)
                     .padding(vertical = 12.dp, horizontal = 16.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
@@ -902,7 +902,7 @@ fun MapScreen(
                         colors = SliderDefaults.colors(
                             thumbColor = Color(0xFF00E5FF),
                             activeTrackColor = Color(0xFF2FA3FF),
-                            inactiveTrackColor = Color(0xFF1D2447)
+                            inactiveTrackColor = Color(0xFF374151) // Strong border outline tracker for high contrast
                         )
                     )
                     Row(
@@ -914,7 +914,7 @@ fun MapScreen(
                                 text = label,
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     fontWeight = if (idx == radarTimeSlider.toInt()) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (idx == radarTimeSlider.toInt()) Color(0xFF00E5FF) else Color(0xFF94A3B8),
+                                    color = if (idx == radarTimeSlider.toInt()) Color(0xFF00E5FF) else Color(0xFFD1D5DB), // High-contrast Light Gray text (as requested)
                                     fontSize = 9.sp
                                 )
                             )
@@ -937,8 +937,8 @@ fun MapScreen(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(28.dp))
-                    .background(Color(0xF513172E))
-                    .border(1.dp, Color(0xFF1D2447), RoundedCornerShape(28.dp))
+                    .background(Color(0xFF1E1E2E)) // Solid accessible dark gray card background (as requested)
+                    .border(1.dp, Color(0xFF374151), RoundedCornerShape(28.dp)) // High-contrast border for high accessibility (as requested)
                     .padding(16.dp)
             ) {
                 IconButton(
@@ -1017,7 +1017,7 @@ fun MapScreen(
                                         Icon(
                                             imageVector = if (weather.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
                                             contentDescription = "Save Map Location",
-                                            tint = if (weather.isFavorite) Color(0xFFFF5252) else Color(0xFF94A3B8),
+                                            tint = if (weather.isFavorite) Color(0xFFFF5252) else Color(0xFFD1D5DB), // High-contrast Light Gray (as requested)
                                             modifier = Modifier.size(18.dp)
                                         )
                                     }
@@ -1030,7 +1030,7 @@ fun MapScreen(
                                 Text(
                                     text = details.condition.description,
                                     style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFF94A3B8)
+                                    color = Color(0xFFD1D5DB) // High-contrast Light Gray secondary text (as requested)
                                 )
                             }
 
@@ -1057,7 +1057,7 @@ fun MapScreen(
                         }
 
                         Spacer(modifier = Modifier.height(12.dp))
-                        Divider(color = Color(0xFF1D2447))
+                        Divider(color = Color(0xFF374151)) // Strong high-contrast border
                         Spacer(modifier = Modifier.height(12.dp))
 
                         // Multi-Telemetry stats row
@@ -1066,19 +1066,19 @@ fun MapScreen(
                             horizontalArrangement = Arrangement.SpaceBetween
                         ) {
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                                Text("HUMIDITY", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFF64748B), fontWeight = FontWeight.Bold))
+                                Text("HUMIDITY", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFD1D5DB), fontWeight = FontWeight.Bold)) // High contrast label
                                 Text("${details.humidity}%", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.Bold))
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                                Text("WIND", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFF64748B), fontWeight = FontWeight.Bold))
+                                Text("WIND", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFD1D5DB), fontWeight = FontWeight.Bold)) // High contrast label
                                 Text("${details.windSpeed} km/h", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.Bold))
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                                Text("PRESSURE", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFF64748B), fontWeight = FontWeight.Bold))
+                                Text("PRESSURE", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFD1D5DB), fontWeight = FontWeight.Bold)) // High contrast label
                                 Text("${details.pressureHpa} hPa", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.Bold))
                             }
                             Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                                Text("CLOUDS", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFF64748B), fontWeight = FontWeight.Bold))
+                                Text("CLOUDS", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFD1D5DB), fontWeight = FontWeight.Bold)) // High contrast label
                                 Text("${details.cloudCoverage}%", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.Bold))
                             }
                         }
@@ -1086,7 +1086,7 @@ fun MapScreen(
                         Text(
                             text = "Select any coordinate point on the map to fetch precise real-time tropospheric and radar data forecasts.",
                             style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF94A3B8),
+                            color = Color(0xFFD1D5DB), // High contrast text
                             textAlign = TextAlign.Center,
                             modifier = Modifier.fillMaxWidth().padding(vertical = 16.dp)
                         )

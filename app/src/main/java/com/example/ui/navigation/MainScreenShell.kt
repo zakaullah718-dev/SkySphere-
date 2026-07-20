@@ -252,26 +252,17 @@ fun FloatingBottomBar(
     navController: NavController,
     currentRoute: String?
 ) {
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
 
     // Glassmorphic translucent brush background
-    val barBrush = if (isDark) {
-        Brush.verticalGradient(
-            colors = listOf(
-                Color(0xFA13172E), // Translucent obsidian top
-                Color(0xFA070913)  // Translucent black base
-            )
+    val barBrush = Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFA1E1E2E), // Translucent obsidian top (accessible dark card background)
+            Color(0xFA070913)  // Translucent black base
         )
-    } else {
-        Brush.verticalGradient(
-            colors = listOf(
-                Color(0xF0FFFFFF),
-                Color(0xF0F1F5F9)
-            )
-        )
-    }
+    )
 
-    val borderColor = if (isDark) Color(0xFF1D2447) else Color(0xFFE2E8F0)
+    val borderColor = Color(0xFF374151) // Strong high-contrast border for high accessibility
 
     Row(
         modifier = Modifier
@@ -294,7 +285,7 @@ fun FloatingBottomBar(
             // Dynamic color/weight animations
             val iconColor by animateColorAsState(
                 targetValue = if (isSelected) {
-                    Color(0xFF2FA3FF) // Sky Blue for active selections
+                    if (isDark) Color(0xFF2FA3FF) else Color(0xFF0C6BCE) // High-contrast blue in Light mode
                 } else {
                     if (isDark) Color(0xFF94A3B8) else Color(0xFF475569)
                 },

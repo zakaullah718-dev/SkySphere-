@@ -21,7 +21,25 @@ class HomeViewModel(
 
     fun clearError() {
         _errorState.value = null
+        repository.clearRepositoryError()
     }
+
+    init {
+        viewModelScope.launch {
+            repository.repositoryError.collect { error ->
+                if (error != null) {
+                    _errorState.value = error
+                }
+            }
+        }
+    }
+
+    val isGpsActive: StateFlow<Boolean> = repository.isGpsActive
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = repository.isGpsActive.value
+        )
 
     // Active selected city flow
     val selectedCityWeather: StateFlow<CityWeather> = repository.selectedCity

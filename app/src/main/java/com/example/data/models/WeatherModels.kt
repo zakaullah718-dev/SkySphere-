@@ -66,5 +66,7 @@ data class CityWeather(
     val isFavorite: Boolean = false,
     val weatherDetails: WeatherDetails,
     val localTime: String? = null,
-    val region: String? = null
+    val region: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null
 )

@@ -45,6 +45,7 @@ import androidx.compose.material3.Text
 import com.example.ui.theme.LuxurySkyBlue
 import com.example.ui.theme.LuxuryCyan
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -120,8 +121,49 @@ fun HomeScreen(
     val isCelsius by viewModel.isCelsius.collectAsState()
     val windUnit by viewModel.windUnit.collectAsState()
     val errorState by viewModel.errorState.collectAsState()
+    val isGpsActive by viewModel.isGpsActive.collectAsState()
     val context = LocalContext.current
     val locationManager = remember { context.getSystemService(Context.LOCATION_SERVICE) as LocationManager }
+
+    DisposableEffect(isGpsActive) {
+        if (isGpsActive) {
+            val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (hasFine || hasCoarse) {
+                val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                val isNetworkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+                val provider = when {
+                    isGpsEnabled -> LocationManager.GPS_PROVIDER
+                    isNetworkEnabled -> LocationManager.NETWORK_PROVIDER
+                    else -> null
+                }
+                if (provider != null) {
+                    val listener = object : LocationListener {
+                        override fun onLocationChanged(location: Location) {
+                            viewModel.loadWeatherForCurrentLocation(location.latitude, location.longitude)
+                        }
+                        override fun onProviderEnabled(p: String) {}
+                        override fun onProviderDisabled(p: String) {}
+                        override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
+                    }
+                    try {
+                        locationManager.requestLocationUpdates(provider, 60000L, 500f, listener)
+                    } catch (e: SecurityException) {
+                        // ignore
+                    }
+                    onDispose {
+                        locationManager.removeUpdates(listener)
+                    }
+                } else {
+                    onDispose {}
+                }
+            } else {
+                onDispose {}
+            }
+        } else {
+            onDispose {}
+        }
+    }
 
     var showIntelligentHub by remember { mutableStateOf(false) }
 
@@ -243,7 +285,7 @@ fun HomeScreenContent(
     onOpenHub: () -> Unit
 ) {
     val details = cityWeather.weatherDetails
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
 
     val lazyListState = androidx.compose.foundation.lazy.rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -348,8 +390,8 @@ fun HomeScreenContent(
                         .padding(top = (animatedPullOffset * 0.35f).dp.coerceAtMost(28.dp))
                         .size(42.dp)
                         .clip(CircleShape)
-                        .background(if (isDark) Color(0x9913172E) else Color(0x99FFFFFF))
-                        .border(1.dp, if (isDark) Color(0x3DFFFFFF) else Color(0x24000000), CircleShape),
+                        .background(Color(0xFF1E1E2E)) // Solid accessible dark gray card background (as requested)
+                        .border(1.dp, Color(0xFF374151), CircleShape), // High-contrast border for high accessibility (as requested)
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
@@ -734,14 +776,14 @@ fun HomeScreenContent(
                     items(details.hourlyForecast) { hour ->
                         Card(
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isDark) Color(0xFF13172E) else Color(0xFFFFFFFF)
+                                containerColor = Color(0xFF1E1E2E) // Solid accessible dark gray card background (as requested)
                             ),
                             shape = MaterialTheme.shapes.medium,
                             modifier = Modifier
                                 .width(82.dp)
                                 .border(
                                     1.dp,
-                                    if (isDark) Color(0xFF1D2447) else Color(0xFFE2E8F0),
+                                    Color(0xFF374151), // High-contrast border for high accessibility (as requested)
                                     MaterialTheme.shapes.medium
                                 )
                         ) {
@@ -1308,7 +1350,7 @@ fun SunriseSunsetArc(
     sunset: String,
     modifier: Modifier = Modifier
 ) {
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
     
     val state = remember(sunrise, sunset) {
         try {
@@ -1521,7 +1563,7 @@ fun Modifier.shimmerEffect(): Modifier {
         label = "ShimmerTranslate"
     )
 
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
     val shimmerColors = if (isDark) {
         listOf(
             Color(0x1F1E254C),
@@ -1547,7 +1589,7 @@ fun Modifier.shimmerEffect(): Modifier {
 
 @Composable
 fun HomeScreenSkeleton() {
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
     
     LazyColumn(
         modifier = Modifier
@@ -1692,7 +1734,7 @@ fun HomeScreenSkeleton() {
                                 .clip(MaterialTheme.shapes.medium)
                                 .border(
                                     1.dp,
-                                    if (isDark) Color(0xFF1D2447) else Color(0xFFE2E8F0),
+                                    Color(0xFF374151), // High-contrast border for high accessibility (as requested)
                                     MaterialTheme.shapes.medium
                                 )
                                 .shimmerEffect()

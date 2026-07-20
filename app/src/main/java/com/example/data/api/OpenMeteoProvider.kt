@@ -25,16 +25,30 @@ class OpenMeteoProvider(
 
     override suspend fun getForecast(query: String): Result<CityWeather> = withContext(Dispatchers.IO) {
         try {
-            // Check if query is latitude/longitude coordinates (e.g., "51.50853,-0.12574")
             var lat: Double? = null
             var lon: Double? = null
             var name = query
             var country = "Unknown"
+            var region: String? = null
 
-            val coords = query.split(",")
-            if (coords.size == 2) {
-                lat = coords[0].toDoubleOrNull()
-                lon = coords[1].toDoubleOrNull()
+            if (query.startsWith("COORDS:")) {
+                try {
+                    val parts = query.substring(7).split("|")
+                    val latLon = parts[0].split(",")
+                    lat = latLon[0].toDoubleOrNull()
+                    lon = latLon[1].toDoubleOrNull()
+                    name = parts.getOrNull(1) ?: "Unknown"
+                    region = parts.getOrNull(2)?.takeIf { it.isNotBlank() }
+                    country = parts.getOrNull(3) ?: "Unknown"
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            } else {
+                val coords = query.split(",")
+                if (coords.size == 2) {
+                    lat = coords[0].toDoubleOrNull()
+                    lon = coords[1].toDoubleOrNull()
+                }
             }
 
             if (lat == null || lon == null) {
@@ -46,10 +60,11 @@ class OpenMeteoProvider(
                     lon = firstResult.longitude
                     name = firstResult.name
                     country = firstResult.country
+                    region = firstResult.admin1
                 } else {
                     return@withContext Result.failure(Exception("City not found: $query"))
                 }
-            } else {
+            } else if (!query.startsWith("COORDS:")) {
                 // Reverse geocoding placeholder or simply fetch details for coordinates
                 name = "Current Location"
                 country = "GPS"
@@ -71,7 +86,7 @@ class OpenMeteoProvider(
                 val adapter = moshi.adapter(OpenMeteoResponse::class.java)
                 val openMeteoResponse = adapter.fromJson(bodyString) ?: return@withContext Result.failure(Exception("Parsing error"))
 
-                Result.success(mapToCityWeather(name, country, openMeteoResponse))
+                Result.success(mapToCityWeather(name, country, openMeteoResponse, region))
             }
         } catch (e: Exception) {
             Result.failure(e)
@@ -105,7 +120,10 @@ class OpenMeteoProvider(
                             hourlyForecast = emptyList(),
                             dailyForecast = emptyList(),
                             aiSummary = ""
-                        )
+                        ),
+                        region = res.admin1,
+                        latitude = res.latitude,
+                        longitude = res.longitude
                     )
                 }
             }
@@ -116,7 +134,20 @@ class OpenMeteoProvider(
 
     private suspend fun searchGeocoding(query: String): Result<List<GeocodingResult>> = withContext(Dispatchers.IO) {
         try {
-            val url = "https://geocoding-api.open-meteo.com/v1/search?name=${java.net.URLEncoder.encode(query, "UTF-8")}&count=10&language=en&format=json"
+            var searchName = query.trim()
+            var countryFilter: String? = null
+            
+            if (query.contains(",")) {
+                val parts = query.split(",")
+                if (parts.isNotEmpty()) {
+                    searchName = parts[0].trim()
+                    if (parts.size > 1) {
+                        countryFilter = parts[1].trim()
+                    }
+                }
+            }
+
+            val url = "https://geocoding-api.open-meteo.com/v1/search?name=${java.net.URLEncoder.encode(searchName, "UTF-8")}&count=20&language=en&format=json"
             val request = Request.Builder().url(url).build()
             client.newCall(request).execute().use { response ->
                 if (!response.isSuccessful) {
@@ -125,14 +156,36 @@ class OpenMeteoProvider(
                 val bodyString = response.body?.string() ?: return@withContext Result.failure(Exception("Empty geocoding response"))
                 val adapter = moshi.adapter(GeocodingResponse::class.java)
                 val geoResponse = adapter.fromJson(bodyString)
-                Result.success(geoResponse?.results ?: emptyList())
+                val results = geoResponse?.results ?: emptyList()
+                
+                if (countryFilter != null && countryFilter.isNotBlank()) {
+                    val filtered = results.filter { res ->
+                        res.country.contains(countryFilter, ignoreCase = true) ||
+                        res.admin1?.contains(countryFilter, ignoreCase = true) == true ||
+                        (countryFilter.equals("US", ignoreCase = true) && res.country.contains("United States", ignoreCase = true)) ||
+                        (countryFilter.equals("USA", ignoreCase = true) && res.country.contains("United States", ignoreCase = true)) ||
+                        (countryFilter.equals("UK", ignoreCase = true) && res.country.contains("United Kingdom", ignoreCase = true)) ||
+                        (countryFilter.equals("GB", ignoreCase = true) && res.country.contains("United Kingdom", ignoreCase = true)) ||
+                        (countryFilter.equals("CA", ignoreCase = true) && res.country.contains("Canada", ignoreCase = true)) ||
+                        (countryFilter.equals("PK", ignoreCase = true) && res.country.contains("Pakistan", ignoreCase = true)) ||
+                        (countryFilter.equals("JP", ignoreCase = true) && res.country.contains("Japan", ignoreCase = true)) ||
+                        (countryFilter.equals("FR", ignoreCase = true) && res.country.contains("France", ignoreCase = true))
+                    }
+                    if (filtered.isNotEmpty()) {
+                        Result.success(filtered)
+                    } else {
+                        Result.success(results)
+                    }
+                } else {
+                    Result.success(results)
+                }
             }
         } catch (e: Exception) {
             Result.failure(e)
         }
     }
 
-    private fun mapToCityWeather(name: String, country: String, resp: OpenMeteoResponse): CityWeather {
+    private fun mapToCityWeather(name: String, country: String, resp: OpenMeteoResponse, region: String? = null): CityWeather {
         val current = resp.current
         val tempF = (current.temperature_2m * 9 / 5 + 32).toInt()
         val feelsLikeF = (current.apparent_temperature * 9 / 5 + 32).toInt()
@@ -230,7 +283,8 @@ class OpenMeteoProvider(
                 hourlyForecast = hourlyForecast,
                 dailyForecast = dailyForecast,
                 aiSummary = "An elegant, stable ${condition.displayName.lowercase()} atmosphere. Local barometric trends indicate a level pressure of ${current.pressure_msl.toInt()} hPa, with wind currents at ${current.wind_speed_10m} km/h."
-            )
+            ),
+            region = region
         )
     }
 

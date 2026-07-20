@@ -84,6 +84,15 @@ fun IntelligentHub(
     var comparisonCity by remember { mutableStateOf<CityWeather?>(null) }
     var showCitySelector by remember { mutableStateOf(false) }
 
+    // Adaptive contrast styling variables for high accessibility
+    val isDark = true
+    val textColor = Color.White
+    val subCardBg = Color(0xFF1E1E2E) // Accessible solid Dark Gray Card background (as requested)
+    val subCardBgSubtle = Color(0xFF242435) // Elegant solid deep-gray background
+    val subCardBorder = Color(0xFF374151) // Strong high-contrast border
+    val subCardBorderSubtle = Color(0xFF2F3F56) // Visible subcard border
+    val dividerColor = Color(0xFF374151) // Clear, visible divider line
+
     // Active screen section state (for sub-tab selector)
     var selectedSection by remember { mutableStateOf(0) } // 0: AI & Alerts, 1: Lifestyle, 2: Health & Travel, 3: Compare & Notify
     val sectionTitles = listOf("AI & Alerts", "Lifestyle", "Health & Travel", "Compare & Notify")
@@ -196,7 +205,7 @@ fun IntelligentHub(
                 )
             )
         },
-        containerColor = Color(0xFF070913) // Central Premium Cosmic Theme color
+        containerColor = MaterialTheme.colorScheme.background
     ) { paddingValues ->
         Column(
             modifier = Modifier
@@ -338,7 +347,7 @@ fun IntelligentHub(
                                             color = MaterialTheme.colorScheme.onBackground
                                         )
                                         Spacer(modifier = Modifier.height(8.dp))
-                                        Divider(color = Color(0x1BFFFFFF))
+                                        HorizontalDivider(color = dividerColor)
                                         Spacer(modifier = Modifier.height(8.dp))
                                     }
                                 }
@@ -412,9 +421,11 @@ fun IntelligentHub(
                                     }),
                                     colors = OutlinedTextFieldDefaults.colors(
                                         focusedBorderColor = LuxurySkyBlue,
-                                        unfocusedBorderColor = Color(0x3BFFFFFF),
-                                        focusedContainerColor = Color(0x0AFFFFFF),
-                                        unfocusedContainerColor = Color.Transparent
+                                        unfocusedBorderColor = subCardBorder,
+                                        focusedContainerColor = subCardBg,
+                                        unfocusedContainerColor = Color.Transparent,
+                                        focusedTextColor = textColor,
+                                        unfocusedTextColor = textColor
                                     ),
                                     modifier = Modifier.fillMaxWidth().testTag("ai_assistant_input")
                                 )
@@ -454,7 +465,7 @@ fun IntelligentHub(
                                             Text(
                                                 text = q,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                color = Color.White
+                                                color = textColor
                                             )
                                         }
                                     }
@@ -528,7 +539,7 @@ fun IntelligentHub(
                                                 Text(
                                                     text = chatOutput ?: "",
                                                     style = MaterialTheme.typography.bodyMedium.copy(lineHeight = 20.sp),
-                                                    color = Color.White
+                                                    color = textColor
                                                 )
                                             }
                                         }
@@ -621,7 +632,7 @@ fun IntelligentHub(
                                             Text(
                                                 text = alert.description,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                color = Color.White
+                                                color = textColor
                                             )
                                             Spacer(modifier = Modifier.height(6.dp))
                                             Text(
@@ -630,7 +641,7 @@ fun IntelligentHub(
                                                     fontWeight = FontWeight.Bold,
                                                     fontSize = 11.sp
                                                 ),
-                                                color = Color.White.copy(alpha = 0.7f)
+                                                color = textColor.copy(alpha = 0.7f)
                                             )
                                         }
                                     }
@@ -713,7 +724,7 @@ fun IntelligentHub(
                                                     Text(
                                                         text = rec.name,
                                                         style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                                                        color = Color.White
+                                                        color = textColor
                                                     )
                                                     Spacer(modifier = Modifier.width(8.dp))
                                                     Text(
@@ -741,7 +752,7 @@ fun IntelligentHub(
                                         LinearProgressIndicator(
                                             progress = { rec.score / 100f },
                                             color = progressColor,
-                                            trackColor = Color(0x1BFFFFFF),
+                                            trackColor = subCardBorder,
                                             modifier = Modifier
                                                 .fillMaxWidth()
                                                 .height(4.dp)
@@ -800,8 +811,8 @@ fun IntelligentHub(
                                             .fillMaxWidth()
                                             .padding(vertical = 8.dp)
                                             .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0x0AFFFFFF))
-                                            .border(1.dp, Color(0x11FFFFFF), RoundedCornerShape(8.dp))
+                                            .background(subCardBg)
+                                            .border(1.dp, subCardBorderSubtle, RoundedCornerShape(8.dp))
                                             .padding(12.dp)
                                     ) {
                                         Row(
@@ -818,7 +829,7 @@ fun IntelligentHub(
                                             Text(
                                                 text = insight.title,
                                                 style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                                                color = Color.White
+                                                color = textColor
                                             )
                                             Spacer(modifier = Modifier.weight(1f))
                                             Text(
@@ -896,8 +907,8 @@ fun IntelligentHub(
                                                 .fillMaxWidth()
                                                 .padding(vertical = 4.dp)
                                                 .clip(RoundedCornerShape(8.dp))
-                                                .background(Color(0x05FFFFFF))
-                                                .border(1.dp, Color(0x0AFFFFFF), RoundedCornerShape(8.dp))
+                                                .background(subCardBgSubtle)
+                                                .border(1.dp, subCardBorderSubtle, RoundedCornerShape(8.dp))
                                                 .padding(10.dp)
                                         ) {
                                             Column(modifier = Modifier.weight(1f)) {
@@ -905,7 +916,7 @@ fun IntelligentHub(
                                                     Text(
                                                         text = slot.time,
                                                         style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                                                        color = Color.White
+                                                        color = textColor
                                                     )
                                                     Spacer(modifier = Modifier.width(12.dp))
                                                     Text(
@@ -982,8 +993,8 @@ fun IntelligentHub(
                                 ) {
                                     // Primary Active City
                                     Card(
-                                        colors = CardDefaults.cardColors(containerColor = Color(0x0AFFFFFF)),
-                                        modifier = Modifier.weight(1f).border(1.dp, Color(0x1BFFFFFF), RoundedCornerShape(8.dp))
+                                        colors = CardDefaults.cardColors(containerColor = subCardBg),
+                                        modifier = Modifier.weight(1f).border(1.dp, subCardBorder, RoundedCornerShape(8.dp))
                                     ) {
                                         Column(
                                             modifier = Modifier.padding(12.dp),
@@ -1000,7 +1011,7 @@ fun IntelligentHub(
                                             Text(
                                                 text = "${details.currentTemp}°${if (isCelsius) "C" else "F"}",
                                                 style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-                                                color = Color.White
+                                                color = textColor
                                             )
                                             Spacer(modifier = Modifier.height(4.dp))
                                             WeatherConditionIcon(
@@ -1016,20 +1027,20 @@ fun IntelligentHub(
                                             Text(
                                                 text = "AQI: ${details.airQuality.aqi}",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = Color.White
+                                                color = textColor
                                             )
                                             Text(
                                                 text = "Wind: ${details.windSpeed.toInt()} km/h",
                                                 style = MaterialTheme.typography.labelSmall,
-                                                color = Color.White
+                                                color = textColor
                                             )
                                         }
                                     }
 
                                     // Compared City
                                     Card(
-                                        colors = CardDefaults.cardColors(containerColor = Color(0x0AFFFFFF)),
-                                        modifier = Modifier.weight(1f).border(1.dp, Color(0x1BFFFFFF), RoundedCornerShape(8.dp))
+                                        colors = CardDefaults.cardColors(containerColor = subCardBg),
+                                        modifier = Modifier.weight(1f).border(1.dp, subCardBorder, RoundedCornerShape(8.dp))
                                     ) {
                                         if (comparisonCity == null) {
                                             Column(
@@ -1080,7 +1091,7 @@ fun IntelligentHub(
                                                 Text(
                                                     text = "${cDetails.currentTemp}°${if (isCelsius) "C" else "F"}",
                                                     style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.ExtraBold),
-                                                    color = Color.White
+                                                    color = textColor
                                                 )
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 WeatherConditionIcon(
@@ -1096,12 +1107,12 @@ fun IntelligentHub(
                                                 Text(
                                                     text = "AQI: ${cDetails.airQuality.aqi}",
                                                     style = MaterialTheme.typography.labelSmall,
-                                                    color = Color.White
+                                                    color = textColor
                                                 )
                                                 Text(
                                                     text = "Wind: ${cDetails.windSpeed.toInt()} km/h",
                                                     style = MaterialTheme.typography.labelSmall,
-                                                    color = Color.White
+                                                    color = textColor
                                                 )
                                             }
                                         }
@@ -1111,7 +1122,7 @@ fun IntelligentHub(
                                 if (comparisonCity != null) {
                                     val comp = comparisonCity!!
                                     Spacer(modifier = Modifier.height(16.dp))
-                                    Divider(color = Color(0x1BFFFFFF))
+                                    HorizontalDivider(color = dividerColor)
                                     Spacer(modifier = Modifier.height(12.dp))
 
                                     // Comparative summary text
@@ -1216,7 +1227,7 @@ fun IntelligentHub(
                                             onCheckedChange = { notificationSettingsAlerts = it },
                                             colors = CheckboxDefaults.colors(checkedColor = LuxurySkyBlue)
                                         )
-                                        Text("Severe Weather Warnings", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                                        Text("Severe Weather Warnings", style = MaterialTheme.typography.bodyMedium, color = textColor)
                                     }
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -1227,7 +1238,7 @@ fun IntelligentHub(
                                             onCheckedChange = { notificationSettingsShifts = it },
                                             colors = CheckboxDefaults.colors(checkedColor = LuxurySkyBlue)
                                         )
-                                        Text("Significant Atmosphere Shifts", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                                        Text("Significant Atmosphere Shifts", style = MaterialTheme.typography.bodyMedium, color = textColor)
                                     }
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -1238,12 +1249,12 @@ fun IntelligentHub(
                                             onCheckedChange = { notificationSettingsSummary = it },
                                             colors = CheckboxDefaults.colors(checkedColor = LuxurySkyBlue)
                                         )
-                                        Text("Morning Cognitive Summaries", style = MaterialTheme.typography.bodyMedium, color = Color.White)
+                                        Text("Morning Cognitive Summaries", style = MaterialTheme.typography.bodyMedium, color = textColor)
                                     }
                                 }
 
                                 Spacer(modifier = Modifier.height(12.dp))
-                                Divider(color = Color(0x1BFFFFFF))
+                                HorizontalDivider(color = dividerColor)
                                 Spacer(modifier = Modifier.height(12.dp))
 
                                 Row(verticalAlignment = Alignment.CenterVertically) {
@@ -1284,7 +1295,7 @@ fun IntelligentHub(
                                             Text(
                                                 text = note,
                                                 style = MaterialTheme.typography.bodySmall,
-                                                color = Color.White
+                                                color = textColor
                                             )
                                         }
                                     }
@@ -1329,7 +1340,7 @@ fun IntelligentHub(
                                     modifier = Modifier
                                         .fillMaxWidth()
                                         .clip(RoundedCornerShape(8.dp))
-                                        .background(Color(0x05FFFFFF))
+                                        .background(subCardBgSubtle)
                                         .clickable {
                                             comparisonCity = city
                                             showCitySelector = false
@@ -1340,7 +1351,7 @@ fun IntelligentHub(
                                         Text(
                                             text = city.cityName,
                                             style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                                            color = Color.White
+                                            color = textColor
                                         )
                                         Text(
                                             text = city.country,
@@ -1364,9 +1375,9 @@ fun IntelligentHub(
                     Text("CLOSE", color = LuxurySkyBlue)
                 }
             },
-            containerColor = Color(0xFF13172E),
-            textContentColor = Color.White,
-            titleContentColor = Color.White
+            containerColor = MaterialTheme.colorScheme.surface,
+            textContentColor = MaterialTheme.colorScheme.onSurface,
+            titleContentColor = MaterialTheme.colorScheme.onSurface
         )
     }
 }

@@ -49,7 +49,7 @@ fun FavoritesScreen(
 ) {
     val favorites by viewModel.favoriteCities.collectAsState()
     val isCelsius by viewModel.isCelsius.collectAsState()
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
 
     Column(
         modifier = modifier
@@ -112,7 +112,7 @@ fun FavoriteCityCard(
     onRemove: () -> Unit
 ) {
     val details = city.weatherDetails
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
 
     val cardBrush = Brush.linearGradient(
         colors = listOf(

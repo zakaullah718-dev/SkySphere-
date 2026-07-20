@@ -47,7 +47,7 @@ fun SplashScreen(
     }
 
     // Dynamic background gradient based on theme mode
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
     val bgBrush = if (isDark) {
         Brush.verticalGradient(
             colors = listOf(

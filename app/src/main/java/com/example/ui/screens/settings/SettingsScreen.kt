@@ -57,7 +57,7 @@ fun SettingsScreen(
     onProviderChange: (ProviderType) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
 
     LazyColumn(
         modifier = modifier
@@ -292,15 +292,15 @@ fun SegmentedControl(
     onOptionSelected: (Int) -> Unit,
     modifier: Modifier = Modifier
 ) {
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
 
     Row(
         modifier = modifier
             .fillMaxWidth()
             .height(48.dp)
             .clip(CircleShape)
-            .background(if (isDark) Color(0xFF13172E) else Color(0xFFF1F5F9))
-            .border(1.dp, if (isDark) Color(0xFF1D2447) else Color(0xFFE2E8F0), CircleShape)
+            .background(Color(0xFF1E1E2E)) // Solid accessible dark gray background (as requested)
+            .border(1.dp, Color(0xFF374151), CircleShape) // High-contrast border for high accessibility (as requested)
             .padding(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp)
     ) {
@@ -314,7 +314,7 @@ fun SegmentedControl(
             val bgAnimateColor by animateColorAsState(targetBgColor, label = "bg_color")
 
             val targetTextColor = if (isSelected) {
-                Color.White
+                MaterialTheme.colorScheme.onPrimary
             } else {
                 MaterialTheme.colorScheme.onSurfaceVariant
             }

@@ -58,7 +58,9 @@ class SearchViewModel(
                 it.country.contains(query, ignoreCase = true)
             }
             // Prioritize live api hits combined with matching local caches
-            (filteredLocal + liveCities).distinctBy { it.cityName.lowercase() }
+            (filteredLocal + liveCities).distinctBy { 
+                "${it.cityName.lowercase()},${it.region?.lowercase() ?: ""},${it.country.lowercase()}"
+            }
         }
     }.stateIn(
         scope = viewModelScope,
@@ -73,12 +75,8 @@ class SearchViewModel(
             viewModelScope.launch {
                 try {
                     val results = repository.searchLocationsAndFetch(query)
-                    if (results.isEmpty()) {
-                        _errorState.value = "Atmosphere resolution failed. The requested location '$query' could not be resolved."
-                    } else {
-                        _liveSearchResults.value = results
-                        clearError()
-                    }
+                    _liveSearchResults.value = results
+                    clearError()
                 } catch (e: Exception) {
                     _errorState.value = "Network or server connection timeout. Please check your network and try again."
                 }
@@ -92,7 +90,14 @@ class SearchViewModel(
         viewModelScope.launch {
             try {
                 repository.selectCity(cityName)
-                repository.saveRecentSearch(cityName)
+                var displayName = cityName
+                if (cityName.startsWith("COORDS:")) {
+                    try {
+                        val parts = cityName.substring(7).split("|")
+                        displayName = parts.getOrNull(1) ?: cityName
+                    } catch (e: Exception) { }
+                }
+                repository.saveRecentSearch(displayName)
                 clearError()
             } catch (e: Exception) {
                 _errorState.value = "Unable to fetch complete forecast for $cityName. Please try again."

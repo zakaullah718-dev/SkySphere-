@@ -63,31 +63,18 @@ fun SkySphereCard(
     contentPadding: PaddingValues = PaddingValues(20.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
+    val isDark = true
     
-    // Premium translucent Glassmorphism background brushes
-    val bgBrush = if (isDark) {
-        Brush.verticalGradient(
-            colors = listOf(
-                Color(0x3D1E254C), // Translucent deep indigo
-                Color(0x24111530)  // Translucent dark obsidian
-            )
+    // Premium solid high-contrast backgrounds for maximum text readability and accessibility
+    val bgBrush = Brush.verticalGradient(
+        colors = listOf(
+            Color(0xFF252538), // High-contrast solid deep gray-indigo top
+            Color(0xFF1E1E2E)  // Solid dark gray base (as requested)
         )
-    } else {
-        Brush.verticalGradient(
-            colors = listOf(
-                Color(0xD9FFFFFF), // Bright reflective glass
-                Color(0xB3F1F5F9)  // Soft mist bottom
-            )
-        )
-    }
+    )
 
-    // High-contrast, micro-reflective border stroke
-    val borderColor = if (isDark) {
-        Color(0x2BFFFFFF) // White reflection
-    } else {
-        Color(0x1B000000) // Deep drop shadow outline
-    }
+    // High-contrast, clearly visible border stroke
+    val borderColor = Color(0xFF374151) // Highly visible border (as requested)
 
     val clickModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick)
@@ -177,14 +164,14 @@ fun SkySphereIconButton(
     modifier: Modifier = Modifier,
     testTag: String = "skysphere_icon_button"
 ) {
-    val isDark = MaterialTheme.colorScheme.background.value == 0xFF070913.toULong()
-    val borderColor = if (isDark) Color(0xFF1E254C) else Color(0xFFE2E8F0)
-    val tint = if (isDark) Color(0xFFF1F5F9) else Color(0xFF0F172A)
+    val isDark = true
+    val borderColor = Color(0xFF374151) // Highly visible border
+    val tint = Color(0xFFFFFFFF)       // Pure White icon tint (highly visible!)
     
     IconButton(
         onClick = onClick,
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = if (isDark) Color(0x1A13172E) else Color(0x0D0F172A)
+            containerColor = Color(0xFF1E1E2E) // Solid accessible background (as requested)
         ),
         modifier = modifier
             .size(48.dp)

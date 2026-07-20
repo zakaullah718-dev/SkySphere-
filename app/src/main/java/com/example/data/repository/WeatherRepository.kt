@@ -26,6 +26,8 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
+import okhttp3.Request
+import org.json.JSONObject
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
 import java.util.concurrent.TimeUnit
@@ -45,6 +47,16 @@ class WeatherRepository(private val context: Context) {
 
     fun setWindUnit(unit: String) {
         _windUnit.value = unit
+    }
+
+    private val _isGpsActive = MutableStateFlow(false)
+    val isGpsActive = _isGpsActive.asStateFlow()
+
+    private val _repositoryError = MutableStateFlow<String?>(null)
+    val repositoryError = _repositoryError.asStateFlow()
+
+    fun clearRepositoryError() {
+        _repositoryError.value = null
     }
 
     // Provider settings
@@ -159,7 +171,8 @@ class WeatherRepository(private val context: Context) {
                                 country = cached.country,
                                 isFavorite = cached.isFavorite,
                                 weatherDetails = details,
-                                localTime = null // recalculated dynamically on load if needed
+                                localTime = null, // recalculated dynamically on load if needed
+                                region = cached.region
                             )
                         } else null
                     } catch (e: Exception) {
@@ -201,13 +214,19 @@ class WeatherRepository(private val context: Context) {
 
     private suspend fun saveCityToCache(city: CityWeather) {
         val json = moshi.adapter(WeatherDetails::class.java).toJson(city.weatherDetails)
+        val uniqueId = if (!city.region.isNullOrBlank()) {
+            "${city.cityName.lowercase()},${city.region.lowercase()},${city.country.lowercase()}"
+        } else {
+            "${city.cityName.lowercase()},${city.country.lowercase()}"
+        }
         val entity = CachedWeatherEntity(
-            id = city.cityName.lowercase(),
+            id = uniqueId,
             cityName = city.cityName,
             country = city.country,
             weatherJson = json,
             isFavorite = city.isFavorite,
-            timestamp = System.currentTimeMillis()
+            timestamp = System.currentTimeMillis(),
+            region = city.region
         )
         weatherDao.insertCachedWeather(entity)
     }
@@ -242,7 +261,17 @@ class WeatherRepository(private val context: Context) {
     }
 
     fun selectCity(cityName: String) {
-        val existing = _cities.value.find { it.cityName.equals(cityName, ignoreCase = true) }
+        _isGpsActive.value = false
+        var lookupName = cityName
+        if (cityName.startsWith("COORDS:")) {
+            try {
+                val parts = cityName.substring(7).split("|")
+                lookupName = parts.getOrNull(1) ?: cityName
+            } catch (e: Exception) {
+                e.printStackTrace()
+            }
+        }
+        val existing = _cities.value.find { it.cityName.equals(lookupName, ignoreCase = true) }
         if (existing != null && existing.weatherDetails.currentTemp != 0) {
             _selectedCity.value = existing
         }
@@ -257,16 +286,162 @@ class WeatherRepository(private val context: Context) {
         }
     }
 
+    data class GeocodedLocation(
+        val city: String,
+        val region: String?,
+        val country: String
+    )
+
+    private val defaultCitiesCoordinates = mapOf(
+        "London" to Pair(51.5074, -0.1278),
+        "New York" to Pair(40.7128, -74.0060),
+        "Tokyo" to Pair(35.6762, 139.6503),
+        "Paris" to Pair(48.8566, 2.3522),
+        "Sydney" to Pair(-33.8688, 151.2093),
+        "Cairo" to Pair(30.0444, 31.2357),
+        "Rio de Janeiro" to Pair(-22.9068, -43.1729),
+        "Cape Town" to Pair(-33.9249, 18.4241),
+        "Mumbai" to Pair(19.0760, 72.8777),
+        "Dubai" to Pair(25.2048, 55.2708),
+        "Moscow" to Pair(55.7558, 37.6173),
+        "Singapore" to Pair(1.3521, 103.8198),
+        "Los Angeles" to Pair(34.0522, -118.2437),
+        "Toronto" to Pair(43.6532, -79.3832),
+        "Berlin" to Pair(52.5200, 13.4050),
+        "Rome" to Pair(41.9028, 12.4964),
+        "Beijing" to Pair(39.9042, 116.4074),
+        "Sao Paulo" to Pair(-23.5505, -46.6333),
+        "Buenos Aires" to Pair(-34.6037, -58.3816),
+        "Bangkok" to Pair(13.7563, 100.5018),
+        "Nairobi" to Pair(-1.2921, 36.8219),
+        "Istanbul" to Pair(41.0082, 28.9784)
+    )
+
+    private fun calculateDistance(lat1: Double, lon1: Double, lat2: Double, lon2: Double): Double {
+        val r = 6371.0 // Earth's radius in km
+        val dLat = Math.toRadians(lat2 - lat1)
+        val dLon = Math.toRadians(lon2 - lon1)
+        val a = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+                Math.cos(Math.toRadians(lat1)) * Math.cos(Math.toRadians(lat2)) *
+                Math.sin(dLon / 2) * Math.sin(dLon / 2)
+        val c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a))
+        return r * c
+    }
+
+    private fun findNearestValidCity(latitude: Double, longitude: Double): String {
+        var closestCity = "London"
+        var minDistance = Double.MAX_VALUE
+        for ((city, coords) in defaultCitiesCoordinates) {
+            val dist = calculateDistance(latitude, longitude, coords.first, coords.second)
+            if (dist < minDistance) {
+                minDistance = dist
+                closestCity = city
+            }
+        }
+        return closestCity
+    }
+
+    private suspend fun reverseGeocode(latitude: Double, longitude: Double): GeocodedLocation? = withContext(Dispatchers.IO) {
+        try {
+            val url = "https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=$latitude&longitude=$longitude&localityLanguage=en"
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "SkySphere/1.0")
+                .build()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (body != null) {
+                        val json = JSONObject(body)
+                        val city = json.optString("city").takeIf { it.isNotBlank() }
+                            ?: json.optString("locality").takeIf { it.isNotBlank() }
+                        val country = json.optString("countryName").takeIf { it.isNotBlank() } ?: "Unknown"
+                        val region = json.optString("principalSubdivision").takeIf { it.isNotBlank() }
+                        if (!city.isNullOrBlank()) {
+                            return@withContext GeocodedLocation(city = city, region = region, country = country)
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        try {
+            val url = "https://nominatim.openstreetmap.org/reverse?format=json&lat=$latitude&lon=$longitude&zoom=10&addressdetails=1"
+            val request = Request.Builder()
+                .url(url)
+                .header("User-Agent", "SkySphere/1.0 (zakaullah718@gmail.com)")
+                .build()
+            okHttpClient.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val body = response.body?.string()
+                    if (body != null) {
+                        val json = JSONObject(body)
+                        val address = json.optJSONObject("address")
+                        if (address != null) {
+                            val city = address.optString("city").takeIf { it.isNotBlank() }
+                                ?: address.optString("town").takeIf { it.isNotBlank() }
+                                ?: address.optString("village").takeIf { it.isNotBlank() }
+                                ?: address.optString("municipality").takeIf { it.isNotBlank() }
+                                ?: address.optString("county").takeIf { it.isNotBlank() }
+                            val country = address.optString("country").takeIf { it.isNotBlank() } ?: "Unknown"
+                            val region = address.optString("state").takeIf { it.isNotBlank() }
+                                ?: address.optString("region").takeIf { it.isNotBlank() }
+                            if (!city.isNullOrBlank()) {
+                                return@withContext GeocodedLocation(city = city, region = region, country = country)
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+
+        return@withContext null
+    }
+
     fun selectLocationCoordinates(latitude: Double, longitude: Double) {
-        val query = "$latitude,$longitude"
+        _isGpsActive.value = true
         CoroutineScope(Dispatchers.IO).launch {
-            val result = fetchWeatherFromApi(query, forceRefresh = true)
-            result.onSuccess { fullCityWeather ->
-                val friendlyCity = fullCityWeather.copy(
-                    cityName = if (fullCityWeather.cityName.isBlank()) "Current Location" else fullCityWeather.cityName
-                )
-                saveCityToCache(friendlyCity)
-                _selectedCity.value = friendlyCity
+            val resolved = reverseGeocode(latitude, longitude)
+            if (resolved == null) {
+                val nearestCityName = findNearestValidCity(latitude, longitude)
+                _repositoryError.value = "GPS could not determine city name. Showing nearest city: $nearestCityName"
+                val result = fetchWeatherFromApi(nearestCityName, forceRefresh = true)
+                result.onSuccess { fullCityWeather ->
+                    _selectedCity.value = fullCityWeather
+                }
+                result.onFailure {
+                    _repositoryError.value = "Failed to load weather for nearest city: $nearestCityName"
+                }
+            } else {
+                val query = "$latitude,$longitude"
+                val result = fetchWeatherFromApi(query, forceRefresh = true)
+                result.onSuccess { fullCityWeather ->
+                    val friendlyCity = fullCityWeather.copy(
+                        cityName = resolved.city,
+                        region = resolved.region,
+                        country = resolved.country
+                    )
+                    saveCityToCache(friendlyCity)
+                    _selectedCity.value = friendlyCity
+                }
+                result.onFailure {
+                    val cityResult = fetchWeatherFromApi(resolved.city, forceRefresh = true)
+                    cityResult.onSuccess { fullCityWeather ->
+                        val friendlyCity = fullCityWeather.copy(
+                            region = resolved.region,
+                            country = resolved.country
+                        )
+                        saveCityToCache(friendlyCity)
+                        _selectedCity.value = friendlyCity
+                    }
+                    cityResult.onFailure {
+                        _repositoryError.value = "Failed to fetch weather data for ${resolved.city}."
+                    }
+                }
             }
         }
     }

@@ -22,11 +22,38 @@ class WeatherApiProvider(
             return@withContext Result.failure(IllegalStateException("WeatherAPI key is not configured."))
         }
         try {
-            val response = apiService.getForecast(apiKey = apiKey, query = query, days = 7, aqi = "yes")
+            var apiQuery = query
+            var customName: String? = null
+            var customRegion: String? = null
+            var customCountry: String? = null
+
+            if (query.startsWith("COORDS:")) {
+                try {
+                    val parts = query.substring(7).split("|")
+                    apiQuery = parts[0]
+                    customName = parts.getOrNull(1)
+                    customRegion = parts.getOrNull(2)
+                    customCountry = parts.getOrNull(3)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
+
+            val response = apiService.getForecast(apiKey = apiKey, query = apiQuery, days = 7, aqi = "yes")
             if (response.isSuccessful) {
                 val body = response.body()
                 if (body != null) {
-                    Result.success(mapResponseToCityWeather(body))
+                    val cityWeather = mapResponseToCityWeather(body)
+                    val finalWeather = if (customName != null) {
+                        cityWeather.copy(
+                            cityName = customName,
+                            region = customRegion?.takeIf { it.isNotBlank() } ?: cityWeather.region,
+                            country = customCountry ?: cityWeather.country
+                        )
+                    } else {
+                        cityWeather
+                    }
+                    Result.success(finalWeather)
                 } else {
                     Result.failure(Exception("Response body was empty"))
                 }
@@ -69,7 +96,10 @@ class WeatherApiProvider(
                             hourlyForecast = emptyList(),
                             dailyForecast = emptyList(),
                             aiSummary = ""
-                        )
+                        ),
+                        region = loc.region,
+                        latitude = loc.lat,
+                        longitude = loc.lon
                     )
                 }
                 Result.success(mapped)

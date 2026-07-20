@@ -10,7 +10,8 @@ data class CachedWeatherEntity(
     val country: String,
     val weatherJson: String,
     val isFavorite: Boolean,
-    val timestamp: Long
+    val timestamp: Long,
+    val region: String? = null
 )
 
 @Entity(tableName = "recent_searches")
@@ -21,7 +22,7 @@ data class RecentSearchEntity(
 
 @Dao
 interface WeatherDao {
-    @Query("SELECT * FROM cached_weather WHERE id = :id")
+    @Query("SELECT * FROM cached_weather WHERE id = :id OR LOWER(cityName) = :id ORDER BY (id = :id) DESC LIMIT 1")
     suspend fun getCachedWeather(id: String): CachedWeatherEntity?
 
     @Query("SELECT * FROM cached_weather ORDER BY timestamp DESC")
@@ -52,7 +53,7 @@ interface RecentSearchDao {
     suspend fun clearAll()
 }
 
-@Database(entities = [CachedWeatherEntity::class, RecentSearchEntity::class], version = 1, exportSchema = false)
+@Database(entities = [CachedWeatherEntity::class, RecentSearchEntity::class], version = 2, exportSchema = false)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun weatherDao(): WeatherDao
     abstract fun recentSearchDao(): RecentSearchDao
