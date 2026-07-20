@@ -218,7 +218,8 @@ class WeatherApiProvider(
                 aiSummary = "An elegant ${conditionEnum.displayName.lowercase()} day. Wind speeds average ${current.windKph} km/h with a humidity level of ${current.humidity}%. Perfect for responsive monitoring.",
                 cloudCoverage = current.cloud,
                 windDirection = current.windDir ?: "N"
-            )
+            ),
+            region = location.region
         )
     }
 

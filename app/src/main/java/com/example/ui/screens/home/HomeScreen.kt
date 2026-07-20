@@ -429,37 +429,43 @@ fun HomeScreenContent(
 
             // TOP HEADER
             item {
+                val locationText = buildString {
+                    append(cityWeather.cityName.uppercase())
+                    if (!cityWeather.region.isNullOrBlank()) {
+                        append(", ")
+                        append(cityWeather.region.uppercase())
+                    }
+                    if (cityWeather.country.isNotBlank()) {
+                        append(", ")
+                        append(cityWeather.country.uppercase())
+                    }
+                }
+                
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Column {
+                    Column(modifier = Modifier.weight(1f)) {
                         Text(
-                            text = cityWeather.cityName.uppercase(),
+                            text = locationText,
                             style = MaterialTheme.typography.titleLarge.copy(
-                                fontWeight = FontWeight.Light,
-                                letterSpacing = 3.sp,
-                                color = MaterialTheme.colorScheme.onBackground
+                                fontWeight = FontWeight.Medium,
+                                letterSpacing = 2.sp,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontSize = 18.sp
                             ),
                             modifier = Modifier.testTag("home_city_name")
                         )
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        if (!cityWeather.localTime.isNullOrBlank()) {
+                            Spacer(modifier = Modifier.height(4.dp))
                             Text(
-                                text = cityWeather.country,
+                                text = cityWeather.localTime,
                                 style = MaterialTheme.typography.bodySmall.copy(
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.primary,
+                                    fontWeight = FontWeight.Medium
                                 )
                             )
-                            if (!cityWeather.localTime.isNullOrBlank()) {
-                                Text(
-                                    text = "  •  " + cityWeather.localTime,
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = MaterialTheme.colorScheme.primary,
-                                        fontWeight = FontWeight.Medium
-                                    )
-                                )
-                            }
                         }
                     }
 
@@ -532,246 +538,181 @@ fun HomeScreenContent(
             }
         }
 
-        // COGNITIVE INTELLIGENT HUB ENTRANCE
+
+
+        // 2. Large current temperature card with weather condition
         item {
             SkySphereCard(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .testTag("intelligent_hub_entrance_card"),
-                onClick = onOpenHub
+                    .testTag("current_weather_temp_card")
             ) {
                 Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
                 ) {
-                    Box(
-                        contentAlignment = Alignment.Center,
-                        modifier = Modifier
-                            .size(44.dp)
-                            .clip(CircleShape)
-                            .background(
-                                Brush.linearGradient(
-                                    colors = listOf(Color(0xFF2FA3FF), Color(0xFF00C6FF))
-                                )
-                            )
-                    ) {
-                        Icon(
-                            imageVector = Icons.Filled.Psychology,
-                            contentDescription = "Intelligent Cognitive Hub",
-                            tint = Color.White,
-                            modifier = Modifier.size(22.dp)
-                        )
-                    }
-                    Spacer(modifier = Modifier.width(12.dp))
                     Column(modifier = Modifier.weight(1f)) {
-                        Text(
-                            text = "COGNITIVE WEATHER HUB",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = Color(0xFF2FA3FF),
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 1.sp
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "AI Assistant, Smart Alerts & Scores",
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                fontWeight = FontWeight.ExtraBold,
-                                color = Color.White
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(2.dp))
-                        Text(
-                            text = "Explore natural summaries, comparisons & travel planners.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    }
-                    Icon(
-                        imageVector = Icons.Filled.ChevronRight,
-                        contentDescription = "Open Hub",
-                        tint = Color(0x7FFFFFFF),
-                        modifier = Modifier.size(20.dp)
-                    )
-                }
-            }
-        }
-
-        // CURRENT WEATHER SUMMARY
-        item {
-            Column(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 12.dp),
-                horizontalAlignment = Alignment.CenterHorizontally
-            ) {
-                Box(
-                    modifier = Modifier.fillMaxWidth(),
-                    contentAlignment = Alignment.Center
-                ) {
-                    // Animated weather illustration backing
-                    AnimatedContent(
-                        targetState = details.condition,
-                        transitionSpec = {
-                            scaleIn(animationSpec = tween(500)) + fadeIn(animationSpec = tween(500)) togetherWith
-                                    scaleOut(animationSpec = tween(500)) + fadeOut(animationSpec = tween(500))
-                        },
-                        label = "IconAnimation"
-                    ) { targetCondition ->
-                        WeatherConditionIcon(
-                            condition = targetCondition,
-                            modifier = Modifier.size(130.dp),
-                            tint = targetCondition.startColor.copy(alpha = 0.15f)
-                        )
-                    }
-                    
-                    // Animated temperature rolling odometer
-                    AnimatedContent(
-                        targetState = details.currentTemp,
-                        transitionSpec = {
-                            if (targetState > initialState) {
-                                slideInVertically { height -> height } + fadeIn() togetherWith
-                                        slideOutVertically { height -> -height } + fadeOut()
-                            } else {
-                                slideInVertically { height -> -height } + fadeIn() togetherWith
-                                        slideOutVertically { height -> height } + fadeOut()
-                            }.using(
-                                SizeTransform(clip = false)
-                            )
-                        },
-                        label = "TempAnimation"
-                    ) { targetTemp ->
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.Center
                         ) {
-                            Text(
-                                text = formatTemp(targetTemp, isCelsius),
-                                style = MaterialTheme.typography.displayLarge.copy(
-                                    color = MaterialTheme.colorScheme.onBackground,
-                                    fontWeight = FontWeight.ExtraLight
-                                ),
-                                modifier = Modifier.testTag("home_current_temp")
-                            )
+                            AnimatedContent(
+                                targetState = details.currentTemp,
+                                transitionSpec = {
+                                    if (targetState > initialState) {
+                                        slideInVertically { height -> height } + fadeIn() togetherWith
+                                                slideOutVertically { height -> -height } + fadeOut()
+                                    } else {
+                                        slideInVertically { height -> -height } + fadeIn() togetherWith
+                                                slideOutVertically { height -> height } + fadeOut()
+                                    }.using(SizeTransform(clip = false))
+                                },
+                                label = "TempAnimation"
+                            ) { targetTemp ->
+                                Text(
+                                    text = formatTemp(targetTemp, isCelsius),
+                                    style = MaterialTheme.typography.displayLarge.copy(
+                                        color = MaterialTheme.colorScheme.onBackground,
+                                        fontWeight = FontWeight.Light,
+                                        fontSize = 72.sp
+                                    ),
+                                    modifier = Modifier.testTag("home_current_temp")
+                                )
+                            }
                             Text(
                                 text = "°",
                                 style = MaterialTheme.typography.displayMedium.copy(
                                     color = LuxurySkyBlue,
-                                    fontWeight = FontWeight.Light
+                                    fontWeight = FontWeight.Light,
+                                    fontSize = 48.sp
                                 ),
                                 modifier = Modifier.padding(bottom = 24.dp)
                             )
                         }
+                        
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        Text(
+                            text = details.condition.displayName.uppercase(),
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 2.sp,
+                                color = MaterialTheme.colorScheme.onBackground
+                            )
+                        )
+                        
+                        Spacer(modifier = Modifier.height(4.dp))
+                        
+                        Text(
+                            text = "H: ${formatTemp(details.highTemp, isCelsius)}°  •  L: ${formatTemp(details.lowTemp, isCelsius)}°",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
+                    }
+                    
+                    // Animated weather icon
+                    Box(
+                        modifier = Modifier.size(110.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        AnimatedContent(
+                            targetState = details.condition,
+                            transitionSpec = {
+                                scaleIn(animationSpec = tween(500)) + fadeIn(animationSpec = tween(500)) togetherWith
+                                        scaleOut(animationSpec = tween(500)) + fadeOut(animationSpec = tween(500))
+                            },
+                            label = "IconAnimation"
+                        ) { targetCondition ->
+                            WeatherConditionIcon(
+                                condition = targetCondition,
+                                modifier = Modifier.size(100.dp)
+                            )
+                        }
                     }
                 }
-
-                Text(
-                    text = details.condition.displayName.uppercase(),
-                    style = MaterialTheme.typography.titleMedium.copy(
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp,
-                        color = MaterialTheme.colorScheme.onBackground
-                    )
-                )
-
-                Spacer(modifier = Modifier.height(4.dp))
-
-                Text(
-                    text = "FEELS LIKE ${formatTemp(details.feelsLike, isCelsius)}°  •  H: ${formatTemp(details.highTemp, isCelsius)}°  L: ${formatTemp(details.lowTemp, isCelsius)}°",
-                    style = MaterialTheme.typography.bodyMedium.copy(
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                )
             }
         }
 
-        // SMART WEATHER INSIGHTS CARD (Premium Flagship Feature)
+        // 3. Feels Like, Humidity, Wind Speed, Pressure, UV Index
         item {
-            val advices = remember(details, isCelsius) {
-                com.example.data.processing.WeatherAdviceGenerator.generateAdvice(details, isCelsius)
-            }
             SkySphereCard(
-                modifier = Modifier.fillMaxWidth()
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("key_atmospheric_metrics_card")
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.WbSunny,
-                        contentDescription = null,
-                        tint = Color(0xFFFFD54F),
-                        modifier = Modifier.size(18.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
+                Column(modifier = Modifier.padding(16.dp)) {
                     Text(
-                        text = "SMART WEATHER INSIGHTS",
+                        text = "CURRENT CONDITIONS",
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = LuxurySkyBlue,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 1.5.sp
                         )
                     )
-                }
-                Spacer(modifier = Modifier.height(16.dp))
-                
-                advices.forEachIndexed { index, advice ->
-                    val priorityColor = when (advice.priority) {
-                        com.example.data.processing.AdvicePriority.CRITICAL -> Color(0xFFFF5252)
-                        com.example.data.processing.AdvicePriority.WARNING -> Color(0xFFFFB74D)
-                        com.example.data.processing.AdvicePriority.INFO -> Color(0xFF40C4FF)
-                        com.example.data.processing.AdvicePriority.COMFORT -> Color(0xFF69F0AE)
-                    }
+                    Spacer(modifier = Modifier.height(16.dp))
                     
                     Row(
-                        verticalAlignment = Alignment.Top,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 6.dp)
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
                     ) {
-                        Box(
-                            contentAlignment = Alignment.Center,
-                            modifier = Modifier
-                                .size(36.dp)
-                                .clip(CircleShape)
-                                .background(priorityColor.copy(alpha = 0.15f))
-                        ) {
-                            Icon(
-                                imageVector = advice.icon,
-                                contentDescription = null,
-                                tint = priorityColor,
-                                modifier = Modifier.size(20.dp)
+                        Box(modifier = Modifier.weight(1f)) {
+                            KeyMetricCell(
+                                title = "FEELS LIKE",
+                                value = "${formatTemp(details.feelsLike, isCelsius)}°",
+                                icon = Icons.Filled.Thermostat,
+                                iconColor = Color(0xFFFFB74D)
                             )
                         }
-                        
-                        Spacer(modifier = Modifier.width(12.dp))
-                        
-                        Column(
-                            modifier = Modifier.weight(1f)
-                        ) {
-                            Text(
-                                text = advice.title,
-                                style = MaterialTheme.typography.titleSmall.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onBackground
-                                )
-                            )
-                            Spacer(modifier = Modifier.height(2.dp))
-                            Text(
-                                text = advice.description,
-                                style = MaterialTheme.typography.bodyMedium.copy(
-                                    lineHeight = 20.sp,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
+                        Box(modifier = Modifier.weight(1f)) {
+                            KeyMetricCell(
+                                title = "HUMIDITY",
+                                value = "${details.humidity}%",
+                                icon = Icons.Filled.WaterDrop,
+                                iconColor = LuxurySkyBlue
                             )
                         }
                     }
                     
-                    if (index < advices.lastIndex) {
-                        Spacer(modifier = Modifier.height(8.dp))
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            KeyMetricCell(
+                                title = "WIND SPEED",
+                                value = formatWind(details.windSpeed, windUnit),
+                                icon = Icons.Filled.Air,
+                                iconColor = LuxurySkyBlue
+                            )
+                        }
+                        Box(modifier = Modifier.weight(1f)) {
+                            KeyMetricCell(
+                                title = "PRESSURE",
+                                value = "${details.pressureHpa} hPa",
+                                icon = Icons.Filled.Compress,
+                                iconColor = Color(0xFFB0BEC5)
+                            )
+                        }
                     }
+                    
+                    Spacer(modifier = Modifier.height(12.dp))
+                    
+                    KeyMetricCell(
+                        title = "UV INDEX",
+                        value = "${details.uvIndex} - ${getUvDescription(details.uvIndex)}",
+                        icon = Icons.Filled.WbSunny,
+                        iconColor = Color(0xFFFF7043)
+                    )
                 }
             }
         }
+
+
 
         // HOURLY FORECAST
         item {
@@ -848,11 +789,11 @@ fun HomeScreenContent(
             }
         }
 
-        // 7-DAY FORECAST
+        // 10-DAY FORECAST
         item {
             Column {
                 Text(
-                    text = "7-DAY OUTLOOK",
+                    text = "10-DAY FORECAST",
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold,
@@ -953,11 +894,11 @@ fun HomeScreenContent(
             }
         }
 
-        // TELEMETRY DETAILED GRID (Balanced Grid with Full-Width Sunrise/Sunset Arc Card)
+        // 6. Weather details
         item {
             Column {
                 Text(
-                    text = "ATMOSPHERIC METRICS",
+                    text = "WEATHER DETAILS",
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         fontWeight = FontWeight.Bold,
@@ -979,25 +920,11 @@ fun HomeScreenContent(
                             iconColor = LuxuryCyan
                         )
                         TelemetryCard(
-                            title = "WIND",
+                            title = "WIND DETAILS",
                             value = formatWind(details.windSpeed, windUnit),
                             subtitle = "Direction: ${details.windDirection}",
                             icon = Icons.Filled.Air,
                             iconColor = LuxurySkyBlue
-                        )
-                        TelemetryCard(
-                            title = "BAROMETER",
-                            value = "${details.pressureHpa} hPa",
-                            subtitle = "Steady pressure",
-                            icon = Icons.Filled.Compress,
-                            iconColor = Color(0xFFB0BEC5)
-                        )
-                        TelemetryCard(
-                            title = "FEELS LIKE",
-                            value = "${formatTemp(details.feelsLike, isCelsius)}°",
-                            subtitle = "Relative thermal index",
-                            icon = Icons.Filled.Thermostat,
-                            iconColor = Color(0xFFFFB74D)
                         )
                         TelemetryCard(
                             title = "CLOUD COVERAGE",
@@ -1008,20 +935,6 @@ fun HomeScreenContent(
                         )
                     }
                     Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(16.dp)) {
-                        TelemetryCard(
-                            title = "UV INDEX",
-                            value = "${details.uvIndex}",
-                            subtitle = getUvDescription(details.uvIndex),
-                            icon = Icons.Filled.Thermostat,
-                            iconColor = Color(0xFFFF7043)
-                        )
-                        TelemetryCard(
-                            title = "HUMIDITY",
-                            value = "${details.humidity}%",
-                            subtitle = "Water vapor in air",
-                            icon = Icons.Filled.WaterDrop,
-                            iconColor = LuxurySkyBlue
-                        )
                         TelemetryCard(
                             title = "VISIBILITY",
                             value = "${details.visibilityKm} km",
@@ -1035,6 +948,13 @@ fun HomeScreenContent(
                             subtitle = "Condensation index",
                             icon = Icons.Filled.WaterDrop,
                             iconColor = LuxuryCyan
+                        )
+                        TelemetryCard(
+                            title = "BAROMETER",
+                            value = "${details.pressureHpa} hPa",
+                            subtitle = "Steady pressure",
+                            icon = Icons.Filled.Compress,
+                            iconColor = Color(0xFFB0BEC5)
                         )
                     }
                 }
@@ -1058,6 +978,159 @@ fun HomeScreenContent(
                         sunrise = details.sunrise,
                         sunset = details.sunset,
                         modifier = Modifier.fillMaxWidth()
+                    )
+                }
+            }
+        }
+
+        // 7. Smart Weather Insights at the bottom
+        item {
+            val advices = remember(details, isCelsius) {
+                com.example.data.processing.WeatherAdviceGenerator.generateAdvice(details, isCelsius)
+            }
+            SkySphereCard(
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.WbSunny,
+                        contentDescription = null,
+                        tint = Color(0xFFFFD54F),
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "SMART WEATHER INSIGHTS",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = LuxurySkyBlue,
+                            fontWeight = FontWeight.Bold,
+                            letterSpacing = 1.5.sp
+                        )
+                    )
+                }
+                Spacer(modifier = Modifier.height(16.dp))
+                
+                advices.forEachIndexed { index, advice ->
+                    val priorityColor = when (advice.priority) {
+                        com.example.data.processing.AdvicePriority.CRITICAL -> Color(0xFFFF5252)
+                        com.example.data.processing.AdvicePriority.WARNING -> Color(0xFFFFB74D)
+                        com.example.data.processing.AdvicePriority.INFO -> Color(0xFF40C4FF)
+                        com.example.data.processing.AdvicePriority.COMFORT -> Color(0xFF69F0AE)
+                    }
+                    
+                    Row(
+                        verticalAlignment = Alignment.Top,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 6.dp)
+                    ) {
+                        Box(
+                            contentAlignment = Alignment.Center,
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(priorityColor.copy(alpha = 0.15f))
+                        ) {
+                            Icon(
+                                imageVector = advice.icon,
+                                contentDescription = null,
+                                tint = priorityColor,
+                                modifier = Modifier.size(20.dp)
+                            )
+                        }
+                        
+                        Spacer(modifier = Modifier.width(12.dp))
+                        
+                        Column(
+                            modifier = Modifier.weight(1f)
+                        ) {
+                            Text(
+                                text = advice.title,
+                                style = MaterialTheme.typography.titleSmall.copy(
+                                    fontWeight = FontWeight.Bold,
+                                    color = MaterialTheme.colorScheme.onBackground
+                                )
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = advice.description,
+                                style = MaterialTheme.typography.bodyMedium.copy(
+                                    lineHeight = 20.sp,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            )
+                        }
+                    }
+                    
+                    if (index < advices.lastIndex) {
+                        Spacer(modifier = Modifier.height(8.dp))
+                    }
+                }
+            }
+        }
+
+        // 8. COGNITIVE WEATHER HUB Entrance Card at the bottom
+        item {
+            SkySphereCard(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .testTag("intelligent_hub_entrance_card"),
+                onClick = onOpenHub
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Box(
+                        contentAlignment = Alignment.Center,
+                        modifier = Modifier
+                            .size(44.dp)
+                            .clip(CircleShape)
+                            .background(
+                                Brush.linearGradient(
+                                    colors = listOf(Color(0xFF2FA3FF), Color(0xFF00C6FF))
+                                )
+                            )
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Psychology,
+                            contentDescription = "Intelligent Cognitive Hub",
+                            tint = Color.White,
+                            modifier = Modifier.size(22.dp)
+                        )
+                    }
+                    Spacer(modifier = Modifier.width(12.dp))
+                    Column(modifier = Modifier.weight(1f)) {
+                        Text(
+                            text = "COGNITIVE WEATHER HUB",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = Color(0xFF2FA3FF),
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.sp
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "AI Assistant, Smart Alerts & Scores",
+                            style = MaterialTheme.typography.titleSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color.White
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(2.dp))
+                        Text(
+                            text = "Explore natural summaries, comparisons & travel planners.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    Icon(
+                        imageVector = Icons.Filled.ChevronRight,
+                        contentDescription = "Open Hub",
+                        tint = Color(0x7FFFFFFF),
+                        modifier = Modifier.size(20.dp)
                     )
                 }
             }
@@ -1143,6 +1216,57 @@ fun TelemetryCard(
                 color = MaterialTheme.colorScheme.onSurfaceVariant
             )
         )
+    }
+}
+
+@Composable
+fun KeyMetricCell(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    iconColor: Color
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(MaterialTheme.shapes.medium)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.3f))
+            .padding(12.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        Box(
+            modifier = Modifier
+                .size(36.dp)
+                .clip(CircleShape)
+                .background(iconColor.copy(alpha = 0.15f)),
+            contentAlignment = Alignment.Center
+        ) {
+            Icon(
+                imageVector = icon,
+                contentDescription = null,
+                tint = iconColor,
+                modifier = Modifier.size(20.dp)
+            )
+        }
+        Spacer(modifier = Modifier.width(10.dp))
+        Column {
+            Text(
+                text = title,
+                style = MaterialTheme.typography.labelSmall.copy(
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 9.sp,
+                    fontWeight = FontWeight.Bold,
+                    letterSpacing = 0.5.sp
+                )
+            )
+            Text(
+                text = value,
+                style = MaterialTheme.typography.titleMedium.copy(
+                    fontWeight = FontWeight.ExtraBold,
+                    color = MaterialTheme.colorScheme.onBackground
+                )
+            )
+        }
     }
 }
 
