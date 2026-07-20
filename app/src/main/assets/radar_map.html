@@ -1,0 +1,335 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8" />
+    <title>SkySphere Real-Time Weather Radar</title>
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <!-- Include MapLibre GL JS -->
+    <script src="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js"></script>
+    <link href="https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css" rel="stylesheet" />
+    <style>
+        body { margin: 0; padding: 0; background-color: #070913; color: white; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
+        #map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; }
+        
+        /* Remove default MapLibre controls and overlays for a clean mobile-first UI */
+        .maplibregl-ctrl { display: none !important; }
+        .maplibregl-ctrl-attrib { display: none !important; }
+        .maplibregl-ctrl-logo { display: none !important; }
+
+        /* Premium glowing loading spinner */
+        #loader {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            z-index: 1000;
+            display: none;
+            background: rgba(15, 23, 42, 0.85);
+            padding: 16px 28px;
+            border-radius: 24px;
+            border: 1px solid rgba(0, 229, 255, 0.35);
+            font-size: 14px;
+            font-weight: 700;
+            color: #00E5FF;
+            text-shadow: 0 0 8px rgba(0, 229, 255, 0.4);
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6), inset 0 1px 1px rgba(255, 255, 255, 0.1);
+            backdrop-filter: blur(12px);
+            pointer-events: none;
+            animation: pulse-glow 2s infinite ease-in-out;
+        }
+
+        /* Ambient warning toast */
+        #api-warning {
+            position: absolute;
+            bottom: 24px;
+            left: 16px;
+            right: 16px;
+            z-index: 1000;
+            display: none;
+            background: rgba(30, 41, 59, 0.9);
+            border: 1px solid rgba(239, 68, 68, 0.4);
+            padding: 12px 18px;
+            border-radius: 16px;
+            font-size: 12px;
+            color: #F87171;
+            text-align: center;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
+            backdrop-filter: blur(12px);
+            animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
+        }
+
+        @keyframes pulse-glow {
+            0%, 100% { opacity: 0.85; box-shadow: 0 10px 30px rgba(0, 0, 0, 0.6); }
+            50% { opacity: 1; box-shadow: 0 10px 35px rgba(0, 229, 255, 0.2); }
+        }
+
+        @keyframes slide-up {
+            from { transform: translateY(20px); opacity: 0; }
+            to { transform: translateY(0); opacity: 1; }
+        }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+    <div id="loader">Fetching Doppler Radar...</div>
+    <div id="api-warning"></div>
+
+    <script>
+        var currentGpsMarker = null;
+        var mapLoaded = false;
+        var currentLayerType = 'RAINFALL';
+        var weatherApiKey = '';
+        var selectedCoordinates = null;
+
+        // Initialize MapLibre Map with CartoDB Dark Matter beautiful vector style
+        var map = new maplibregl.Map({
+            container: 'map',
+            style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
+            center: [0, 20],
+            zoom: 2.2,
+            minZoom: 1,
+            maxZoom: 16,
+            attributionControl: false,
+            antialias: true
+        });
+
+        map.on('load', function() {
+            mapLoaded = true;
+            
+            // Add custom visual contour/streamline fallbacks when API keys are absent
+            setupVisualFallbackLayers();
+
+            if (window.AndroidMap) {
+                window.AndroidMap.onMapLoaded();
+            }
+            updateWeatherLayers();
+        });
+
+        // Click handler to select coordinates and query the micro-climate data
+        map.on('click', function(e) {
+            var lat = e.lngLat.lat;
+            var lon = e.lngLat.wrap().lng;
+            selectedCoordinates = { lat: lat, lon: lon };
+            
+            updateSelectedMarker(lat, lon);
+
+            if (window.AndroidMap) {
+                window.AndroidMap.onCoordinatesSelected(lat, lon);
+            }
+        });
+
+        function updateSelectedMarker(lat, lon) {
+            if (currentGpsMarker) {
+                currentGpsMarker.remove();
+            }
+            
+            var el = document.createElement('div');
+            el.className = 'custom-marker';
+            el.style.width = '18px';
+            el.style.height = '18px';
+            el.style.borderRadius = '50%';
+            el.style.backgroundColor = '#00E5FF';
+            el.style.border = '3px solid #FFFFFF';
+            el.style.boxShadow = '0 0 12px #00E5FF';
+            el.style.animation = 'pulse 1.5s infinite';
+
+            // Create simple pulse animation dynamically
+            var style = document.createElement('style');
+            style.innerHTML = `
+                @keyframes pulse {
+                    0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.7); }
+                    70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(0, 229, 255, 0); }
+                    100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
+                }
+            `;
+            document.head.appendChild(style);
+
+            currentGpsMarker = new maplibregl.Marker({ element: el })
+                .setLngLat([lon, lat])
+                .addTo(map);
+        }
+
+        // Bridge function: Centering Map
+        function setCenter(lat, lon, zoom) {
+            map.flyTo({
+                center: [lon, lat],
+                zoom: zoom || map.getZoom(),
+                essential: true,
+                speed: 1.6,
+                curve: 1.2
+            });
+            updateSelectedMarker(lat, lon);
+        }
+
+        // Bridge function: Sync API key
+        function setWeatherApiKey(key) {
+            weatherApiKey = key;
+            if (mapLoaded) {
+                updateWeatherLayers();
+            }
+        }
+
+        // Bridge function: Switch layers
+        function setWeatherLayer(layerType) {
+            currentLayerType = layerType;
+            if (mapLoaded) {
+                updateWeatherLayers();
+            }
+        }
+
+        // Show/hide custom loader
+        function showLoader(visible, text) {
+            var loader = document.getElementById('loader');
+            if (text) loader.innerText = text;
+            loader.style.display = visible ? 'block' : 'none';
+        }
+
+        // Setup gorgeous static canvas fallbacks for premium look-and-feel if keys are missing
+        function setupVisualFallbackLayers() {
+            // Add sources for visual heat maps
+            map.addSource('fallback-temperature', {
+                type: 'geojson',
+                data: {
+                    type: 'FeatureCollection',
+                    features: [
+                        { type: 'Feature', properties: { temp: 35 }, geometry: { type: 'Point', coordinates: [0, 0] } },
+                        { type: 'Feature', properties: { temp: 28 }, geometry: { type: 'Point', coordinates: [12, 41] } },
+                        { type: 'Feature', properties: { temp: 22 }, geometry: { type: 'Point', coordinates: [-74, 40] } },
+                        { type: 'Feature', properties: { temp: 30 }, geometry: { type: 'Point', coordinates: [77, 19] } },
+                        { type: 'Feature', properties: { temp: 15 }, geometry: { type: 'Point', coordinates: [37, 55] } },
+                        { type: 'Feature', properties: { temp: 5 }, geometry: { type: 'Point', coordinates: [-21, 64] } },
+                        { type: 'Feature', properties: { temp: 32 }, geometry: { type: 'Point', coordinates: [55, 25] } }
+                    ]
+                }
+            });
+
+            // We can draw a beautiful glow overlay
+            map.addLayer({
+                id: 'fallback-temperature-layer',
+                type: 'heatmap',
+                source: 'fallback-temperature',
+                maxzoom: 9,
+                paint: {
+                    'heatmap-weight': {
+                        type: 'exponential',
+                        properties: 'temp',
+                        stops: [[0, 0], [40, 1.2]]
+                    },
+                    'heatmap-intensity': 1.5,
+                    'heatmap-color': [
+                        'interpolate',
+                        ['linear'],
+                        ['heatmap-density'],
+                        0, 'rgba(0, 229, 255, 0)',
+                        0.3, 'rgba(33, 150, 243, 0.15)',
+                        0.6, 'rgba(255, 112, 67, 0.25)',
+                        0.9, 'rgba(244, 67, 54, 0.35)'
+                    ],
+                    'heatmap-radius': 180,
+                    'heatmap-opacity': 0
+                }
+            });
+        }
+
+        // Core weather overlay rendering manager
+        function updateWeatherLayers() {
+            var warningEl = document.getElementById('api-warning');
+            warningEl.style.display = 'none';
+
+            // Reset fallbacks and live sources
+            if (map.getLayer('rain-radar')) { map.removeLayer('rain-radar'); map.removeSource('rain-radar'); }
+            if (map.getLayer('owm-layer')) { map.removeLayer('owm-layer'); map.removeSource('owm-layer'); }
+            
+            // Set fallback opacity to 0
+            if (map.getLayer('fallback-temperature-layer')) {
+                map.setPaintProperty('fallback-temperature-layer', 'heatmap-opacity', 0);
+            }
+
+            var isApiKeyValid = (weatherApiKey && 
+                                 weatherApiKey !== 'PLACEholder_WEATHER_API_KEY' && 
+                                 weatherApiKey !== 'MY_WEATHER_KEY' && 
+                                 weatherApiKey.trim() !== '');
+
+            if (currentLayerType === 'RAINFALL') {
+                // RainViewer radar map: Completely FREE and REAL live active radar telemetry data!
+                showLoader(true, 'Connecting to RainViewer Live Doppler Radar...');
+                fetch('https://api.rainviewer.com/public/weather-maps.json')
+                    .then(response => response.json())
+                    .then(data => {
+                        showLoader(false);
+                        if (data && data.radar && data.radar.past && data.radar.past.length > 0) {
+                            var latest = data.radar.past[data.radar.past.length - 1];
+                            var radarTileUrl = 'https://tilecache.rainviewer.com/v2/radar/' + latest.time + '/256/{z}/{x}/{y}/2/1_1.png';
+
+                            map.addSource('rain-radar', {
+                                type: 'raster',
+                                tiles: [radarTileUrl],
+                                tileSize: 256
+                            });
+                            map.addLayer({
+                                id: 'rain-radar',
+                                type: 'raster',
+                                source: 'rain-radar',
+                                paint: {
+                                    'raster-opacity': 0.8
+                                }
+                            });
+                        }
+                    })
+                    .catch(err => {
+                        showLoader(false);
+                        console.error('RainViewer active radar sync failed', err);
+                    });
+            } else {
+                // OpenWeatherMap Real Overlays
+                var layerCode = '';
+                switch (currentLayerType) {
+                    case 'CLOUD_COVER': layerCode = 'clouds_new'; break;
+                    case 'TEMPERATURE': layerCode = 'temp_new'; break;
+                    case 'WIND_SPEED':
+                    case 'WIND_DIRECTION': layerCode = 'wind_new'; break;
+                    case 'PRESSURE': layerCode = 'pressure_new'; break;
+                    case 'HUMIDITY': layerCode = 'precipitation_new'; break;
+                }
+
+                if (isApiKeyValid) {
+                    showLoader(true, 'Fetching OpenWeatherMap Overlay...');
+                    var owmUrl = 'https://tile.openweathermap.org/map/' + layerCode + '/{z}/{x}/{y}.png?appid=' + weatherApiKey;
+                    
+                    map.addSource('owm-layer', {
+                        type: 'raster',
+                        tiles: [owmUrl],
+                        tileSize: 256
+                    });
+                    map.addLayer({
+                        id: 'owm-layer',
+                        type: 'raster',
+                        source: 'owm-layer',
+                        paint: {
+                            'raster-opacity': 0.7
+                        }
+                    });
+                    
+                    // Add listener to dismiss loader once tiles load
+                    map.once('render', function() {
+                        showLoader(false);
+                    });
+                    setTimeout(function() { showLoader(false); }, 1500); // safety fallback
+                } else {
+                    // Display premium aesthetic fallback and warning toast
+                    if (currentLayerType === 'TEMPERATURE' && map.getLayer('fallback-temperature-layer')) {
+                        map.setPaintProperty('fallback-temperature-layer', 'heatmap-opacity', 0.8);
+                    }
+                    
+                    warningEl.innerHTML = `<strong>${currentLayerType} Satellite Overlay:</strong> Real-time weather satellite tiles require an active OpenWeatherMap API key. Configure it in the AI Studio Secrets panel.`;
+                    warningEl.style.display = 'block';
+
+                    if (window.AndroidMap) {
+                        window.AndroidMap.onApiKeyMissing(currentLayerType);
+                    }
+                }
+            }
+        }
+    </script>
+</body>
+</html>

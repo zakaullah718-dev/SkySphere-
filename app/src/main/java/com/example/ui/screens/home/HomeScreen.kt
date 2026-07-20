@@ -110,6 +110,7 @@ import androidx.compose.material.icons.filled.Psychology
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
 
 @Composable
 fun HomeScreen(
@@ -129,7 +130,7 @@ fun HomeScreen(
         if (isGpsActive) {
             val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-            if (hasFine || hasCoarse) {
+            if ((hasFine || hasCoarse) && LocationManagerCompat.isLocationEnabled(locationManager)) {
                 val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
                 val isNetworkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
                 val provider = when {
@@ -147,7 +148,13 @@ fun HomeScreen(
                         override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
                     }
                     try {
-                        locationManager.requestLocationUpdates(provider, 60000L, 500f, listener)
+                        locationManager.requestLocationUpdates(
+                            provider,
+                            60000L,
+                            500f,
+                            listener,
+                            android.os.Looper.getMainLooper()
+                        )
                     } catch (e: SecurityException) {
                         // ignore
                     }
@@ -233,6 +240,10 @@ private fun fetchGpsLocation(context: Context, locationManager: LocationManager,
         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
     ) {
         try {
+            if (!LocationManagerCompat.isLocationEnabled(locationManager)) {
+                viewModel.setError("GPS location services are disabled on this device. Please turn them on in system settings.")
+                return
+            }
             val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
             val isNetworkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
             val provider = when {
@@ -257,7 +268,8 @@ private fun fetchGpsLocation(context: Context, locationManager: LocationManager,
                         override fun onProviderEnabled(provider: String) {}
                         override fun onProviderDisabled(provider: String) {}
                         override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-                    }
+                    },
+                    android.os.Looper.getMainLooper()
                 )
             } else {
                 viewModel.setError("GPS location services are disabled on this device. Please turn them on in system settings.")
