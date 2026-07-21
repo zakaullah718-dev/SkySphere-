@@ -127,6 +127,8 @@ fun HomeScreen(
     val locationManager = remember { context.getSystemService(Context.LOCATION_SERVICE) as LocationManager }
 
     DisposableEffect(isGpsActive) {
+        var isRegistered = false
+        var activeListener: LocationListener? = null
         if (isGpsActive) {
             val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -147,6 +149,7 @@ fun HomeScreen(
                         override fun onProviderDisabled(p: String) {}
                         override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
                     }
+                    activeListener = listener
                     try {
                         locationManager.requestLocationUpdates(
                             provider,
@@ -155,20 +158,21 @@ fun HomeScreen(
                             listener,
                             android.os.Looper.getMainLooper()
                         )
+                        isRegistered = true
                     } catch (e: SecurityException) {
                         // ignore
                     }
-                    onDispose {
-                        locationManager.removeUpdates(listener)
-                    }
-                } else {
-                    onDispose {}
                 }
-            } else {
-                onDispose {}
             }
-        } else {
-            onDispose {}
+        }
+        onDispose {
+            if (isRegistered && activeListener != null) {
+                try {
+                    locationManager.removeUpdates(activeListener)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
+            }
         }
     }
 
@@ -256,6 +260,7 @@ private fun fetchGpsLocation(context: Context, locationManager: LocationManager,
                 if (lastKnown != null) {
                     viewModel.loadWeatherForCurrentLocation(lastKnown.latitude, lastKnown.longitude)
                 }
+                val handler = android.os.Handler(android.os.Looper.getMainLooper())
                 locationManager.requestLocationUpdates(
                     provider,
                     0L,
@@ -263,7 +268,14 @@ private fun fetchGpsLocation(context: Context, locationManager: LocationManager,
                     object : LocationListener {
                         override fun onLocationChanged(location: Location) {
                             viewModel.loadWeatherForCurrentLocation(location.latitude, location.longitude)
-                            locationManager.removeUpdates(this)
+                            val currentListener = this
+                            handler.post {
+                                try {
+                                    locationManager.removeUpdates(currentListener)
+                                } catch (e: Exception) {
+                                    e.printStackTrace()
+                                }
+                            }
                         }
                         override fun onProviderEnabled(provider: String) {}
                         override fun onProviderDisabled(provider: String) {}

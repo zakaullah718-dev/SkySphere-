@@ -195,6 +195,7 @@ fun MapScreen(
             override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
         }
 
+        var isRegistered = false
         if (hasLocationPermissions && LocationManagerCompat.isLocationEnabled(locationManager)) {
             try {
                 val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -205,15 +206,19 @@ fun MapScreen(
                         LocationManager.GPS_PROVIDER,
                         10000L, // 10 seconds interval
                         10f,    // 10 meters change
-                        listener
+                        listener,
+                        android.os.Looper.getMainLooper()
                     )
+                    isRegistered = true
                 } else if ((hasFine || hasCoarse) && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
                     locationManager.requestLocationUpdates(
                         LocationManager.NETWORK_PROVIDER,
                         10000L,
                         10f,
-                        listener
+                        listener,
+                        android.os.Looper.getMainLooper()
                     )
+                    isRegistered = true
                 }
             } catch (e: SecurityException) {
                 e.printStackTrace()
@@ -221,10 +226,12 @@ fun MapScreen(
         }
 
         onDispose {
-            try {
-                locationManager.removeUpdates(listener)
-            } catch (e: Exception) {
-                e.printStackTrace()
+            if (isRegistered) {
+                try {
+                    locationManager.removeUpdates(listener)
+                } catch (e: Exception) {
+                    e.printStackTrace()
+                }
             }
         }
     }

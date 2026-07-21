@@ -4,9 +4,9 @@
     <meta charset="utf-8" />
     <title>SkySphere Real-Time Weather Radar</title>
     <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
-    <!-- Include Leaflet CSS and JS CDN -->
-    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
-    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <!-- Include Leaflet CSS and JS CDN with cdnjs high-reliability fail-safe fallbacks -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';"></script>
     <style>
         body { margin: 0; padding: 0; background-color: #070913; color: white; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
         #map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; background: #070913; }
@@ -196,19 +196,22 @@
                                   maptilerApiKey !== 'MY_MAPTILER_KEY' && 
                                   maptilerApiKey.trim() !== '');
 
-            var tileUrl = "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png";
+            var tileUrl = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
+            var tileOptions = {
+                maxZoom: 20,
+                tileSize: 256,
+                zoomOffset: 0
+            };
+
             if (isMapTilerValid) {
                 console.log('Upgrading style to MapTiler premium Dark Matter style');
                 tileUrl = "https://api.maptiler.com/maps/darkmatter/256/{z}/{x}/{y}.png?key=" + maptilerApiKey;
             } else {
-                console.log('Using CartoDB Dark Matter default basemap style');
+                console.log('Using CartoDB Dark Matter default basemap style with subdomains');
+                tileOptions.subdomains = 'abcd';
             }
 
-            baseTileLayer = L.tileLayer(tileUrl, {
-                maxZoom: 20,
-                tileSize: 256,
-                zoomOffset: 0
-            }).addTo(map);
+            baseTileLayer = L.tileLayer(tileUrl, tileOptions).addTo(map);
         }
 
         // Bridge function: Centering Map
@@ -488,8 +491,32 @@
             weatherTileLayer = fallbackLayerGroup;
         }
 
-        // Initialize immediately
-        initializeMapEngine();
+        // Safe, asynchronous, high-reliability initialization loader
+        function safeInit() {
+            var attempts = 0;
+            function check() {
+                if (typeof L !== 'undefined') {
+                    console.log('Leaflet (L) library is fully resolved. Initializing mapping engine.');
+                    initializeMapEngine();
+                } else {
+                    attempts++;
+                    console.warn('Leaflet (L) is not defined yet. Retry attempt: ' + attempts + '/50');
+                    if (attempts < 50) {
+                        setTimeout(check, 100);
+                    } else {
+                        showError('Script Load Failure', 'Failed to resolve the Leaflet mapping library (L) from any CDN. Please check your internet connection and try reloading the map.');
+                    }
+                }
+            }
+            check();
+        }
+
+        // Initialize when DOM/scripts are ready
+        if (document.readyState === 'complete' || document.readyState === 'interactive') {
+            safeInit();
+        } else {
+            window.addEventListener('DOMContentLoaded', safeInit);
+        }
     </script>
 </body>
 </html>

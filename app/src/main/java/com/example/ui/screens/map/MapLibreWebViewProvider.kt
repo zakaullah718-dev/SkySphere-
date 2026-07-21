@@ -67,27 +67,46 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                 }
+
+                override fun onReceivedSslError(
+                    view: WebView?,
+                    handler: android.webkit.SslErrorHandler?,
+                    error: android.net.http.SslError?
+                ) {
+                    android.util.Log.w("RadarWebView", "SSL Error inside WebView: ${error?.primaryError}. Proceeding to ensure high reliability.")
+                    handler?.proceed()
+                }
+
+                override fun onReceivedError(
+                    view: WebView?,
+                    request: android.webkit.WebResourceRequest?,
+                    error: android.webkit.WebResourceError?
+                ) {
+                    super.onReceivedError(view, request, error)
+                    android.util.Log.e("RadarWebView", "Resource loading error in WebView: ${error?.description} for URL: ${request?.url}")
+                }
             }
             
             // Safely interface between JS and Kotlin Compose state
-            addJavascriptInterface(object {
-                @JavascriptInterface
-                fun onMapLoaded() {
-                    post { onMapLoaded() }
-                }
+            addJavascriptInterface(
+                MapAppInterface(onMapLoaded, onCoordinatesSelected, onApiKeyMissing),
+                "AndroidMap"
+            )
 
-                @JavascriptInterface
-                fun onCoordinatesSelected(latitude: Double, longitude: Double) {
-                    post { onCoordinatesSelected(latitude, longitude) }
-                }
+            val htmlContent = try {
+                context.assets.open("radar_map.html").bufferedReader().use { it.readText() }
+            } catch (e: Exception) {
+                android.util.Log.e("RadarWebView", "Failed to read radar_map.html from assets folder", e)
+                ""
+            }
 
-                @JavascriptInterface
-                fun onApiKeyMissing(layerName: String) {
-                    post { onApiKeyMissing(layerName) }
-                }
-            }, "AndroidMap")
-
-            loadUrl("file:///android_asset/radar_map.html")
+            loadDataWithBaseURL(
+                "https://applet.weather/",
+                htmlContent,
+                "text/html",
+                "utf-8",
+                null
+            )
         }
         
         webView = newWebView
@@ -123,5 +142,26 @@ class MapLibreWebViewProvider : RadarMapProvider {
         webView?.post {
             webView?.evaluateJavascript("if (typeof setTimelineIndex === 'function') { setTimelineIndex($index); }", null)
         }
+    }
+}
+
+class MapAppInterface(
+    private val onMapLoaded: () -> Unit,
+    private val onCoordinatesSelected: (Double, Double) -> Unit,
+    private val onApiKeyMissing: (String) -> Unit
+) {
+    @JavascriptInterface
+    fun onMapLoaded() {
+        onMapLoaded.invoke()
+    }
+
+    @JavascriptInterface
+    fun onCoordinatesSelected(latitude: Double, longitude: Double) {
+        onCoordinatesSelected.invoke(latitude, longitude)
+    }
+
+    @JavascriptInterface
+    fun onApiKeyMissing(layerName: String) {
+        onApiKeyMissing.invoke(layerName)
     }
 }
