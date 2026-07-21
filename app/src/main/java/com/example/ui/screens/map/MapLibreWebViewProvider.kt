@@ -42,7 +42,8 @@ class MapLibreWebViewProvider : RadarMapProvider {
             e.printStackTrace()
         }
 
-        val newWebView = WebView(context).apply {
+        val wv = WebView(context)
+        wv.apply {
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -70,6 +71,19 @@ class MapLibreWebViewProvider : RadarMapProvider {
 
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
             
+            addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+                val newWidth = right - left
+                val newHeight = bottom - top
+                val oldWidth = oldRight - oldLeft
+                val oldHeight = oldBottom - oldTop
+                if (newWidth > 0 && newHeight > 0 && (newWidth != oldWidth || newHeight != oldHeight)) {
+                    android.util.Log.d("RadarWebView", "WebView layout size changed: ${newWidth}x${newHeight}. Invalidating map size.")
+                    v.postDelayed({
+                        (v as? WebView)?.evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
+                    }, 100)
+                }
+            }
+
             webChromeClient = object : WebChromeClient() {
                 override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
                     consoleMessage?.let {
@@ -92,6 +106,9 @@ class MapLibreWebViewProvider : RadarMapProvider {
 
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    view?.postDelayed({
+                        view.evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
+                    }, 200)
                 }
 
                 override fun onReceivedSslError(
@@ -116,6 +133,9 @@ class MapLibreWebViewProvider : RadarMapProvider {
             addJavascriptInterface(
                 MapAppInterface(
                     onMapLoaded = {
+                        wv.post {
+                            wv.evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
+                        }
                         onMapLoaded.invoke()
                         radarOverlayManager.loadRadarData(CoroutineScope(Dispatchers.Main))
                     },
@@ -146,15 +166,18 @@ class MapLibreWebViewProvider : RadarMapProvider {
             )
         }
         
-        webView = newWebView
-        radarOverlayManager.attachWebView(newWebView)
-        return newWebView
+        webView = wv
+        radarOverlayManager.attachWebView(wv)
+        return wv
     }
 
     override fun setCenter(latitude: Double, longitude: Double, zoom: Float?) {
         val zoomParam = zoom?.toString() ?: "null"
         webView?.post {
             webView?.evaluateJavascript("if (typeof setCenter === 'function') { setCenter($latitude, $longitude, $zoomParam); }", null)
+            webView?.postDelayed({
+                webView?.evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
+            }, 100)
         }
     }
 
@@ -178,6 +201,12 @@ class MapLibreWebViewProvider : RadarMapProvider {
 
     override fun setTimelineIndex(index: Int) {
         radarOverlayManager.setTimelineIndex(index)
+    }
+
+    fun invalidateMapSize() {
+        webView?.post {
+            webView?.evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
+        }
     }
 }
 

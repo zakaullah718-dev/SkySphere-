@@ -3,13 +3,36 @@
 <head>
     <meta charset="utf-8" />
     <title>SkySphere Real-Time Weather Radar</title>
-    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no" />
+    <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no,width=device-width,height=device-height" />
     <!-- Include Leaflet CSS and JS with fail-safe fallbacks -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" onerror="this.onerror=null;this.href='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css';" />
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" onerror="this.onerror=null;this.src='https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js';"></script>
     <style>
-        body { margin: 0; padding: 0; background-color: #070913; color: white; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; overflow: hidden; }
-        #map { position: absolute; top: 0; bottom: 0; width: 100%; height: 100%; background: #070913; }
+        html, body {
+            margin: 0;
+            padding: 0;
+            width: 100vw;
+            height: 100vh;
+            min-width: 100%;
+            min-height: 100%;
+            background-color: #070913;
+            color: white;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            overflow: hidden;
+        }
+        #map {
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            width: 100vw;
+            height: 100vh;
+            min-width: 100%;
+            min-height: 100%;
+            background-color: #070913;
+            z-index: 1;
+        }
         
         /* Premium glowing loader indicator */
         #loader {
@@ -50,6 +73,7 @@
             text-align: center;
             box-shadow: 0 10px 25px rgba(0, 0, 0, 0.5);
             backdrop-filter: blur(12px);
+            pointer-events: none;
             animation: slide-up 0.4s cubic-bezier(0.16, 1, 0.3, 1);
         }
 
@@ -82,6 +106,8 @@
 
         .leaflet-container {
             background: #070913 !important;
+            width: 100% !important;
+            height: 100% !important;
         }
         .leaflet-control-zoom, .leaflet-control-attribution {
             display: none !important;
@@ -109,6 +135,8 @@
 
         var map = null;
         var mapLoaded = false;
+        var baseMapLoadedSuccessfully = false;
+        var pendingRadarDisplay = false;
         var currentLayerType = 'RAINFALL';
         var weatherApiKey = '';
         var maptilerApiKey = '';
@@ -116,6 +144,15 @@
 
         var baseTileLayer = null;
         var nonRadarWeatherTileLayer = null;
+
+        // Basemap fallback providers chain
+        var basemapProviders = [
+            { name: 'CartoDB Dark', url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', subdomains: 'abcd' },
+            { name: 'OpenStreetMap', url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', subdomains: 'abc' },
+            { name: 'CartoDB Voyager', url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png', subdomains: 'abcd' }
+        ];
+        var currentBasemapIndex = 0;
+        var basemapFailedTileCount = 0;
 
         // Radar tile layer caching pool: { [timestamp]: L.TileLayer }
         var radarTileLayers = {};
@@ -129,6 +166,30 @@
 
         function logErrorAndroid(msg) {
             console.error('[RadarOverlayManager] ' + msg);
+        }
+
+        function logDetailedMapState() {
+            if (!map) return;
+            var size = map.getSize();
+            var container = document.getElementById('map');
+            var w = container ? container.clientWidth : 0;
+            var h = container ? container.clientHeight : 0;
+            
+            var layerCount = 0;
+            map.eachLayer(function() { layerCount++; });
+
+            logAndroid('Base map loaded: ' + baseMapLoadedSuccessfully + ' (Provider: ' + basemapProviders[currentBasemapIndex].name + ')');
+            logAndroid('Map size: ' + size.x + 'x' + size.y);
+            logAndroid('WebView size: ' + w + 'x' + h);
+            logAndroid('Layer count: ' + layerCount);
+            logAndroid('Active pane order: basemapPane(200) < radarPane(400) < weatherOverlayPane(450) < markerPane(600)');
+        }
+
+        function invalidateMapSize() {
+            if (map) {
+                map.invalidateSize({ animate: false });
+                logDetailedMapState();
+            }
         }
 
         function showError(title, desc) {
@@ -156,6 +217,8 @@
             try {
                 logAndroid('Radar initialized');
                 
+                var mapContainer = document.getElementById('map');
+                
                 map = L.map('map', {
                     zoomControl: false,
                     attributionControl: false,
@@ -163,7 +226,44 @@
                     maxZoom: 16
                 }).setView([20, 0], 2.2);
 
+                // Setup explicit z-indexed custom panes
+                if (!map.getPane('basemapPane')) {
+                    map.createPane('basemapPane');
+                    map.getPane('basemapPane').style.zIndex = 200;
+                }
+                if (!map.getPane('radarPane')) {
+                    map.createPane('radarPane');
+                    map.getPane('radarPane').style.zIndex = 400;
+                }
+                if (!map.getPane('weatherOverlayPane')) {
+                    map.createPane('weatherOverlayPane');
+                    map.getPane('weatherOverlayPane').style.zIndex = 450;
+                }
+
+                // Attach ResizeObserver to monitor container size changes automatically
+                if (typeof ResizeObserver !== 'undefined') {
+                    var ro = new ResizeObserver(function() {
+                        invalidateMapSize();
+                    });
+                    ro.observe(mapContainer);
+                }
+
+                window.addEventListener('resize', function() {
+                    invalidateMapSize();
+                });
+
+                map.whenReady(function() {
+                    invalidateMapSize();
+                });
+
                 updateBaseMap();
+
+                // Multi-stage timers to handle layout passes during WebView startup
+                [100, 300, 600, 1200].forEach(function(delay) {
+                    setTimeout(function() {
+                        invalidateMapSize();
+                    }, delay);
+                });
 
                 setTimeout(function() {
                     mapLoaded = true;
@@ -199,28 +299,52 @@
                 map.removeLayer(baseTileLayer);
             }
 
+            var provider = basemapProviders[currentBasemapIndex];
             var isMapTilerValid = (maptilerApiKey && 
                                   !maptilerApiKey.includes('PLACEholder') && 
                                   !maptilerApiKey.includes('placeholder') && 
                                   maptilerApiKey !== 'MY_MAPTILER_KEY' && 
                                   maptilerApiKey.trim() !== '');
 
-            var tileUrl = "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png";
+            var tileUrl = provider.url;
             var tileOptions = {
                 maxZoom: 20,
                 tileSize: 256,
                 crossOrigin: false,
-                subdomains: 'abcd'
+                subdomains: provider.subdomains,
+                pane: 'basemapPane'
             };
 
-            if (isMapTilerValid) {
+            if (isMapTilerValid && currentBasemapIndex === 0) {
                 tileUrl = "https://api.maptiler.com/maps/darkmatter/256/{z}/{x}/{y}.png?key=" + maptilerApiKey;
                 tileOptions.subdomains = [];
             }
 
+            logAndroid('Initializing basemap with provider: ' + provider.name);
             baseTileLayer = L.tileLayer(tileUrl, tileOptions).addTo(map);
+
+            baseTileLayer.on('tileload', function(e) {
+                var srcUrl = e.tile ? e.tile.src : 'unknown';
+                baseMapLoadedSuccessfully = true;
+                logAndroid('Base map loaded: ' + srcUrl);
+                if (pendingRadarDisplay) {
+                    pendingRadarDisplay = false;
+                    displayFrameAtIndex(activeTimelineIndex);
+                }
+            });
+
             baseTileLayer.on('tileerror', function(e) {
-                logErrorAndroid('Basemap tile failed to load URL: ' + (e.tile ? e.tile.src : 'unknown'));
+                var srcUrl = e.tile ? e.tile.src : 'unknown';
+                logErrorAndroid('Base map failed: ' + srcUrl);
+                basemapFailedTileCount++;
+                
+                // Fallback to next provider if current basemap provider fails
+                if (basemapFailedTileCount >= 3 && currentBasemapIndex < basemapProviders.length - 1) {
+                    basemapFailedTileCount = 0;
+                    currentBasemapIndex++;
+                    logAndroid('Primary basemap failed. Automatically failing over to fallback basemap: ' + basemapProviders[currentBasemapIndex].name);
+                    updateBaseMap();
+                }
             });
         }
 
@@ -229,6 +353,7 @@
             var currentZoom = zoom || map.getZoom();
             map.flyTo([lat, lon], currentZoom, { animate: true, duration: 1.5 });
             updateSelectedMarker(lat, lon);
+            invalidateMapSize();
         }
 
         function updateSelectedMarker(lat, lon) {
@@ -367,30 +492,33 @@
                         opacity: 0, // initially hidden
                         maxZoom: 18,
                         tileSize: 256,
-                        crossOrigin: false // Prevents ORB cross-origin issues in WebView
+                        crossOrigin: false,
+                        pane: 'radarPane'
                     }).addTo(map);
 
-                    // Add robust error handling & retries
+                    // Add robust error handling & retries with exponential backoff
                     layer.on('tileerror', function(e) {
-                        var tileUrl = e.tile ? e.tile.src : 'unknown';
-                        var retryCount = (e.tile._retryCount || 0) + 1;
-                        e.tile._retryCount = retryCount;
+                        var tile = e.tile;
+                        if (!tile) return;
+                        var tileUrl = tile.src || 'unknown';
+                        var retryCount = (tile._retryCount || 0) + 1;
+                        tile._retryCount = retryCount;
 
-                        logErrorAndroid('Tile load failed: ' + tileUrl + ' (Attempt ' + retryCount + ')');
+                        logErrorAndroid('Radar tile failed: ' + tileUrl + ' (Attempt ' + retryCount + ')');
                         if (window.AndroidRadar) {
                             window.AndroidRadar.onTileError(tileUrl, retryCount);
                         }
 
-                        if (retryCount <= 3) {
-                            var delayMs = retryCount * 1000;
+                        if (retryCount <= 4) {
+                            var delayMs = Math.pow(2, retryCount - 1) * 1000;
                             logAndroid('Retrying... tile download in ' + delayMs + 'ms');
                             if (window.AndroidRadar) {
                                 window.AndroidRadar.onRetryingTile(tileUrl, delayMs);
                             }
                             setTimeout(function() {
-                                if (e.tile) {
+                                if (tile && tile.parentNode) {
                                     var cleanUrl = tileUrl.split('?')[0];
-                                    e.tile.src = cleanUrl + '?retry=' + Date.now();
+                                    tile.src = cleanUrl + '?retry=' + Date.now() + '_' + Math.random();
                                 }
                             }, delayMs);
                         }
@@ -398,7 +526,7 @@
 
                     layer.on('tileload', function(e) {
                         var tileUrl = e.tile ? e.tile.src : 'unknown';
-                        logAndroid('Tile loaded successfully: ' + tileUrl);
+                        logAndroid('Radar tile loaded: ' + tileUrl);
                         if (window.AndroidRadar) {
                             window.AndroidRadar.onTileLoaded(tileUrl);
                         }
@@ -441,6 +569,8 @@
                     layer.setOpacity(0);
                 }
             });
+
+            logDetailedMapState();
         }
 
         function showLoader(visible, text) {
@@ -489,7 +619,8 @@
                         opacity: 0.75,
                         maxZoom: 18,
                         tileSize: 256,
-                        crossOrigin: false
+                        crossOrigin: false,
+                        pane: 'weatherOverlayPane'
                     }).addTo(map);
 
                     nonRadarWeatherTileLayer.on('load', function() { showLoader(false); });
@@ -507,7 +638,7 @@
             if (fallbackLayerGroup) {
                 map.removeLayer(fallbackLayerGroup);
             }
-            fallbackLayerGroup = L.layerGroup().addTo(map);
+            fallbackLayerGroup = L.layerGroup({ pane: 'weatherOverlayPane' }).addTo(map);
 
             if (currentLayerType === 'TEMPERATURE') {
                 L.circle([30, -40], { color: 'transparent', fillColor: '#FF5722', fillOpacity: 0.25, radius: 2500000 }).addTo(fallbackLayerGroup);

@@ -46,7 +46,9 @@ class RadarTileProxy(private val context: Context) {
         val isWeatherTile = url.contains("openweathermap.org") || 
                            url.contains("cartocdn.com") || 
                            url.contains("maptiler.com") || 
-                           url.contains("unpkg.com")
+                           url.contains("unpkg.com") ||
+                           url.contains("openstreetmap.org") ||
+                           url.contains("cdnjs.cloudflare.com")
 
         if (!isRainViewer && !isWeatherTile) {
             return null
@@ -73,7 +75,12 @@ class RadarTileProxy(private val context: Context) {
                     "Cache-Control" to "public, max-age=86400"
                 )
 
-                Log.d("RadarTileProxy", "Tile loaded successfully: $url")
+                if (isRainViewer) {
+                    Log.d("RadarTileProxy", "Radar tile loaded: $url")
+                } else {
+                    Log.d("RadarTileProxy", "Base map loaded: $url")
+                }
+
                 WebResourceResponse(
                     mimeType,
                     "UTF-8",
@@ -83,11 +90,19 @@ class RadarTileProxy(private val context: Context) {
                     ByteArrayInputStream(bytes)
                 )
             } else {
-                Log.w("RadarTileProxy", "Tile load failed: $url (HTTP ${response.code})")
+                if (isRainViewer) {
+                    Log.w("RadarTileProxy", "Radar tile failed: $url (HTTP ${response.code})")
+                } else {
+                    Log.w("RadarTileProxy", "Base map failed: $url (HTTP ${response.code})")
+                }
                 null
             }
         } catch (e: Exception) {
-            Log.e("RadarTileProxy", "Retrying... tile download exception for $url: ${e.localizedMessage}")
+            if (isRainViewer) {
+                Log.e("RadarTileProxy", "Radar tile failed: $url - ${e.localizedMessage}")
+            } else {
+                Log.e("RadarTileProxy", "Base map failed: $url - ${e.localizedMessage}")
+            }
             null
         }
     }
