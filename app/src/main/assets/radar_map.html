@@ -75,11 +75,19 @@
     <div id="api-warning"></div>
 
     <script>
+        // Performance optimization: Use passive touch event listeners
+        document.addEventListener('touchstart', function() {}, {passive: true});
+        document.addEventListener('touchmove', function() {}, {passive: true});
+
         var currentGpsMarker = null;
         var mapLoaded = false;
         var currentLayerType = 'RAINFALL';
         var weatherApiKey = '';
+        var maptilerApiKey = '';
         var selectedCoordinates = null;
+
+        // Optimize WebGL rendering on mobile by limiting max pixel ratio to 2.0 (stops GPU throttling)
+        var maxPixelRatio = Math.min(window.devicePixelRatio || 1, 2.0);
 
         // Initialize MapLibre Map with CartoDB Dark Matter beautiful vector style
         var map = new maplibregl.Map({
@@ -90,7 +98,8 @@
             minZoom: 1,
             maxZoom: 16,
             attributionControl: false,
-            antialias: true
+            antialias: true,
+            pixelRatio: maxPixelRatio
         });
 
         map.on('load', function() {
@@ -161,11 +170,25 @@
             updateSelectedMarker(lat, lon);
         }
 
-        // Bridge function: Sync API key
+        // Bridge function: Sync Weather API key
         function setWeatherApiKey(key) {
             weatherApiKey = key;
             if (mapLoaded) {
                 updateWeatherLayers();
+            }
+        }
+
+        // Bridge function: Sync MapTiler API Key
+        function setMapTilerApiKey(key) {
+            var isKeyValid = (key && 
+                              key !== 'PLACEholder_MAPTILER_API_KEY' && 
+                              key !== 'MY_MAPTILER_KEY' && 
+                              key.trim() !== '');
+            if (isKeyValid && key !== maptilerApiKey) {
+                maptilerApiKey = key;
+                if (map) {
+                    map.setStyle('https://api.maptiler.com/maps/darkmatter/style.json?key=' + maptilerApiKey);
+                }
             }
         }
 
@@ -176,6 +199,13 @@
                 updateWeatherLayers();
             }
         }
+
+        // Auto-refresh layers automatically every 5 minutes
+        setInterval(function() {
+            if (mapLoaded) {
+                updateWeatherLayers();
+            }
+        }, 300000);
 
         // Show/hide custom loader
         function showLoader(visible, text) {

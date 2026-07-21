@@ -16,6 +16,9 @@ import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -75,6 +78,13 @@ fun MapScreen(
     
     // GPS and location status
     var currentGpsCoords by remember { mutableStateOf<Pair<Double, Double>?>(null) }
+    var hasCentredInitially by remember { mutableStateOf(false) }
+    var hasLocationPermissions by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        )
+    }
     
     // Bottom detail inspection sheet
     var inspectedWeather by remember { mutableStateOf<CityWeather?>(null) }
@@ -152,20 +162,66 @@ fun MapScreen(
     ) { permissions ->
         val fineGranted = permissions[Manifest.permission.ACCESS_FINE_LOCATION] == true
         val coarseGranted = permissions[Manifest.permission.ACCESS_COARSE_LOCATION] == true
-        if ((fineGranted || coarseGranted) && LocationManagerCompat.isLocationEnabled(locationManager)) {
-            try {
-                val provider = when {
-                    locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
-                    locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
-                    else -> null
-                }
-                if (provider != null) {
-                    val loc = locationManager.getLastKnownLocation(provider)
-                    if (loc != null) {
-                        currentGpsCoords = Pair(loc.latitude, loc.longitude)
+        if (fineGranted || coarseGranted) {
+            hasLocationPermissions = true
+            if (LocationManagerCompat.isLocationEnabled(locationManager)) {
+                try {
+                    val provider = when {
+                        locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) -> LocationManager.GPS_PROVIDER
+                        locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) -> LocationManager.NETWORK_PROVIDER
+                        else -> null
                     }
+                    if (provider != null) {
+                        val loc = locationManager.getLastKnownLocation(provider)
+                        if (loc != null) {
+                            currentGpsCoords = Pair(loc.latitude, loc.longitude)
+                        }
+                    }
+                } catch (e: SecurityException) {
+                    e.printStackTrace()
+                }
+            }
+        }
+    }
+
+    // Dynamic Location Tracking with precise listeners and cleanup to optimize battery/memory
+    DisposableEffect(locationManager, hasLocationPermissions) {
+        val listener = object : LocationListener {
+            override fun onLocationChanged(location: Location) {
+                currentGpsCoords = Pair(location.latitude, location.longitude)
+            }
+            override fun onProviderEnabled(provider: String) {}
+            override fun onProviderDisabled(provider: String) {}
+            override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
+        }
+
+        if (hasLocationPermissions && LocationManagerCompat.isLocationEnabled(locationManager)) {
+            try {
+                if (locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                    locationManager.requestLocationUpdates(
+                        LocationManager.GPS_PROVIDER,
+                        10000L, // 10 seconds interval
+                        10f,    // 10 meters change
+                        listener
+                    )
+                }
+                if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                    locationManager.requestLocationUpdates(
+                        LocationManager.NETWORK_PROVIDER,
+                        10000L,
+                        10f,
+                        listener
+                    )
                 }
             } catch (e: SecurityException) {
+                e.printStackTrace()
+            }
+        }
+
+        onDispose {
+            try {
+                locationManager.removeUpdates(listener)
+            } catch (e: Exception) {
                 e.printStackTrace()
             }
         }
@@ -176,6 +232,7 @@ fun MapScreen(
         val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (fineGranted || coarseGranted) {
+            hasLocationPermissions = true
             if (LocationManagerCompat.isLocationEnabled(locationManager)) {
                 try {
                     val provider = when {
@@ -204,6 +261,7 @@ fun MapScreen(
     LaunchedEffect(isMapReady) {
         if (isMapReady) {
             mapProvider.setWeatherApiKey(BuildConfig.WEATHER_API_KEY)
+            mapProvider.setMapTilerApiKey(BuildConfig.MAPTILER_API_KEY)
             mapProvider.setWeatherLayer(selectedLayer)
         }
     }
@@ -216,15 +274,17 @@ fun MapScreen(
 
     // Primary FlyTo centering effect
     LaunchedEffect(isMapReady, currentGpsCoords) {
-        if (isMapReady) {
+        if (isMapReady && !hasCentredInitially) {
             val gps = currentGpsCoords
             if (gps != null) {
+                hasCentredInitially = true
                 mapProvider.setCenter(gps.first, gps.second, 5.0f)
                 triggerCoordinateFetch(gps.first, gps.second, "CURRENT LOCATION")
             } else {
                 // Denied or off: fly to last selected city
                 val lastCity = repository.selectedCity.value
                 if (lastCity.cityName != "Loading...") {
+                    hasCentredInitially = true
                     val lat = lastCity.latitude ?: 40.7128
                     val lon = lastCity.longitude ?: -74.0060
                     mapProvider.setCenter(lat, lon, 4.5f)
@@ -235,6 +295,7 @@ fun MapScreen(
                     inspectedWeather = lastCity
                 } else {
                     // absolute default fallback to London
+                    hasCentredInitially = true
                     mapProvider.setCenter(51.5074, -0.1278, 4.0f)
                     activeLocationHeader = "LONDON, UK"
                 }
@@ -387,6 +448,29 @@ fun MapScreen(
                 .fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically
         ) {
+            val performSearchAction = {
+                val query = searchQuery.trim()
+                if (query.isNotEmpty()) {
+                    val match = mapCities.find { it.name.equals(query, ignoreCase = true) }
+                    if (match != null) {
+                        mapProvider.setCenter(match.lat.toDouble(), match.lon.toDouble(), 7.0f)
+                        triggerCoordinateFetch(match.lat.toDouble(), match.lon.toDouble(), match.name)
+                    } else {
+                        // Query dynamic geocoding fetch from current live API
+                        coroutineScope.launch {
+                            val res = repository.fetchWeatherFromApi(query, forceRefresh = true)
+                            res.onSuccess { cw ->
+                                val lat = cw.latitude ?: 30.0
+                                val lon = cw.longitude ?: 0.0
+                                mapProvider.setCenter(lat, lon, 7.0f)
+                                triggerCoordinateFetch(lat, lon, cw.cityName)
+                            }
+                        }
+                    }
+                    searchQuery = ""
+                }
+            }
+
             Box(
                 modifier = Modifier
                     .weight(1f)
@@ -413,6 +497,8 @@ fun MapScreen(
                         onValueChange = { searchQuery = it },
                         textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
                         singleLine = true,
+                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                        keyboardActions = KeyboardActions(onSearch = { performSearchAction() }),
                         modifier = Modifier
                             .weight(1f)
                             .testTag("map_search_textfield"),
@@ -430,25 +516,7 @@ fun MapScreen(
                     )
                     if (searchQuery.isNotEmpty()) {
                         IconButton(
-                            onClick = {
-                                val match = mapCities.find { it.name.equals(searchQuery, ignoreCase = true) }
-                                if (match != null) {
-                                    mapProvider.setCenter(match.lat.toDouble(), match.lon.toDouble(), 7.0f)
-                                    triggerCoordinateFetch(match.lat.toDouble(), match.lon.toDouble(), match.name)
-                                } else {
-                                    // Query dynamic geocoding fetch from current live API
-                                    coroutineScope.launch {
-                                        val res = repository.fetchWeatherFromApi(searchQuery, forceRefresh = true)
-                                        res.onSuccess { cw ->
-                                            val lat = cw.latitude ?: 30.0
-                                            val lon = cw.longitude ?: 0.0
-                                            mapProvider.setCenter(lat, lon, 7.0f)
-                                            triggerCoordinateFetch(lat, lon, cw.cityName)
-                                        }
-                                    }
-                                }
-                                searchQuery = ""
-                            }
+                            onClick = { performSearchAction() }
                         ) {
                             Icon(
                                 imageVector = Icons.Filled.ArrowForward,

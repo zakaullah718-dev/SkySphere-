@@ -100,4 +100,10 @@ class MapLibreWebViewProvider : RadarMapProvider {
             webView?.evaluateJavascript("if (typeof setWeatherApiKey === 'function') { setWeatherApiKey('$apiKey'); }", null)
         }
     }
+
+    override fun setMapTilerApiKey(apiKey: String) {
+        webView?.post {
+            webView?.evaluateJavascript("if (typeof setMapTilerApiKey === 'function') { setMapTilerApiKey('$apiKey'); }", null)
+        }
+    }
 }

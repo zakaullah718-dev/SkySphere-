@@ -35,6 +35,11 @@ interface RadarMapProvider {
      * Securely injects the environment API key to fetch premium layers.
      */
     fun setWeatherApiKey(apiKey: String)
+
+    /**
+     * Securely injects the MapTiler API key to fetch high-performance vector basemaps.
+     */
+    fun setMapTilerApiKey(apiKey: String)
 }
 
 /**
