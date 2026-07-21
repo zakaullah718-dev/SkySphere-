@@ -74,8 +74,23 @@
     <div id="loader">Fetching Doppler Radar...</div>
     <div id="api-warning"></div>
 
+    <!-- Error/Fallback visual overlay -->
+    <div id="error-overlay" style="position: absolute; top: 0; bottom: 0; left: 0; right: 0; background-color: #070913; display: none; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 24px; z-index: 2000; font-family: sans-serif;">
+        <div style="font-size: 54px; margin-bottom: 20px;">🌐</div>
+        <div style="font-size: 20px; font-weight: bold; color: #FF5252; margin-bottom: 12px;" id="error-title">Map Interface Unreachable</div>
+        <div style="font-size: 14px; color: #A0AEC0; max-width: 300px; line-height: 1.6; margin-bottom: 24px;" id="error-desc">Initializing map telemetry engine...</div>
+        <button onclick="window.location.reload();" style="background: rgba(0, 229, 255, 0.15); border: 1px solid #00E5FF; color: #00E5FF; padding: 10px 24px; border-radius: 20px; font-size: 13px; font-weight: bold; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;">Reload Map</button>
+    </div>
+
     <script>
-        // Performance optimization: Use passive touch event listeners
+        // High-reliability global error boundary logger
+        window.onerror = function(message, source, lineno, colno, error) {
+            var errStr = message + ' at ' + (source || 'unknown') + ':' + lineno;
+            console.error('JS Uncaught Error Boundary: ' + errStr);
+            return false;
+        };
+
+        // Passive scroll listeners to boost mobile FPS
         document.addEventListener('touchstart', function() {}, {passive: true});
         document.addEventListener('touchmove', function() {}, {passive: true});
 
@@ -85,49 +100,129 @@
         var weatherApiKey = '';
         var maptilerApiKey = '';
         var selectedCoordinates = null;
+        var map = null;
 
-        // Optimize WebGL rendering on mobile by limiting max pixel ratio to 2.0 (stops GPU throttling)
-        var maxPixelRatio = Math.min(window.devicePixelRatio || 1, 2.0);
+        // Custom Error UI Handler
+        function showError(title, desc) {
+            console.error('Displaying Map Error Overlay: ' + title + ' - ' + desc);
+            document.getElementById('loader').style.display = 'none';
+            document.getElementById('error-title').innerText = title;
+            document.getElementById('error-desc').innerText = desc;
+            document.getElementById('error-overlay').style.display = 'flex';
+        }
 
-        // Initialize MapLibre Map with CartoDB Dark Matter beautiful vector style
-        var map = new maplibregl.Map({
-            container: 'map',
-            style: 'https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json',
-            center: [0, 20],
-            zoom: 2.2,
-            minZoom: 1,
-            maxZoom: 16,
-            attributionControl: false,
-            antialias: true,
-            pixelRatio: maxPixelRatio
-        });
-
-        map.on('load', function() {
-            mapLoaded = true;
-            
-            // Add custom visual contour/streamline fallbacks when API keys are absent
-            setupVisualFallbackLayers();
-
-            if (window.AndroidMap) {
-                window.AndroidMap.onMapLoaded();
+        // WebGL Presence detector
+        function isWebGLSupported() {
+            try {
+                var canvas = document.createElement('canvas');
+                return !!(window.WebGLRenderingContext && (canvas.getContext('webgl') || canvas.getContext('experimental-webgl')));
+            } catch (e) {
+                console.error('WebGL check exception:', e);
+                return false;
             }
-            updateWeatherLayers();
-        });
+        }
 
-        // Click handler to select coordinates and query the micro-climate data
-        map.on('click', function(e) {
-            var lat = e.lngLat.lat;
-            var lon = e.lngLat.wrap().lng;
-            selectedCoordinates = { lat: lat, lon: lon };
-            
-            updateSelectedMarker(lat, lon);
+        if (!isWebGLSupported()) {
+            showError('WebGL Unsupported', 'Your mobile device does not support WebGL or hardware acceleration. Please check your developer settings.');
+        } else {
+            initializeMapEngine();
+        }
 
-            if (window.AndroidMap) {
-                window.AndroidMap.onCoordinatesSelected(lat, lon);
+        function initializeMapEngine() {
+            try {
+                // Limit pixel ratio to max 2.0 to avoid heavy GPU shading on low-end hardware
+                var maxPixelRatio = Math.min(window.devicePixelRatio || 1, 2.0);
+
+                // ULTRA-RELIABLE BULLETPROOF BASEMAP TECHNIQUE:
+                // Define local inline raster basemap style object using globally-free CartoDB Dark Matter tiles.
+                // This has 0 external network round-trips for 'style.json', avoiding local CORS / file:/// restrictions.
+                var localCartoStyle = {
+                    "version": 8,
+                    "sources": {
+                        "carto-dark": {
+                            "type": "raster",
+                            "tiles": [
+                                "https://basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                                "https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                                "https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png",
+                                "https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png"
+                            ],
+                            "tileSize": 256,
+                            "attribution": "© OpenStreetMap contributors, © CARTO"
+                        }
+                    },
+                    "layers": [
+                        {
+                            "id": "carto-dark-layer",
+                            "type": "raster",
+                            "source": "carto-dark",
+                            "minzoom": 0,
+                            "maxzoom": 20
+                        }
+                    ]
+                };
+
+                console.log('Initializing MapLibre engine with high-reliability local style');
+                map = new maplibregl.Map({
+                    container: 'map',
+                    style: localCartoStyle,
+                    center: [0, 20],
+                    zoom: 2.2,
+                    minZoom: 1,
+                    maxZoom: 16,
+                    attributionControl: false,
+                    antialias: true,
+                    pixelRatio: maxPixelRatio
+                });
+
+                // Fail-safe load timeout check
+                setTimeout(function() {
+                    if (!mapLoaded) {
+                        console.warn('MapLibre load event timed out. Ensuring UI displays properly.');
+                        // If we are still not loaded, trigger manual load callback to allow fallback overlays
+                        mapLoaded = true;
+                        setupVisualFallbackLayers();
+                        if (window.AndroidMap) {
+                            window.AndroidMap.onMapLoaded();
+                        }
+                        updateWeatherLayers();
+                    }
+                }, 8000);
+
+                map.on('load', function() {
+                    console.log('MapLibre engine loaded successfully');
+                    mapLoaded = true;
+                    setupVisualFallbackLayers();
+
+                    if (window.AndroidMap) {
+                        window.AndroidMap.onMapLoaded();
+                    }
+                    updateWeatherLayers();
+                });
+
+                map.on('error', function(e) {
+                    console.error('MapLibre core engine error event:', e);
+                });
+
+                // Map Click Listener
+                map.on('click', function(e) {
+                    var lat = e.lngLat.lat;
+                    var lon = e.lngLat.wrap().lng;
+                    selectedCoordinates = { lat: lat, lon: lon };
+                    updateSelectedMarker(lat, lon);
+                    if (window.AndroidMap) {
+                        window.AndroidMap.onCoordinatesSelected(lat, lon);
+                    }
+                });
+
+            } catch (ex) {
+                console.error('MapLibre creation threw exception:', ex);
+                showError('Crash Detected', 'Failed to compile or instantiate map engine: ' + ex.message);
             }
-        });
+        }
 
         function updateSelectedMarker(lat, lon) {
+            if (!map) return;
             if (currentGpsMarker) {
                 currentGpsMarker.remove();
             }
@@ -142,7 +237,7 @@
             el.style.boxShadow = '0 0 12px #00E5FF';
             el.style.animation = 'pulse 1.5s infinite';
 
-            // Create simple pulse animation dynamically
+            // Pulse animation style declaration
             var style = document.createElement('style');
             style.innerHTML = `
                 @keyframes pulse {
@@ -160,12 +255,13 @@
 
         // Bridge function: Centering Map
         function setCenter(lat, lon, zoom) {
+            if (!map) return;
             map.flyTo({
                 center: [lon, lat],
                 zoom: zoom || map.getZoom(),
                 essential: true,
-                speed: 1.6,
-                curve: 1.2
+                speed: 1.5,
+                curve: 1.1
             });
             updateSelectedMarker(lat, lon);
         }
@@ -173,20 +269,24 @@
         // Bridge function: Sync Weather API key
         function setWeatherApiKey(key) {
             weatherApiKey = key;
+            console.log('Syncing Weather API Key to map: ' + (key ? 'PRESENT (len: ' + key.length + ')' : 'ABSENT'));
             if (mapLoaded) {
                 updateWeatherLayers();
             }
         }
 
-        // Bridge function: Sync MapTiler API Key
+        // Bridge function: Sync MapTiler API Key (Premium High Performance Base Map Upgrade)
         function setMapTilerApiKey(key) {
             var isKeyValid = (key && 
-                              key !== 'PLACEholder_MAPTILER_API_KEY' && 
+                              !key.includes('PLACEholder') && 
+                              !key.includes('placeholder') && 
                               key !== 'MY_MAPTILER_KEY' && 
                               key.trim() !== '');
+            console.log('Syncing MapTiler Key: ' + (isKeyValid ? 'VALID' : 'INVALID/ABSENT'));
             if (isKeyValid && key !== maptilerApiKey) {
                 maptilerApiKey = key;
                 if (map) {
+                    console.log('Upgrading style to MapTiler premium Dark Matter style');
                     map.setStyle('https://api.maptiler.com/maps/darkmatter/style.json?key=' + maptilerApiKey);
                 }
             }
@@ -195,6 +295,7 @@
         // Bridge function: Switch layers
         function setWeatherLayer(layerType) {
             currentLayerType = layerType;
+            console.log('Switching weather overlay to: ' + layerType);
             if (mapLoaded) {
                 updateWeatherLayers();
             }
@@ -216,59 +317,72 @@
 
         // Setup gorgeous static canvas fallbacks for premium look-and-feel if keys are missing
         function setupVisualFallbackLayers() {
-            // Add sources for visual heat maps
-            map.addSource('fallback-temperature', {
-                type: 'geojson',
-                data: {
-                    type: 'FeatureCollection',
-                    features: [
-                        { type: 'Feature', properties: { temp: 35 }, geometry: { type: 'Point', coordinates: [0, 0] } },
-                        { type: 'Feature', properties: { temp: 28 }, geometry: { type: 'Point', coordinates: [12, 41] } },
-                        { type: 'Feature', properties: { temp: 22 }, geometry: { type: 'Point', coordinates: [-74, 40] } },
-                        { type: 'Feature', properties: { temp: 30 }, geometry: { type: 'Point', coordinates: [77, 19] } },
-                        { type: 'Feature', properties: { temp: 15 }, geometry: { type: 'Point', coordinates: [37, 55] } },
-                        { type: 'Feature', properties: { temp: 5 }, geometry: { type: 'Point', coordinates: [-21, 64] } },
-                        { type: 'Feature', properties: { temp: 32 }, geometry: { type: 'Point', coordinates: [55, 25] } }
-                    ]
-                }
-            });
+            if (!map) return;
+            try {
+                // Ensure unique source
+                if (map.getSource('fallback-temperature')) return;
 
-            // We can draw a beautiful glow overlay
-            map.addLayer({
-                id: 'fallback-temperature-layer',
-                type: 'heatmap',
-                source: 'fallback-temperature',
-                maxzoom: 9,
-                paint: {
-                    'heatmap-weight': {
-                        type: 'exponential',
-                        properties: 'temp',
-                        stops: [[0, 0], [40, 1.2]]
-                    },
-                    'heatmap-intensity': 1.5,
-                    'heatmap-color': [
-                        'interpolate',
-                        ['linear'],
-                        ['heatmap-density'],
-                        0, 'rgba(0, 229, 255, 0)',
-                        0.3, 'rgba(33, 150, 243, 0.15)',
-                        0.6, 'rgba(255, 112, 67, 0.25)',
-                        0.9, 'rgba(244, 67, 54, 0.35)'
-                    ],
-                    'heatmap-radius': 180,
-                    'heatmap-opacity': 0
-                }
-            });
+                map.addSource('fallback-temperature', {
+                    type: 'geojson',
+                    data: {
+                        type: 'FeatureCollection',
+                        features: [
+                            { type: 'Feature', properties: { temp: 35 }, geometry: { type: 'Point', coordinates: [0, 0] } },
+                            { type: 'Feature', properties: { temp: 28 }, geometry: { type: 'Point', coordinates: [12, 41] } },
+                            { type: 'Feature', properties: { temp: 22 }, geometry: { type: 'Point', coordinates: [-74, 40] } },
+                            { type: 'Feature', properties: { temp: 30 }, geometry: { type: 'Point', coordinates: [77, 19] } },
+                            { type: 'Feature', properties: { temp: 15 }, geometry: { type: 'Point', coordinates: [37, 55] } },
+                            { type: 'Feature', properties: { temp: 5 }, geometry: { type: 'Point', coordinates: [-21, 64] } },
+                            { type: 'Feature', properties: { temp: 32 }, geometry: { type: 'Point', coordinates: [55, 25] } }
+                        ]
+                    }
+                });
+
+                map.addLayer({
+                    id: 'fallback-temperature-layer',
+                    type: 'heatmap',
+                    source: 'fallback-temperature',
+                    maxzoom: 9,
+                    paint: {
+                        'heatmap-weight': {
+                            type: 'exponential',
+                            properties: 'temp',
+                            stops: [[0, 0], [40, 1.2]]
+                        },
+                        'heatmap-intensity': 1.5,
+                        'heatmap-color': [
+                            'interpolate',
+                            ['linear'],
+                            ['heatmap-density'],
+                            0, 'rgba(0, 229, 255, 0)',
+                            0.3, 'rgba(33, 150, 243, 0.15)',
+                            0.6, 'rgba(255, 112, 67, 0.25)',
+                            0.9, 'rgba(244, 67, 54, 0.35)'
+                        ],
+                        'heatmap-radius': 180,
+                        'heatmap-opacity': 0
+                    }
+                });
+            } catch (err) {
+                console.error('Error in setupVisualFallbackLayers:', err);
+            }
         }
 
         // Core weather overlay rendering manager
         function updateWeatherLayers() {
+            if (!map) return;
             var warningEl = document.getElementById('api-warning');
             warningEl.style.display = 'none';
 
-            // Reset fallbacks and live sources
-            if (map.getLayer('rain-radar')) { map.removeLayer('rain-radar'); map.removeSource('rain-radar'); }
-            if (map.getLayer('owm-layer')) { map.removeLayer('owm-layer'); map.removeSource('owm-layer'); }
+            // Reset fallbacks and live sources safely
+            try {
+                if (map.getLayer('rain-radar')) { map.removeLayer('rain-radar'); }
+                if (map.getSource('rain-radar')) { map.removeSource('rain-radar'); }
+                if (map.getLayer('owm-layer')) { map.removeLayer('owm-layer'); }
+                if (map.getSource('owm-layer')) { map.removeSource('owm-layer'); }
+            } catch (e) {
+                console.error('Cleaning up layers threw exception:', e);
+            }
             
             // Set fallback opacity to 0
             if (map.getLayer('fallback-temperature-layer')) {
@@ -276,7 +390,8 @@
             }
 
             var isApiKeyValid = (weatherApiKey && 
-                                 weatherApiKey !== 'PLACEholder_WEATHER_API_KEY' && 
+                                 !weatherApiKey.includes('PLACEholder') && 
+                                 !weatherApiKey.includes('placeholder') && 
                                  weatherApiKey !== 'MY_WEATHER_KEY' && 
                                  weatherApiKey.trim() !== '');
 
@@ -284,13 +399,17 @@
                 // RainViewer radar map: Completely FREE and REAL live active radar telemetry data!
                 showLoader(true, 'Connecting to RainViewer Live Doppler Radar...');
                 fetch('https://api.rainviewer.com/public/weather-maps.json')
-                    .then(response => response.json())
+                    .then(response => {
+                        if (!response.ok) throw new Error('HTTP Status ' + response.status);
+                        return response.json();
+                    })
                     .then(data => {
                         showLoader(false);
                         if (data && data.radar && data.radar.past && data.radar.past.length > 0) {
                             var latest = data.radar.past[data.radar.past.length - 1];
                             var radarTileUrl = 'https://tilecache.rainviewer.com/v2/radar/' + latest.time + '/256/{z}/{x}/{y}/2/1_1.png';
 
+                            console.log('Loading live RainViewer radar overlay with timestamp ' + latest.time);
                             map.addSource('rain-radar', {
                                 type: 'raster',
                                 tiles: [radarTileUrl],
@@ -304,11 +423,15 @@
                                     'raster-opacity': 0.8
                                 }
                             });
+                        } else {
+                            console.warn('RainViewer response contained empty or invalid radar data');
                         }
                     })
                     .catch(err => {
                         showLoader(false);
-                        console.error('RainViewer active radar sync failed', err);
+                        console.error('RainViewer active radar sync failed:', err);
+                        warningEl.innerHTML = `<strong>Radar Connection Issue:</strong> Unable to load live RainViewer Doppler radar tiles. Please verify network connection.`;
+                        warningEl.style.display = 'block';
                     });
             } else {
                 // OpenWeatherMap Real Overlays
@@ -325,6 +448,7 @@
                 if (isApiKeyValid) {
                     showLoader(true, 'Fetching OpenWeatherMap Overlay...');
                     var owmUrl = 'https://tile.openweathermap.org/map/' + layerCode + '/{z}/{x}/{y}.png?appid=' + weatherApiKey;
+                    console.log('Loading OpenWeatherMap ' + currentLayerType + ' layer with OWM API Key');
                     
                     map.addSource('owm-layer', {
                         type: 'raster',
@@ -346,6 +470,7 @@
                     });
                     setTimeout(function() { showLoader(false); }, 1500); // safety fallback
                 } else {
+                    console.warn('Weather API Key missing. Activating aesthetic fallbacks.');
                     // Display premium aesthetic fallback and warning toast
                     if (currentLayerType === 'TEMPERATURE' && map.getLayer('fallback-temperature-layer')) {
                         map.setPaintProperty('fallback-temperature-layer', 'heatmap-opacity', 0.8);

@@ -131,8 +131,8 @@ fun HomeScreen(
             val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
             if ((hasFine || hasCoarse) && LocationManagerCompat.isLocationEnabled(locationManager)) {
-                val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-                val isNetworkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+                val isGpsEnabled = hasFine && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+                val isNetworkEnabled = (hasFine || hasCoarse) && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
                 val provider = when {
                     isGpsEnabled -> LocationManager.GPS_PROVIDER
                     isNetworkEnabled -> LocationManager.NETWORK_PROVIDER
@@ -236,16 +236,16 @@ fun HomeScreen(
 }
 
 private fun fetchGpsLocation(context: Context, locationManager: LocationManager, viewModel: HomeViewModel) {
-    if (ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
-        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-    ) {
+    val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+    if (hasFine || hasCoarse) {
         try {
             if (!LocationManagerCompat.isLocationEnabled(locationManager)) {
                 viewModel.setError("GPS location services are disabled on this device. Please turn them on in system settings.")
                 return
             }
-            val isGpsEnabled = locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-            val isNetworkEnabled = locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            val isGpsEnabled = hasFine && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+            val isNetworkEnabled = (hasFine || hasCoarse) && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
             val provider = when {
                 isGpsEnabled -> LocationManager.GPS_PROVIDER
                 isNetworkEnabled -> LocationManager.NETWORK_PROVIDER
