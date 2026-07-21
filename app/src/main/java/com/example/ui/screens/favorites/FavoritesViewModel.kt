@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.data.models.CityWeather
 import com.example.data.repository.WeatherRepository
+import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.stateIn
@@ -14,6 +15,7 @@ class FavoritesViewModel(
 
     // Hot flow representing favorite cities
     val favoriteCities: StateFlow<List<CityWeather>> = repository.getFavoritesFlow()
+        .catch { emit(emptyList()) }
         .stateIn(
             scope = viewModelScope,
             started = SharingStarted.WhileSubscribed(5000),

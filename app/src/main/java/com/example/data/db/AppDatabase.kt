@@ -34,7 +34,7 @@ interface WeatherDao {
     @Query("DELETE FROM cached_weather WHERE id = :id")
     suspend fun deleteCachedWeather(id: String)
 
-    @Query("UPDATE cached_weather SET isFavorite = :isFav WHERE id = :id")
+    @Query("UPDATE cached_weather SET isFavorite = :isFav WHERE id = :id OR LOWER(cityName) = LOWER(:id)")
     suspend fun updateFavorite(id: String, isFav: Boolean)
 }
 

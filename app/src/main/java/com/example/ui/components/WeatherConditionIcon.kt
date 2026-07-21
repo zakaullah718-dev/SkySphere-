@@ -24,11 +24,12 @@ import com.example.data.models.WeatherCondition
 
 @Composable
 fun WeatherConditionIcon(
-    condition: WeatherCondition,
+    condition: WeatherCondition?,
     modifier: Modifier = Modifier,
     tint: Color? = null
 ) {
-    val icon = when (condition) {
+    val safeCondition = condition ?: WeatherCondition.PARTLY_CLOUDY
+    val icon = when (safeCondition) {
         WeatherCondition.SUNNY -> Icons.Filled.WbSunny
         WeatherCondition.PARTLY_CLOUDY -> Icons.Filled.CloudQueue
         WeatherCondition.CLOUDY -> Icons.Filled.Cloud
@@ -37,7 +38,7 @@ fun WeatherConditionIcon(
         WeatherCondition.SNOWY -> Icons.Filled.AcUnit
     }
 
-    val defaultTint = when (condition) {
+    val defaultTint = when (safeCondition) {
         WeatherCondition.SUNNY -> Color(0xFFFFD54F) // Radiant Sun Amber
         WeatherCondition.PARTLY_CLOUDY -> Color(0xFF90CAF9) // Atmospheric soft blue
         WeatherCondition.CLOUDY -> Color(0xFFCFD8DC) // Misty silver-grey
@@ -49,7 +50,7 @@ fun WeatherConditionIcon(
     val infiniteTransition = rememberInfiniteTransition(label = "IconAnimation")
     
     // Slow rotation for Sunny and Snowy
-    val rotationAngle by if (condition == WeatherCondition.SUNNY || condition == WeatherCondition.SNOWY) {
+    val rotationAngle by if (safeCondition == WeatherCondition.SUNNY || safeCondition == WeatherCondition.SNOWY) {
         infiniteTransition.animateFloat(
             initialValue = 0f,
             targetValue = 360f,
@@ -64,7 +65,7 @@ fun WeatherConditionIcon(
     }
 
     // Micro-pulsation for Rain/Storm/Partly Cloudy
-    val pulseScale by if (condition == WeatherCondition.RAINY || condition == WeatherCondition.STORM || condition == WeatherCondition.PARTLY_CLOUDY) {
+    val pulseScale by if (safeCondition == WeatherCondition.RAINY || safeCondition == WeatherCondition.STORM || safeCondition == WeatherCondition.PARTLY_CLOUDY) {
         infiniteTransition.animateFloat(
             initialValue = 0.95f,
             targetValue = 1.05f,
@@ -80,7 +81,7 @@ fun WeatherConditionIcon(
 
     Icon(
         imageVector = icon,
-        contentDescription = condition.displayName,
+        contentDescription = safeCondition.displayName,
         tint = tint ?: defaultTint,
         modifier = modifier
             .rotate(rotationAngle)

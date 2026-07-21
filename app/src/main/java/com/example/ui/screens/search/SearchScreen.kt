@@ -274,7 +274,7 @@ fun SearchScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                items(searchResults, key = { "${it.cityName},${it.region ?: ""},${it.country}" }) { city ->
+                items(searchResults, key = { city -> "${city.cityName},${city.region ?: ""},${city.country}_${searchResults.indexOf(city)}" }) { city ->
                     SearchCityCard(
                         city = city,
                         isCelsius = isCelsius,

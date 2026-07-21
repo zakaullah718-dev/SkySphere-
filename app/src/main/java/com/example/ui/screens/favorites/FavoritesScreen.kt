@@ -19,8 +19,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.HeartBroken
 import androidx.compose.material.icons.filled.LocationOn
+import androidx.compose.material.icons.outlined.FavoriteBorder
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -80,6 +80,7 @@ fun FavoritesScreen(
         if (favorites.isEmpty()) {
             EmptyVaultState()
         } else {
+            val safeFavorites = favorites.distinctBy { "${it.cityName.lowercase()}_${it.country.lowercase()}" }
             LazyColumn(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -88,7 +89,10 @@ fun FavoritesScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                items(favorites, key = { it.cityName }) { city ->
+                items(
+                    items = safeFavorites,
+                    key = { "${it.cityName}_${it.region ?: ""}_${it.country}_${safeFavorites.indexOf(it)}" }
+                ) { city ->
                     FavoriteCityCard(
                         city = city,
                         isCelsius = isCelsius,
@@ -112,19 +116,20 @@ fun FavoriteCityCard(
     onRemove: () -> Unit
 ) {
     val details = city.weatherDetails
+    val condition = details?.condition ?: com.example.data.models.WeatherCondition.PARTLY_CLOUDY
     val isDark = true
 
     val cardBrush = Brush.linearGradient(
         colors = listOf(
-            details.condition.startColor.copy(alpha = if (isDark) 0.12f else 0.05f),
-            details.condition.endColor.copy(alpha = if (isDark) 0.03f else 0.01f)
+            condition.startColor.copy(alpha = if (isDark) 0.12f else 0.05f),
+            condition.endColor.copy(alpha = if (isDark) 0.03f else 0.01f)
         )
     )
 
     SkySphereCard(
         modifier = Modifier
             .fillMaxWidth()
-            .testTag("favorite_card_${city.cityName.lowercase()}"),
+            .testTag("favorite_card_${(city.cityName ?: "city").lowercase()}"),
         onClick = onSelect
     ) {
         Box(
@@ -143,7 +148,7 @@ fun FavoriteCityCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     WeatherConditionIcon(
-                        condition = details.condition,
+                        condition = condition,
                         modifier = Modifier.size(44.dp)
                     )
                     Spacer(modifier = Modifier.width(16.dp))
@@ -157,7 +162,7 @@ fun FavoriteCityCard(
                             )
                             Spacer(modifier = Modifier.width(4.dp))
                             Text(
-                                text = city.cityName,
+                                text = city.cityName ?: "Unknown",
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.Bold,
                                     color = MaterialTheme.colorScheme.onBackground
@@ -166,7 +171,7 @@ fun FavoriteCityCard(
                         }
                         Spacer(modifier = Modifier.height(2.dp))
                         Text(
-                            text = city.country,
+                            text = city.country ?: "",
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                             )
@@ -184,7 +189,7 @@ fun FavoriteCityCard(
                         modifier = Modifier.padding(end = 12.dp)
                     ) {
                         Text(
-                            text = "${formatTemp(details.currentTemp, isCelsius)}°",
+                            text = "${formatTemp(details?.currentTemp ?: 0, isCelsius)}°",
                             style = MaterialTheme.typography.titleLarge.copy(
                                 fontWeight = FontWeight.Light,
                                 color = MaterialTheme.colorScheme.onBackground,
@@ -193,7 +198,7 @@ fun FavoriteCityCard(
                             )
                         )
                         Text(
-                            text = details.condition.displayName,
+                            text = condition.displayName,
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = MaterialTheme.colorScheme.primary,
                                 fontWeight = FontWeight.Medium,
@@ -208,7 +213,7 @@ fun FavoriteCityCard(
                             .size(40.dp)
                             .clip(CircleShape)
                             .background(Color(0x1AFF5252))
-                            .testTag("favorite_remove_button_${city.cityName.lowercase()}")
+                            .testTag("favorite_remove_button_${(city.cityName ?: "city").lowercase()}")
                     ) {
                         Icon(
                             imageVector = Icons.Filled.Favorite,
@@ -237,7 +242,7 @@ fun EmptyVaultState() {
             modifier = Modifier.padding(32.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.HeartBroken,
+                imageVector = Icons.Outlined.FavoriteBorder,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
                 modifier = Modifier.size(64.dp)

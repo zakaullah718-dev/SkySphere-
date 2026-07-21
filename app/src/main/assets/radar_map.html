@@ -212,6 +212,9 @@
             }
 
             baseTileLayer = L.tileLayer(tileUrl, tileOptions).addTo(map);
+            baseTileLayer.on('tileerror', function(e) {
+                console.warn('Basemap tile failed to load for URL: ' + (e.tile ? e.tile.src : 'unknown'));
+            });
         }
 
         // Bridge function: Centering Map
@@ -384,6 +387,10 @@
                 maxZoom: 18,
                 tileSize: 256
             }).addTo(map);
+
+            weatherTileLayer.on('tileerror', function(e) {
+                console.warn('Radar tile failed to load for timeline index ' + timelineIndex + ' URL: ' + (e.tile ? e.tile.src : 'unknown'));
+            });
         }
 
         // Main Weather Layers refresh manager
@@ -431,6 +438,10 @@
                         maxZoom: 18,
                         tileSize: 256
                     }).addTo(map);
+
+                    weatherTileLayer.on('tileerror', function(e) {
+                        console.warn('OpenWeatherMap overlay tile failed to load for layer ' + currentLayerType + ' URL: ' + (e.tile ? e.tile.src : 'unknown'));
+                    });
 
                     // Fade out loader after tile loads
                     weatherTileLayer.on('load', function() {

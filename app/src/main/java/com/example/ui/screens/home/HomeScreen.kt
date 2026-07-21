@@ -260,27 +260,28 @@ private fun fetchGpsLocation(context: Context, locationManager: LocationManager,
                 if (lastKnown != null) {
                     viewModel.loadWeatherForCurrentLocation(lastKnown.latitude, lastKnown.longitude)
                 }
-                val handler = android.os.Handler(android.os.Looper.getMainLooper())
+                val singleListener = object : LocationListener {
+                    private var isHandled = false
+                    override fun onLocationChanged(location: Location) {
+                        if (!isHandled) {
+                            isHandled = true
+                            try {
+                                locationManager.removeUpdates(this)
+                            } catch (t: Throwable) {
+                                // Ignore AppOps / system cleanup errors
+                            }
+                            viewModel.loadWeatherForCurrentLocation(location.latitude, location.longitude)
+                        }
+                    }
+                    override fun onProviderEnabled(p: String) {}
+                    override fun onProviderDisabled(p: String) {}
+                    override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
+                }
                 locationManager.requestLocationUpdates(
                     provider,
                     0L,
                     0f,
-                    object : LocationListener {
-                        override fun onLocationChanged(location: Location) {
-                            viewModel.loadWeatherForCurrentLocation(location.latitude, location.longitude)
-                            val currentListener = this
-                            handler.post {
-                                try {
-                                    locationManager.removeUpdates(currentListener)
-                                } catch (e: Exception) {
-                                    e.printStackTrace()
-                                }
-                            }
-                        }
-                        override fun onProviderEnabled(provider: String) {}
-                        override fun onProviderDisabled(provider: String) {}
-                        override fun onStatusChanged(provider: String?, status: Int, extras: Bundle?) {}
-                    },
+                    singleListener,
                     android.os.Looper.getMainLooper()
                 )
             } else {
