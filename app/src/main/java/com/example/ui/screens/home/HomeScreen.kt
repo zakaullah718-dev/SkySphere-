@@ -25,6 +25,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Air
 import androidx.compose.material.icons.filled.Compress
@@ -120,6 +122,7 @@ fun HomeScreen(
     val cityWeather by viewModel.selectedCityWeather.collectAsState()
     val allCities by viewModel.allCities.collectAsState()
     val isCelsius by viewModel.isCelsius.collectAsState()
+    val isUpdating by viewModel.isUpdating.collectAsState()
     val windUnit by viewModel.windUnit.collectAsState()
     val errorState by viewModel.errorState.collectAsState()
     val isGpsActive by viewModel.isGpsActive.collectAsState()
@@ -213,6 +216,7 @@ fun HomeScreen(
                 HomeScreenContent(
                     cityWeather = cityWeather,
                     isCelsius = isCelsius,
+                    isUpdating = isUpdating,
                     windUnit = windUnit,
                     errorState = errorState,
                     onClearError = { viewModel.clearError() },
@@ -301,6 +305,7 @@ private fun fetchGpsLocation(context: Context, locationManager: LocationManager,
 fun HomeScreenContent(
     cityWeather: CityWeather,
     isCelsius: Boolean,
+    isUpdating: Boolean = false,
     windUnit: String,
     errorState: String?,
     onClearError: () -> Unit,
@@ -524,15 +529,46 @@ fun HomeScreenContent(
                             ),
                             modifier = Modifier.testTag("home_city_name")
                         )
-                        if (!cityWeather.localTime.isNullOrBlank()) {
+                        if (!cityWeather.localTime.isNullOrBlank() || isUpdating) {
                             Spacer(modifier = Modifier.height(4.dp))
-                            Text(
-                                text = cityWeather.localTime,
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = MaterialTheme.colorScheme.primary,
-                                    fontWeight = FontWeight.Medium
-                                )
-                            )
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                if (!cityWeather.localTime.isNullOrBlank()) {
+                                    Text(
+                                        text = cityWeather.localTime,
+                                        style = MaterialTheme.typography.bodySmall.copy(
+                                            color = MaterialTheme.colorScheme.primary,
+                                            fontWeight = FontWeight.Medium
+                                        )
+                                    )
+                                }
+                                if (isUpdating) {
+                                    if (!cityWeather.localTime.isNullOrBlank()) {
+                                        Spacer(modifier = Modifier.width(8.dp))
+                                    }
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.35f))
+                                            .padding(horizontal = 8.dp, vertical = 2.dp)
+                                    ) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(10.dp),
+                                            strokeWidth = 1.5.dp,
+                                            color = MaterialTheme.colorScheme.primary
+                                        )
+                                        Spacer(modifier = Modifier.width(4.dp))
+                                        Text(
+                                            text = "Updating...",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                fontSize = 10.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = MaterialTheme.colorScheme.primary
+                                            )
+                                        )
+                                    }
+                                }
+                            }
                         }
                     }
 
@@ -540,40 +576,6 @@ fun HomeScreenContent(
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        val infiniteTransition = rememberInfiniteTransition(label = "RefreshRotation")
-                        val isRefreshing = remember { androidx.compose.runtime.mutableStateOf(false) }
-                        
-                        val rotation by infiniteTransition.animateFloat(
-                            initialValue = 0f,
-                            targetValue = if (isRefreshing.value) 360f else 0f,
-                            animationSpec = infiniteRepeatable(
-                                animation = tween(1000, easing = LinearEasing),
-                                repeatMode = RepeatMode.Restart
-                            ),
-                            label = "SpinAngle"
-                        )
-
-                        IconButton(
-                            onClick = {
-                                isRefreshing.value = true
-                                onRefresh()
-                                CoroutineScope(Dispatchers.Main).launch {
-                                    delay(1200)
-                                    isRefreshing.value = false
-                                }
-                            },
-                            modifier = Modifier
-                                .clip(CircleShape)
-                                .background(if (isDark) Color(0xFF1E254C) else Color(0xFFE2E8F0))
-                        ) {
-                            Icon(
-                                imageVector = Icons.Default.Refresh,
-                                contentDescription = "Refresh weather",
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.rotate(rotation)
-                            )
-                        }
-
                         IconButton(
                             onClick = onGpsClick,
                             modifier = Modifier

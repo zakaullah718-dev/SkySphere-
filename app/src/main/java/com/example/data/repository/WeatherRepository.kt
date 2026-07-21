@@ -1,6 +1,10 @@
 package com.example.data.repository
 
 import android.content.Context
+import android.net.ConnectivityManager
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import androidx.room.Room
 import com.example.BuildConfig
 import com.example.data.api.OpenMeteoProvider
@@ -19,6 +23,8 @@ import com.squareup.moshi.Moshi
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -34,15 +40,45 @@ import java.util.concurrent.TimeUnit
 
 class WeatherRepository(private val context: Context) {
 
+    private val prefs = context.getSharedPreferences("skysphere_prefs", Context.MODE_PRIVATE)
+
     // Global settings flows (preserved from original)
-    private val _isCelsius = MutableStateFlow(false)
+    private val _isCelsius = MutableStateFlow(true)
     val isCelsius = _isCelsius.asStateFlow()
+
+    private val _isUpdating = MutableStateFlow(false)
+    val isUpdating = _isUpdating.asStateFlow()
 
     private val _windUnit = MutableStateFlow("km/h")
     val windUnit = _windUnit.asStateFlow()
 
+    private fun isFahrenheitCountry(country: String): Boolean {
+        if (country.isBlank()) return false
+        val c = country.trim().lowercase()
+        val fahrenheitCountries = listOf(
+            "united states", "usa", "us", "united states of america",
+            "bahamas", "belize", "cayman islands", "palau",
+            "micronesia", "federated states of micronesia",
+            "marshall islands", "guam", "puerto rico", "virgin islands", "american samoa"
+        )
+        return fahrenheitCountries.any { c == it || c.contains(it) || it.contains(c) }
+    }
+
+    private fun updateUnitForCountryIfNeeded(country: String) {
+        val userManualSet = prefs.getBoolean("user_manual_unit_set", false)
+        if (!userManualSet) {
+            val autoCelsius = !isFahrenheitCountry(country)
+            _isCelsius.value = autoCelsius
+            prefs.edit().putBoolean("is_celsius", autoCelsius).apply()
+        }
+    }
+
     fun setCelsius(enabled: Boolean) {
         _isCelsius.value = enabled
+        prefs.edit()
+            .putBoolean("user_manual_unit_set", true)
+            .putBoolean("is_celsius", enabled)
+            .apply()
     }
 
     fun setWindUnit(unit: String) {
@@ -187,8 +223,53 @@ class WeatherRepository(private val context: Context) {
                     if (_selectedCity.value.cityName == "Loading...") {
                         val firstFav = mappedList.find { it.isFavorite } ?: mappedList.first()
                         _selectedCity.value = firstFav
+                        updateUnitForCountryIfNeeded(firstFav.country)
                     }
                 }
+            }
+        }
+        initAutoRefresh()
+    }
+
+    private fun initAutoRefresh() {
+        registerNetworkCallback()
+        startPeriodic30MinRefresh()
+    }
+
+    private fun registerNetworkCallback() {
+        try {
+            val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            if (connectivityManager != null) {
+                val request = NetworkRequest.Builder()
+                    .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                    .build()
+                connectivityManager.registerNetworkCallback(request, object : ConnectivityManager.NetworkCallback() {
+                    private var wasDisconnected = false
+
+                    override fun onAvailable(network: Network) {
+                        if (wasDisconnected) {
+                            wasDisconnected = false
+                            CoroutineScope(Dispatchers.IO).launch {
+                                forceRefreshActiveCity()
+                            }
+                        }
+                    }
+
+                    override fun onLost(network: Network) {
+                        wasDisconnected = true
+                    }
+                })
+            }
+        } catch (e: Exception) {
+            e.printStackTrace()
+        }
+    }
+
+    private fun startPeriodic30MinRefresh() {
+        CoroutineScope(Dispatchers.IO).launch {
+            while (isActive) {
+                delay(30 * 60 * 1000L)
+                forceRefreshActiveCity()
             }
         }
     }
@@ -274,14 +355,21 @@ class WeatherRepository(private val context: Context) {
         val existing = _cities.value.find { it.cityName.equals(lookupName, ignoreCase = true) }
         if (existing != null && existing.weatherDetails.currentTemp != 0) {
             _selectedCity.value = existing
+            updateUnitForCountryIfNeeded(existing.country)
         }
         
         CoroutineScope(Dispatchers.IO).launch {
-            val result = fetchWeatherFromApi(cityName, forceRefresh = false)
-            result.onSuccess { fullCityWeather ->
-                val withFav = fullCityWeather.copy(isFavorite = existing?.isFavorite ?: false)
-                saveCityToCache(withFav)
-                _selectedCity.value = withFav
+            _isUpdating.value = true
+            try {
+                val result = fetchWeatherFromApi(cityName, forceRefresh = false)
+                result.onSuccess { fullCityWeather ->
+                    val withFav = fullCityWeather.copy(isFavorite = existing?.isFavorite ?: false)
+                    saveCityToCache(withFav)
+                    _selectedCity.value = withFav
+                    updateUnitForCountryIfNeeded(withFav.country)
+                }
+            } finally {
+                _isUpdating.value = false
             }
         }
     }
@@ -405,43 +493,51 @@ class WeatherRepository(private val context: Context) {
     fun selectLocationCoordinates(latitude: Double, longitude: Double) {
         _isGpsActive.value = true
         CoroutineScope(Dispatchers.IO).launch {
-            val resolved = reverseGeocode(latitude, longitude)
-            if (resolved == null) {
-                val nearestCityName = findNearestValidCity(latitude, longitude)
-                _repositoryError.value = "GPS could not determine city name. Showing nearest city: $nearestCityName"
-                val result = fetchWeatherFromApi(nearestCityName, forceRefresh = true)
-                result.onSuccess { fullCityWeather ->
-                    _selectedCity.value = fullCityWeather
-                }
-                result.onFailure {
-                    _repositoryError.value = "Failed to load weather for nearest city: $nearestCityName"
-                }
-            } else {
-                val query = "$latitude,$longitude"
-                val result = fetchWeatherFromApi(query, forceRefresh = true)
-                result.onSuccess { fullCityWeather ->
-                    val friendlyCity = fullCityWeather.copy(
-                        cityName = resolved.city,
-                        region = resolved.region,
-                        country = resolved.country
-                    )
-                    saveCityToCache(friendlyCity)
-                    _selectedCity.value = friendlyCity
-                }
-                result.onFailure {
-                    val cityResult = fetchWeatherFromApi(resolved.city, forceRefresh = true)
-                    cityResult.onSuccess { fullCityWeather ->
+            _isUpdating.value = true
+            try {
+                val resolved = reverseGeocode(latitude, longitude)
+                if (resolved == null) {
+                    val nearestCityName = findNearestValidCity(latitude, longitude)
+                    _repositoryError.value = "GPS could not determine city name. Showing nearest city: $nearestCityName"
+                    val result = fetchWeatherFromApi(nearestCityName, forceRefresh = true)
+                    result.onSuccess { fullCityWeather ->
+                        _selectedCity.value = fullCityWeather
+                        updateUnitForCountryIfNeeded(fullCityWeather.country)
+                    }
+                    result.onFailure {
+                        _repositoryError.value = "Failed to load weather for nearest city: $nearestCityName"
+                    }
+                } else {
+                    val query = "$latitude,$longitude"
+                    val result = fetchWeatherFromApi(query, forceRefresh = true)
+                    result.onSuccess { fullCityWeather ->
                         val friendlyCity = fullCityWeather.copy(
+                            cityName = resolved.city,
                             region = resolved.region,
                             country = resolved.country
                         )
                         saveCityToCache(friendlyCity)
                         _selectedCity.value = friendlyCity
+                        updateUnitForCountryIfNeeded(friendlyCity.country)
                     }
-                    cityResult.onFailure {
-                        _repositoryError.value = "Failed to fetch weather data for ${resolved.city}."
+                    result.onFailure {
+                        val cityResult = fetchWeatherFromApi(resolved.city, forceRefresh = true)
+                        cityResult.onSuccess { fullCityWeather ->
+                            val friendlyCity = fullCityWeather.copy(
+                                region = resolved.region,
+                                country = resolved.country
+                            )
+                            saveCityToCache(friendlyCity)
+                            _selectedCity.value = friendlyCity
+                            updateUnitForCountryIfNeeded(friendlyCity.country)
+                        }
+                        cityResult.onFailure {
+                            _repositoryError.value = "Failed to fetch weather data for ${resolved.city}."
+                        }
                     }
                 }
+            } finally {
+                _isUpdating.value = false
             }
         }
     }
@@ -449,11 +545,17 @@ class WeatherRepository(private val context: Context) {
     suspend fun forceRefreshActiveCity() {
         val active = _selectedCity.value
         if (active.cityName == "Loading...") return
-        val result = fetchWeatherFromApi(active.cityName, forceRefresh = true)
-        result.onSuccess { fullCityWeather ->
-            val withFav = fullCityWeather.copy(isFavorite = active.isFavorite)
-            saveCityToCache(withFav)
-            _selectedCity.value = withFav
+        _isUpdating.value = true
+        try {
+            val result = fetchWeatherFromApi(active.cityName, forceRefresh = true)
+            result.onSuccess { fullCityWeather ->
+                val withFav = fullCityWeather.copy(isFavorite = active.isFavorite)
+                saveCityToCache(withFav)
+                _selectedCity.value = withFav
+                updateUnitForCountryIfNeeded(withFav.country)
+            }
+        } finally {
+            _isUpdating.value = false
         }
     }
 

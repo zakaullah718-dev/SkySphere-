@@ -609,8 +609,10 @@ fun MapScreen(
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = if (isInspecting) 220.dp else 100.dp, start = 16.dp, end = 16.dp)
+                .navigationBarsPadding()
+                .padding(bottom = if (isInspecting) 215.dp else 90.dp, start = 16.dp, end = 16.dp)
                 .fillMaxWidth()
+                .widthIn(max = 600.dp)
         ) {
             Row(
                 modifier = Modifier
@@ -676,8 +678,10 @@ fun MapScreen(
             exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 100.dp, start = 16.dp, end = 16.dp)
+                .navigationBarsPadding()
+                .padding(bottom = 90.dp, start = 16.dp, end = 16.dp)
                 .fillMaxWidth()
+                .widthIn(max = 600.dp)
         ) {
             Box(
                 modifier = Modifier

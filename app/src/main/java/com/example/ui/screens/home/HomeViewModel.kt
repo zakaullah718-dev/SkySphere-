@@ -26,6 +26,9 @@ class HomeViewModel(
 
     init {
         viewModelScope.launch {
+            repository.forceRefreshActiveCity()
+        }
+        viewModelScope.launch {
             repository.repositoryError.collect { error ->
                 if (error != null) {
                     _errorState.value = error
@@ -33,6 +36,13 @@ class HomeViewModel(
             }
         }
     }
+
+    val isUpdating: StateFlow<Boolean> = repository.isUpdating
+        .stateIn(
+            scope = viewModelScope,
+            started = SharingStarted.WhileSubscribed(5000),
+            initialValue = repository.isUpdating.value
+        )
 
     val isGpsActive: StateFlow<Boolean> = repository.isGpsActive
         .stateIn(
