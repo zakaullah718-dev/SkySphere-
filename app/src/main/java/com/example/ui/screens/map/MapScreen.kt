@@ -274,6 +274,12 @@ fun MapScreen(
         }
     }
 
+    LaunchedEffect(radarTimeSlider, isMapReady) {
+        if (isMapReady) {
+            mapProvider.setTimelineIndex(radarTimeSlider.toInt())
+        }
+    }
+
     // Primary FlyTo centering effect
     LaunchedEffect(isMapReady, currentGpsCoords) {
         if (isMapReady && !hasCentredInitially) {
