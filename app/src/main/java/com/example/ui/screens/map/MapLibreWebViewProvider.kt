@@ -1,19 +1,26 @@
 package com.example.ui.screens.map
 
 import android.content.Context
+import android.os.Build
 import android.view.View
+import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceRequest
+import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 
 /**
  * High-performance WebView-based MapLibre GL JS map provider implementation.
- * Ensures zero-native binary compilation overhead while maintaining smooth WebGL 60fps rendering.
+ * Integrates modular RadarOverlayManager, Kotlin RadarTileProxy, and modern RainViewer API.
  */
 class MapLibreWebViewProvider : RadarMapProvider {
     private var webView: WebView? = null
+    val radarOverlayManager = RadarOverlayManager()
 
     override fun createMapView(
         context: Context,
@@ -21,7 +28,8 @@ class MapLibreWebViewProvider : RadarMapProvider {
         onCoordinatesSelected: (Double, Double) -> Unit,
         onApiKeyMissing: (String) -> Unit
     ): View {
-        // Pre-create WebView Default HTTP Cache directories to avoid benign Chromium console "opendir" warnings
+        val tileProxy = RadarTileProxy(context)
+
         try {
             val cacheDir = context.cacheDir
             if (cacheDir != null) {
@@ -35,7 +43,6 @@ class MapLibreWebViewProvider : RadarMapProvider {
         }
 
         val newWebView = WebView(context).apply {
-            // WebGL and hardware acceleration settings for ultra-smooth fluid experience
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -50,9 +57,17 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 allowFileAccess = true
                 allowFileAccessFromFileURLs = true
                 allowUniversalAccessFromFileURLs = true
+                javaScriptCanOpenWindowsAutomatically = true
+                setSupportMultipleWindows(false)
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    safeBrowsingEnabled = false
+                }
             }
             
-            // Enforce hardware acceleration at the Webview container level
+            val cookieManager = CookieManager.getInstance()
+            cookieManager.setAcceptCookie(true)
+            cookieManager.setAcceptThirdPartyCookies(this, true)
+
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
             
             webChromeClient = object : WebChromeClient() {
@@ -64,6 +79,17 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 }
             }
             webViewClient = object : WebViewClient() {
+                override fun shouldInterceptRequest(
+                    view: WebView?,
+                    request: WebResourceRequest?
+                ): WebResourceResponse? {
+                    val proxiedResponse = tileProxy.shouldIntercept(request)
+                    if (proxiedResponse != null) {
+                        return proxiedResponse
+                    }
+                    return super.shouldInterceptRequest(view, request)
+                }
+
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                 }
@@ -79,7 +105,7 @@ class MapLibreWebViewProvider : RadarMapProvider {
 
                 override fun onReceivedError(
                     view: WebView?,
-                    request: android.webkit.WebResourceRequest?,
+                    request: WebResourceRequest?,
                     error: android.webkit.WebResourceError?
                 ) {
                     super.onReceivedError(view, request, error)
@@ -87,10 +113,21 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 }
             }
             
-            // Safely interface between JS and Kotlin Compose state
             addJavascriptInterface(
-                MapAppInterface(onMapLoaded, onCoordinatesSelected, onApiKeyMissing),
+                MapAppInterface(
+                    onMapLoaded = {
+                        onMapLoaded.invoke()
+                        radarOverlayManager.loadRadarData(CoroutineScope(Dispatchers.Main))
+                    },
+                    onCoordinatesSelected = onCoordinatesSelected,
+                    onApiKeyMissing = onApiKeyMissing
+                ),
                 "AndroidMap"
+            )
+
+            addJavascriptInterface(
+                radarOverlayManager.JSInterface(),
+                "AndroidRadar"
             )
 
             val htmlContent = try {
@@ -101,7 +138,7 @@ class MapLibreWebViewProvider : RadarMapProvider {
             }
 
             loadDataWithBaseURL(
-                "https://applet.weather/",
+                "https://tilecache.rainviewer.com/",
                 htmlContent,
                 "text/html",
                 "utf-8",
@@ -110,6 +147,7 @@ class MapLibreWebViewProvider : RadarMapProvider {
         }
         
         webView = newWebView
+        radarOverlayManager.attachWebView(newWebView)
         return newWebView
     }
 
@@ -139,9 +177,7 @@ class MapLibreWebViewProvider : RadarMapProvider {
     }
 
     override fun setTimelineIndex(index: Int) {
-        webView?.post {
-            webView?.evaluateJavascript("if (typeof setTimelineIndex === 'function') { setTimelineIndex($index); }", null)
-        }
+        radarOverlayManager.setTimelineIndex(index)
     }
 }
 
