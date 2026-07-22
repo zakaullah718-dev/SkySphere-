@@ -37,11 +37,6 @@ interface RadarMapProvider {
     fun setWeatherApiKey(apiKey: String)
 
     /**
-     * Securely injects the MapTiler API key to fetch high-performance vector basemaps.
-     */
-    fun setMapTilerApiKey(apiKey: String)
-
-    /**
      * Updates the active timeline index (0 to 6) on the map overlays.
      */
     fun setTimelineIndex(index: Int) {}

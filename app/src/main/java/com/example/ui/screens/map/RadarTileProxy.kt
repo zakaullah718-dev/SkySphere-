@@ -46,7 +46,6 @@ class RadarTileProxy(private val context: Context) {
         val isWeatherTile = url.contains("openweathermap.org") || 
                            url.contains("cartocdn.com") || 
                            url.contains("fastly.net") ||
-                           url.contains("maptiler.com") || 
                            url.contains("unpkg.com") ||
                            url.contains("openstreetmap.org") ||
                            url.contains("cdnjs.cloudflare.com") ||

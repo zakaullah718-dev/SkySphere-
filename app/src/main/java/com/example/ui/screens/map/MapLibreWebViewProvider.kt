@@ -193,12 +193,6 @@ class MapLibreWebViewProvider : RadarMapProvider {
         }
     }
 
-    override fun setMapTilerApiKey(apiKey: String) {
-        webView?.post {
-            webView?.evaluateJavascript("if (typeof setMapTilerApiKey === 'function') { setMapTilerApiKey('$apiKey'); }", null)
-        }
-    }
-
     override fun setTimelineIndex(index: Int) {
         radarOverlayManager.setTimelineIndex(index)
     }

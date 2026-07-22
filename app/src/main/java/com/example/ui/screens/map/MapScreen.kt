@@ -270,7 +270,6 @@ fun MapScreen(
     LaunchedEffect(isMapReady) {
         if (isMapReady) {
             mapProvider.setWeatherApiKey(BuildConfig.WEATHER_API_KEY)
-            mapProvider.setMapTilerApiKey(BuildConfig.MAPTILER_API_KEY)
             mapProvider.setWeatherLayer(selectedLayer)
         }
     }
