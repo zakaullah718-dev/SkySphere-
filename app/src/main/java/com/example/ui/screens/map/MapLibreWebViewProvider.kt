@@ -158,7 +158,7 @@ class MapLibreWebViewProvider : RadarMapProvider {
             }
 
             loadDataWithBaseURL(
-                "https://tilecache.rainviewer.com/",
+                "file:///android_asset/",
                 htmlContent,
                 "text/html",
                 "utf-8",

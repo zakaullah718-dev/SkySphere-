@@ -45,10 +45,12 @@ class RadarTileProxy(private val context: Context) {
         val isRainViewer = url.contains("rainviewer.com")
         val isWeatherTile = url.contains("openweathermap.org") || 
                            url.contains("cartocdn.com") || 
+                           url.contains("fastly.net") ||
                            url.contains("maptiler.com") || 
                            url.contains("unpkg.com") ||
                            url.contains("openstreetmap.org") ||
-                           url.contains("cdnjs.cloudflare.com")
+                           url.contains("cdnjs.cloudflare.com") ||
+                           url.contains(".png") || url.contains(".jpg") || url.contains(".webp")
 
         if (!isRainViewer && !isWeatherTile) {
             return null
@@ -81,9 +83,17 @@ class RadarTileProxy(private val context: Context) {
                     Log.d("RadarTileProxy", "Base map loaded: $url")
                 }
 
+                val encoding: String? = if (mimeType.startsWith("image/")) {
+                    null
+                } else if (mimeType.contains("javascript") || mimeType.contains("css") || mimeType.contains("json") || mimeType.contains("html") || mimeType.contains("text")) {
+                    "UTF-8"
+                } else {
+                    null
+                }
+
                 WebResourceResponse(
                     mimeType,
-                    "UTF-8",
+                    encoding,
                     200,
                     "OK",
                     headers,
