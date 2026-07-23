@@ -29,20 +29,17 @@ class MapLibreWebViewProvider : RadarMapProvider {
     ): View {
         Log.d("SkySphereMap", "[STEP 1] Creating WebView for MapLibre GL engine...")
 
-        // Ensure WebView HTTP cache and WASM code cache directories exist
+        // Ensure WebView HTTP cache and WASM code cache directories exist to prevent chromium logcat errors
         try {
-            val webViewCacheDir = java.io.File(context.cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm")
-            if (!webViewCacheDir.exists()) {
-                webViewCacheDir.mkdirs()
-            }
+            java.io.File(context.cacheDir, "WebView/Default/HTTP Cache/Code Cache/js").mkdirs()
+            java.io.File(context.cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm").mkdirs()
         } catch (e: Exception) {
-            Log.w("SkySphereMap", "Could not pre-create WebView cache directory", e)
+            Log.w("SkySphereMap", "Could not pre-create WebView cache directories", e)
         }
 
         val wv = WebView(context).apply {
-            Log.d("SkySphereMap", "[STEP 2] Configuring WebSettings & WebGL Acceleration...")
-            // Use View.LAYER_TYPE_NONE so Chromium's internal WebGL hardware pipeline composites directly without View layer conflicts
-            setLayerType(View.LAYER_TYPE_NONE, null)
+            Log.d("SkySphereMap", "[STEP 2] Configuring WebSettings & Leaflet Hardware Compositing...")
+            setLayerType(View.LAYER_TYPE_HARDWARE, null)
             setBackgroundColor(android.graphics.Color.parseColor("#070913"))
 
             settings.apply {

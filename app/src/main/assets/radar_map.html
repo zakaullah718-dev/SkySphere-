@@ -2,11 +2,10 @@
 <html>
 <head>
     <meta charset="utf-8" />
-    <title>SkySphere WebGL Real-Time Weather Radar</title>
+    <title>SkySphere Weather Radar</title>
     <meta name="viewport" content="initial-scale=1,maximum-scale=1,user-scalable=no,width=device-width,height=device-height" />
-    <!-- Local MapLibre GL JS and CSS with remote fallback -->
-    <link rel="stylesheet" href="maplibre-gl.css" onerror="this.onerror=null;this.href='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.css';" />
-    <script src="maplibre-gl.js" onerror="this.onerror=null;this.src='https://unpkg.com/maplibre-gl@3.6.2/dist/maplibre-gl.js';"></script>
+    <link rel="stylesheet" href="leaflet.css" onerror="this.onerror=null;this.href='https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';" />
+    <script src="leaflet.js" onerror="this.onerror=null;this.src='https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';"></script>
     <style>
         html, body {
             margin: 0;
@@ -32,6 +31,9 @@
             height: 100%;
             background-color: #0d1322;
             z-index: 1;
+        }
+        .leaflet-container {
+            background-color: #0d1322 !important;
         }
 
         /* Glowing loader indicator */
@@ -100,247 +102,146 @@
         }
 
         @keyframes pulse {
-            0% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.7); }
-            70% { transform: scale(1.1); box-shadow: 0 0 0 10px rgba(0, 229, 255, 0); }
-            100% { transform: scale(0.95); box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
-        }
-
-        .maplibregl-canvas {
-            outline: none !important;
-            background-color: #070913 !important;
-        }
-        .maplibregl-ctrl-bottom-left, .maplibregl-ctrl-bottom-right, .maplibregl-ctrl-top-left, .maplibregl-ctrl-top-right {
-            display: none !important;
+            0% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0.7); }
+            70% { box-shadow: 0 0 0 14px rgba(0, 229, 255, 0); }
+            100% { box-shadow: 0 0 0 0 rgba(0, 229, 255, 0); }
         }
     </style>
 </head>
 <body>
     <div id="map"></div>
-    <div id="loader">Initializing WebGL Doppler Radar...</div>
+    <div id="loader">Initializing SkySphere Doppler Radar...</div>
     <div id="api-warning">Radar temporarily unavailable</div>
-
-    <div id="error-overlay" style="position: absolute; top: 0; bottom: 0; left: 0; right: 0; background-color: #070913; display: none; flex-direction: column; justify-content: center; align-items: center; text-align: center; padding: 24px; z-index: 2000;">
-        <div style="font-size: 54px; margin-bottom: 20px;">🌐</div>
-        <div style="font-size: 20px; font-weight: bold; color: #FF5252; margin-bottom: 12px;" id="error-title">Map Engine Failure</div>
-        <div style="font-size: 14px; color: #A0AEC0; max-width: 300px; line-height: 1.6; margin-bottom: 24px;" id="error-desc">Initializing WebGL mapping engine...</div>
-        <button onclick="window.location.reload();" style="background: rgba(0, 229, 255, 0.15); border: 1px solid #00E5FF; color: #00E5FF; padding: 10px 24px; border-radius: 20px; font-size: 13px; font-weight: bold; cursor: pointer; text-transform: uppercase; letter-spacing: 1px;">Reload Engine</button>
-    </div>
 
     <script>
         var map = null;
         var mapLoaded = false;
+        var currentGpsMarker = null;
         var currentLayerType = 'RAINFALL';
         var weatherApiKey = '';
-        var currentGpsMarker = null;
-
-        // Radar timeline variables
-        var radarFrames = []; // Array of { time, path, tileUrl }
-        var activeTimelineIndex = 3; // Default to 'Now'
-        var rainViewerHost = 'https://tilecache.rainviewer.com';
         var radarOpacity = 0.85;
+        var activeTimelineIndex = 3;
+        var rainViewerHost = 'https://tilecache.rainviewer.com';
+        var radarFrames = [];
+        var radarTileLayers = [];
+        var owmTileLayer = null;
 
-        function invalidateMapSize() {
-            if (map) {
-                map.resize();
+        function showLoader(show, message) {
+            var loader = document.getElementById('loader');
+            if (!loader) return;
+            if (show) {
+                loader.innerText = message || 'Loading Weather Radar...';
+                loader.style.display = 'block';
+            } else {
+                loader.style.display = 'none';
             }
         }
 
-        function showError(title, desc) {
-            document.getElementById('loader').style.display = 'none';
-            document.getElementById('error-title').innerText = title;
-            document.getElementById('error-desc').innerText = desc;
-            document.getElementById('error-overlay').style.display = 'flex';
-        }
-
-        function showRadarUnavailable(msg) {
-            var warningEl = document.getElementById('api-warning');
-            warningEl.innerText = msg || 'Radar temporarily unavailable';
-            warningEl.style.display = 'block';
+        function showRadarUnavailable(message) {
+            var warn = document.getElementById('api-warning');
+            if (!warn) return;
+            warn.innerText = message || 'Radar temporarily unavailable';
+            warn.style.display = 'block';
         }
 
         function hideRadarUnavailable() {
-            var warningEl = document.getElementById('api-warning');
-            warningEl.style.display = 'none';
+            var warn = document.getElementById('api-warning');
+            if (warn) warn.style.display = 'none';
         }
 
-        function showLoader(visible, text) {
-            var loader = document.getElementById('loader');
-            if (text) loader.innerText = text;
-            loader.style.display = visible ? 'block' : 'none';
+        function invalidateMapSize() {
+            if (map) {
+                map.invalidateSize();
+            }
         }
 
-        // Initialize MapLibre GL JS Engine with 100% free CartoDB Dark basemap
         function initializeMapEngine() {
+            if (map) return;
             try {
-                console.log('SkySphere JS: [INIT 1] Starting initializeMapEngine()...');
-                
-                if (typeof maplibregl === 'undefined') {
-                    console.error('SkySphere JS: CRITICAL - maplibregl is undefined!');
-                    showError('Engine Missing', 'MapLibre GL JS library not found.');
-                    return;
-                }
+                console.log('SkySphere JS: Initializing Leaflet map engine...');
+                showLoader(true, 'Rendering CartoDB Dark Radar Canvas...');
 
-                if (typeof maplibregl.supported === 'function') {
-                    try {
-                        if (!maplibregl.supported({ failIfMajorPerformanceCaveat: false })) {
-                            console.warn('SkySphere JS: WARNING - maplibregl.supported() returned false. Proceeding anyway...');
-                        } else {
-                            console.log('SkySphere JS: WebGL supported check passed!');
-                        }
-                    } catch (suppErr) {
-                        console.warn('SkySphere JS: maplibregl.supported check threw warning:', suppErr);
-                    }
-                } else {
-                    console.log('SkySphere JS: maplibregl loaded.');
-                }
-
-                var darkStyle = {
-                    version: 8,
-                    sources: {
-                        'carto-dark': {
-                            type: 'raster',
-                            tiles: [
-                                'https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
-                                'https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
-                                'https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
-                                'https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
-                                'https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png'
-                            ],
-                            tileSize: 256,
-                            minzoom: 0,
-                            maxzoom: 19,
-                            attribution: '&copy; CartoDB &copy; OpenStreetMap'
-                        }
-                    },
-                    layers: [
-                        {
-                            id: 'map-background',
-                            type: 'background',
-                            paint: {
-                                'background-color': '#0d1322'
-                            }
-                        },
-                        {
-                            id: 'carto-dark-layer',
-                            type: 'raster',
-                            source: 'carto-dark',
-                            minzoom: 0,
-                            maxzoom: 20,
-                            paint: {
-                                'raster-opacity': 1.0,
-                                'raster-fade-duration': 0
-                            }
-                        }
-                    ]
-                };
-
-                console.log('SkySphere JS: [INIT 2] Instantiating new maplibregl.Map()...');
-                map = new maplibregl.Map({
-                    container: 'map',
-                    style: darkStyle,
-                    center: [0, 20], // [lon, lat]
-                    zoom: 2.2,
-                    minZoom: 1,
-                    maxZoom: 18,
+                map = L.map('map', {
+                    zoomControl: false,
                     attributionControl: false,
-                    fadeDuration: 0,
-                    trackResize: true,
-                    failIfMajorPerformanceCaveat: false,
-                    preserveDrawingBuffer: true
-                });
-                console.log('SkySphere JS: [INIT 3] maplibregl.Map object instantiated!');
+                    fadeAnimation: false,
+                    zoomAnimation: true,
+                    minZoom: 1,
+                    maxZoom: 18
+                }).setView([20, 0], 3);
 
-                function notifyMapLoaded() {
-                    if (mapLoaded) return;
-                    mapLoaded = true;
-                    console.log('SkySphere JS: [INIT 4] Map engine ready, notifying native bridge...');
-                    showLoader(false);
+                // CartoDB Dark Matter tile basemap
+                L.tileLayer('https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png', {
+                    subdomains: ['a', 'b', 'c', 'd'],
+                    maxZoom: 19,
+                    minZoom: 0,
+                    attribution: '&copy; CartoDB &copy; OpenStreetMap'
+                }).addTo(map);
 
-                    invalidateMapSize();
-                    setTimeout(function() { invalidateMapSize(); }, 100);
-                    setTimeout(function() { invalidateMapSize(); }, 300);
-
-                    if (window.AndroidMap && window.AndroidMap.onMapLoaded) {
-                        console.log('SkySphere JS: [INIT 5] Calling AndroidMap.onMapLoaded() native bridge');
-                        window.AndroidMap.onMapLoaded();
-                    }
-                    if (window.AndroidMap && window.AndroidMap.onRequestTimelineRefresh) {
-                        window.AndroidMap.onRequestTimelineRefresh();
-                    } else {
-                        fetchRainViewerTimelineDirectly();
-                    }
-                }
-
-                var mapContainer = document.getElementById('map');
-                if (typeof ResizeObserver !== 'undefined') {
-                    var ro = new ResizeObserver(function() {
-                        invalidateMapSize();
-                    });
-                    ro.observe(mapContainer);
-                }
-
-                window.addEventListener('resize', function() {
-                    invalidateMapSize();
-                });
-
-                window.addEventListener('offline', function() {
-                    showRadarUnavailable('Offline Mode - Using cached map & radar tiles');
-                });
-
-                window.addEventListener('online', function() {
-                    hideRadarUnavailable();
-                    if (window.AndroidMap && window.AndroidMap.onRequestTimelineRefresh) {
-                        window.AndroidMap.onRequestTimelineRefresh();
-                    } else {
-                        fetchRainViewerTimelineDirectly();
-                    }
-                });
-
-                map.on('styledata', function() {
-                    console.log('SkySphere JS: Map style data loaded');
-                    notifyMapLoaded();
-                });
-
-                map.on('load', function() {
-                    console.log('SkySphere JS: Map load event fired!');
-                    notifyMapLoaded();
-                });
-
-                // Fallback timer: ensure notifyMapLoaded() runs if style/load events are delayed
-                setTimeout(function() {
-                    notifyMapLoaded();
-                }, 400);
-
+                // Map click listener
                 map.on('click', function(e) {
-                    var lat = e.lngLat.lat;
-                    var lon = e.lngLat.lng;
+                    var lat = e.latlng.lat;
+                    var lon = e.latlng.lng;
                     lon = ((lon + 180) % 360 + 360) % 360 - 180;
                     updateSelectedMarker(lat, lon);
-                    if (window.AndroidMap) {
+                    if (window.AndroidMap && window.AndroidMap.onCoordinatesSelected) {
                         window.AndroidMap.onCoordinatesSelected(lat, lon);
                     }
                 });
 
-                map.on('error', function(e) {
-                    console.error('SkySphere JS MapLibre internal error: ' + (e.error ? e.error.message : JSON.stringify(e)));
-                });
+                mapLoaded = true;
+                console.log('SkySphere JS: Leaflet map engine ready!');
+                showLoader(false);
 
-            } catch (ex) {
-                console.error('SkySphere JS: WebGL Initialization Exception: ' + ex.message);
-                showError('WebGL Initialization Failed', 'Hardware accelerated map failed to initialize: ' + ex.message);
+                invalidateMapSize();
+                setTimeout(function() { invalidateMapSize(); }, 100);
+                setTimeout(function() { invalidateMapSize(); }, 300);
+
+                if (window.AndroidMap && window.AndroidMap.onMapLoaded) {
+                    console.log('SkySphere JS: Calling AndroidMap.onMapLoaded() native bridge');
+                    window.AndroidMap.onMapLoaded();
+                }
+                if (window.AndroidMap && window.AndroidMap.onRequestTimelineRefresh) {
+                    window.AndroidMap.onRequestTimelineRefresh();
+                } else {
+                    fetchRainViewerTimelineDirectly();
+                }
+
+            } catch (e) {
+                console.error('SkySphere JS: Leaflet init error: ' + e.message);
+                showRadarUnavailable('Map initialization error: ' + e.message);
             }
         }
+
+        var mapContainer = document.getElementById('map');
+        if (typeof ResizeObserver !== 'undefined' && mapContainer) {
+            var ro = new ResizeObserver(function() {
+                invalidateMapSize();
+            });
+            ro.observe(mapContainer);
+        }
+
+        window.addEventListener('resize', function() {
+            invalidateMapSize();
+        });
+
+        window.addEventListener('offline', function() {
+            showRadarUnavailable('Offline Mode - Using cached map & radar tiles');
+        });
+
+        window.addEventListener('online', function() {
+            hideRadarUnavailable();
+            if (window.AndroidMap && window.AndroidMap.onRequestTimelineRefresh) {
+                window.AndroidMap.onRequestTimelineRefresh();
+            } else {
+                fetchRainViewerTimelineDirectly();
+            }
+        });
 
         function setCenter(lat, lon, zoom) {
             if (!map) return;
             var currentZoom = zoom || map.getZoom();
-            map.flyTo({
-                center: [lon, lat],
-                zoom: currentZoom,
-                speed: 1.2,
-                curve: 1.4,
-                essential: true
-            });
+            map.flyTo([lat, lon], currentZoom, { duration: 1.0 });
             updateSelectedMarker(lat, lon);
             invalidateMapSize();
         }
@@ -354,21 +255,22 @@
         }
 
         function resetNorth() {
-            if (map) map.resetNorth();
+            if (map && currentGpsMarker) {
+                map.panTo(currentGpsMarker.getLatLng());
+            }
         }
 
         function updateSelectedMarker(lat, lon) {
             if (!map) return;
             if (currentGpsMarker) {
-                currentGpsMarker.remove();
+                map.removeLayer(currentGpsMarker);
             }
-
-            var el = document.createElement('div');
-            el.className = 'custom-marker';
-
-            currentGpsMarker = new maplibregl.Marker({ element: el })
-                .setLngLat([lon, lat])
-                .addTo(map);
+            var customIcon = L.divIcon({
+                className: 'custom-marker',
+                iconSize: [18, 18],
+                iconAnchor: [9, 9]
+            });
+            currentGpsMarker = L.marker([lat, lon], { icon: customIcon }).addTo(map);
         }
 
         function setWeatherApiKey(key) {
@@ -392,24 +294,23 @@
             }
         }
 
-        // Bridge function called by Kotlin RadarMapController
         function updateRadarTimeline(payload) {
             hideRadarUnavailable();
-            if (!payload || !payload.frames) {
+            var data = (typeof payload === 'string') ? JSON.parse(payload) : payload;
+            if (!data || !data.frames || data.frames.length === 0) {
                 showRadarUnavailable('Radar temporarily unavailable');
                 return;
             }
 
-            rainViewerHost = payload.host || 'https://tilecache.rainviewer.com';
-            radarFrames = payload.frames || [];
+            rainViewerHost = data.host || 'https://tilecache.rainviewer.com';
+            radarFrames = data.frames || [];
 
-            preloadRadarSourcesAndLayers();
+            setupRadarTileLayers();
             if (currentLayerType === 'RAINFALL') {
                 displayFrameAtIndex(activeTimelineIndex);
             }
         }
 
-        // Direct API fetch fallback if running standalone or initial offline load
         function fetchRainViewerTimelineDirectly() {
             showLoader(true, 'Downloading RainViewer Radar Timeline...');
             fetch('https://api.rainviewer.com/public/weather-maps.json')
@@ -420,7 +321,6 @@
                 .then(function(data) {
                     showLoader(false);
                     hideRadarUnavailable();
-
                     if (data && data.radar && data.radar.past) {
                         rainViewerHost = data.host || 'https://tilecache.rainviewer.com';
                         var past = data.radar.past || [];
@@ -449,7 +349,7 @@
                             };
                         });
 
-                        preloadRadarSourcesAndLayers();
+                        setupRadarTileLayers();
                         if (currentLayerType === 'RAINFALL') {
                             displayFrameAtIndex(activeTimelineIndex);
                         }
@@ -463,39 +363,33 @@
                 });
         }
 
-        // WebGL Optimization: Pre-add MapLibre raster sources and layers for instant 60 FPS switching
-        function preloadRadarSourcesAndLayers() {
+        function setupRadarTileLayers() {
             if (!map) return;
 
-            radarFrames.forEach(function(frame) {
-                var sourceId = 'radar-src-' + frame.time;
-                var layerId = 'radar-lyr-' + frame.time;
+            radarTileLayers.forEach(function(item) {
+                if (item && item.layer) {
+                    map.removeLayer(item.layer);
+                }
+            });
+            radarTileLayers = [];
 
+            radarFrames.forEach(function(frame, idx) {
                 var cleanHost = rainViewerHost.replace(/\/$/, '');
                 var cleanPath = (frame.path || '').replace(/\/$/, '');
                 var tileUrl = frame.tileUrl || (cleanHost + cleanPath + '/256/{z}/{x}/{y}/2/1_1.png');
 
-                if (!map.getSource(sourceId)) {
-                    map.addSource(sourceId, {
-                        type: 'raster',
-                        tiles: [tileUrl],
-                        tileSize: 256,
-                        minzoom: 0,
-                        maxzoom: 18
-                    });
-                }
+                var layer = L.tileLayer(tileUrl, {
+                    tileSize: 256,
+                    opacity: 0,
+                    maxZoom: 18,
+                    minZoom: 0,
+                    zIndex: 10 + idx
+                }).addTo(map);
 
-                if (!map.getLayer(layerId)) {
-                    map.addLayer({
-                        id: layerId,
-                        type: 'raster',
-                        source: sourceId,
-                        paint: {
-                            'raster-opacity': 0, // start invisible
-                            'raster-fade-duration': 0
-                        }
-                    });
-                }
+                radarTileLayers.push({
+                    time: frame.time,
+                    layer: layer
+                });
             });
         }
 
@@ -507,45 +401,33 @@
         }
 
         function displayFrameAtIndex(index) {
-            if (!map || radarFrames.length === 0) return;
+            if (!map || radarTileLayers.length === 0) return;
 
-            var targetFrame = radarFrames[index];
-            if (!targetFrame) return;
+            var boundedIndex = Math.max(0, Math.min(radarTileLayers.length - 1, index));
 
-            var targetTime = targetFrame.time;
-
-            radarFrames.forEach(function(frame) {
-                var layerId = 'radar-lyr-' + frame.time;
-                if (map.getLayer(layerId)) {
-                    if (frame.time === targetTime) {
-                        map.setPaintProperty(layerId, 'raster-opacity', radarOpacity);
-                        map.setLayoutProperty(layerId, 'visibility', 'visible');
-                    } else {
-                        map.setPaintProperty(layerId, 'raster-opacity', 0);
-                        map.setLayoutProperty(layerId, 'visibility', 'none');
-                    }
+            radarTileLayers.forEach(function(item, idx) {
+                if (idx === boundedIndex) {
+                    item.layer.setOpacity(radarOpacity);
+                } else {
+                    item.layer.setOpacity(0);
                 }
             });
-
-            invalidateMapSize();
         }
 
         function updateWeatherLayers() {
             if (!map) return;
             hideRadarUnavailable();
 
-            if (map.getLayer('owm-layer')) {
-                map.setLayoutProperty('owm-layer', 'visibility', 'none');
+            if (owmTileLayer) {
+                map.removeLayer(owmTileLayer);
+                owmTileLayer = null;
             }
 
             if (currentLayerType === 'RAINFALL') {
                 displayFrameAtIndex(activeTimelineIndex);
             } else {
-                radarFrames.forEach(function(frame) {
-                    var layerId = 'radar-lyr-' + frame.time;
-                    if (map.getLayer(layerId)) {
-                        map.setLayoutProperty(layerId, 'visibility', 'none');
-                    }
+                radarTileLayers.forEach(function(item) {
+                    item.layer.setOpacity(0);
                 });
 
                 var isApiKeyValid = (weatherApiKey && 
@@ -569,29 +451,12 @@
                     showLoader(true, 'Fetching OpenWeatherMap Overlay...');
                     var owmUrl = 'https://tile.openweathermap.org/map/' + layerCode + '/{z}/{x}/{y}.png?appid=' + weatherApiKey;
 
-                    if (map.getSource('owm-src')) {
-                        map.getSource('owm-src').setTiles([owmUrl]);
-                    } else {
-                        map.addSource('owm-src', {
-                            type: 'raster',
-                            tiles: [owmUrl],
-                            tileSize: 256
-                        });
-                    }
-
-                    if (!map.getLayer('owm-layer')) {
-                        map.addLayer({
-                            id: 'owm-layer',
-                            type: 'raster',
-                            source: 'owm-src',
-                            paint: {
-                                'raster-opacity': 0.75,
-                                'raster-fade-duration': 0
-                            }
-                        });
-                    } else {
-                        map.setLayoutProperty('owm-layer', 'visibility', 'visible');
-                    }
+                    owmTileLayer = L.tileLayer(owmUrl, {
+                        opacity: 0.75,
+                        tileSize: 256,
+                        maxZoom: 18,
+                        zIndex: 200
+                    }).addTo(map);
 
                     setTimeout(function() { showLoader(false); }, 1000);
                 } else {
@@ -607,17 +472,16 @@
             console.log('SkySphere JS: safeInit starting execution');
             var attempts = 0;
             function check() {
-                if (typeof maplibregl !== 'undefined') {
-                    console.log('SkySphere JS: maplibregl detected, initializing map engine...');
+                if (typeof L !== 'undefined') {
+                    console.log('SkySphere JS: Leaflet detected, initializing map...');
                     initializeMapEngine();
                 } else {
                     attempts++;
-                    console.warn('SkySphere JS: Waiting for maplibregl... attempt ' + attempts);
                     if (attempts < 50) {
                         setTimeout(check, 100);
                     } else {
-                        console.error('SkySphere JS: CRITICAL - maplibregl failed to load after 50 attempts!');
-                        showError('Script Load Failure', 'Failed to resolve MapLibre GL JS engine library.');
+                        console.error('SkySphere JS: CRITICAL - Leaflet library failed to load');
+                        showRadarUnavailable('Failed to initialize map library');
                     }
                 }
             }
@@ -627,7 +491,7 @@
         if (document.readyState === 'complete' || document.readyState === 'interactive') {
             safeInit();
         } else {
-            window.addEventListener('DOMContentLoaded', safeInit);
+            document.addEventListener('DOMContentLoaded', safeInit);
         }
     </script>
 </body>
