@@ -180,10 +180,18 @@
                     return;
                 }
 
-                if (!maplibregl.supported()) {
-                    console.error('SkySphere JS: WARNING - maplibregl.supported() returned false. WebGL context might have caveats.');
+                if (typeof maplibregl.supported === 'function') {
+                    try {
+                        if (!maplibregl.supported({ failIfMajorPerformanceCaveat: false })) {
+                            console.warn('SkySphere JS: WARNING - maplibregl.supported() returned false. Proceeding anyway...');
+                        } else {
+                            console.log('SkySphere JS: WebGL supported check passed!');
+                        }
+                    } catch (suppErr) {
+                        console.warn('SkySphere JS: maplibregl.supported check threw warning:', suppErr);
+                    }
                 } else {
-                    console.log('SkySphere JS: WebGL supported successfully!');
+                    console.log('SkySphere JS: maplibregl loaded.');
                 }
 
                 var darkStyle = {
