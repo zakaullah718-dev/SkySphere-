@@ -135,6 +135,18 @@ class RadarMapController(
         provider?.setWeatherApiKey(key)
     }
 
+    private val _selectedMapStyle = MutableStateFlow("LIGHT")
+    val selectedMapStyle = _selectedMapStyle.asStateFlow()
+
+    fun setMapStyle(style: String) {
+        _selectedMapStyle.value = style
+        provider?.setMapStyle(style)
+    }
+
+    fun setMapTilerApiKey(key: String) {
+        provider?.setMapTilerKey(key)
+    }
+
     fun setCenter(lat: Double, lon: Double, zoom: Float? = null) {
         provider?.setCenter(lat, lon, zoom)
     }

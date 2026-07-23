@@ -100,6 +100,7 @@ fun MapScreen(
     val radarOpacity by controller.radarOpacity.collectAsState()
     val isOffline by controller.isOffline.collectAsState()
     val isMapReady by controller.isMapLoaded.collectAsState()
+    val currentMapStyle by controller.selectedMapStyle.collectAsState()
 
     // UI overlays state
     var activeLocationHeader by remember { mutableStateOf("LOADING RADAR...") }
@@ -283,6 +284,7 @@ fun MapScreen(
     // Sync map layers when map is loaded
     LaunchedEffect(isMapReady) {
         if (isMapReady) {
+            controller.setMapTilerApiKey(BuildConfig.MAPTILER_API_KEY)
             controller.setWeatherApiKey(BuildConfig.WEATHER_API_KEY)
             controller.selectLayer(selectedLayer)
         }
@@ -1064,8 +1066,40 @@ fun MapScreen(
             }
         }
 
+        // Floating "Layers" pill button at bottom right (Matching Screenshot 4)
+        FloatingActionButton(
+            onClick = { showLayersDialog = true },
+            containerColor = Color.White,
+            contentColor = Color(0xFF1E293B),
+            shape = RoundedCornerShape(24.dp),
+            modifier = Modifier
+                .align(Alignment.BottomEnd)
+                .navigationBarsPadding()
+                .padding(bottom = if (isBottomSheetExpanded) 340.dp else 120.dp, end = 16.dp)
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+            ) {
+                Icon(
+                    imageVector = Icons.Filled.Layers,
+                    contentDescription = "Map Layers",
+                    tint = Color(0xFF1E293B),
+                    modifier = Modifier.size(20.dp)
+                )
+                Spacer(modifier = Modifier.width(8.dp))
+                Text(
+                    text = "Layers",
+                    style = MaterialTheme.typography.labelLarge.copy(
+                        fontWeight = FontWeight.Bold,
+                        color = Color(0xFF1E293B)
+                    )
+                )
+            }
+        }
+
         // ==========================================
-        // 8. FLOATING LAYER SELECTOR DIALOG
+        // 8. FLOATING LAYER SELECTOR DIALOG (Matching Screenshot 3)
         // ==========================================
         if (showLayersDialog) {
             Dialog(onDismissRequest = { showLayersDialog = false }) {
@@ -1084,7 +1118,7 @@ fun MapScreen(
                             modifier = Modifier.fillMaxWidth()
                         ) {
                             Text(
-                                text = "WEATHER OVERLAYS",
+                                text = "LAYERS",
                                 style = MaterialTheme.typography.titleMedium.copy(
                                     fontWeight = FontWeight.Black,
                                     color = Color(0xFF00E5FF),
@@ -1098,7 +1132,95 @@ fun MapScreen(
 
                         Spacer(modifier = Modifier.height(12.dp))
 
-                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        LazyColumn(
+                            verticalArrangement = Arrangement.spacedBy(16.dp),
+                            modifier = Modifier.heightIn(max = 480.dp)
+                        ) {
+                            // SECTION 1: MAP STYLES
+                            item {
+                                Column {
+                                    Text(
+                                        text = "MAP STYLE",
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            color = Color(0xFF00E5FF),
+                                            fontWeight = FontWeight.ExtraBold,
+                                            letterSpacing = 1.sp
+                                        )
+                                    )
+                                    Spacer(modifier = Modifier.height(10.dp))
+
+                                    Row(
+                                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                        modifier = Modifier.fillMaxWidth()
+                                    ) {
+                                        listOf(
+                                            Triple("SYSTEM", "System", Icons.Filled.Smartphone),
+                                            Triple("LIGHT", "Light", Icons.Filled.LightMode),
+                                            Triple("DARK", "Dark", Icons.Filled.DarkMode),
+                                            Triple("HYBRID", "Hybrid", Icons.Filled.Public)
+                                        ).forEach { (styleKey, styleName, styleIcon) ->
+                                            val isStyleSelected = currentMapStyle.equals(styleKey, ignoreCase = true)
+                                            Box(
+                                                modifier = Modifier
+                                                    .weight(1f)
+                                                    .clip(RoundedCornerShape(16.dp))
+                                                    .background(if (isStyleSelected) Color(0xFF00E5FF).copy(alpha = 0.25f) else Color(0x15FFFFFF))
+                                                    .border(
+                                                        1.dp,
+                                                        if (isStyleSelected) Color(0xFF00E5FF) else Color.Transparent,
+                                                        RoundedCornerShape(16.dp)
+                                                    )
+                                                    .clickable {
+                                                        controller.setMapStyle(styleKey)
+                                                    }
+                                                    .padding(vertical = 10.dp),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                                    Icon(
+                                                        imageVector = styleIcon,
+                                                        contentDescription = styleName,
+                                                        tint = if (isStyleSelected) Color(0xFF00E5FF) else Color.White,
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                    Spacer(modifier = Modifier.height(4.dp))
+                                                    Text(
+                                                        text = styleName,
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            color = if (isStyleSelected) Color(0xFF00E5FF) else Color.White,
+                                                            fontWeight = FontWeight.Bold,
+                                                            fontSize = 11.sp
+                                                        )
+                                                    )
+                                                    Spacer(modifier = Modifier.height(2.dp))
+                                                    RadioButton(
+                                                        selected = isStyleSelected,
+                                                        onClick = { controller.setMapStyle(styleKey) },
+                                                        colors = RadioButtonDefaults.colors(
+                                                            selectedColor = Color(0xFF00E5FF),
+                                                            unselectedColor = Color(0x66FFFFFF)
+                                                        ),
+                                                        modifier = Modifier.size(20.dp)
+                                                    )
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // SECTION 2: WEATHER OVERLAY LAYERS
+                            item {
+                                Text(
+                                    text = "RADAR OVERLAYS",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        color = Color(0xFF00E5FF),
+                                        fontWeight = FontWeight.ExtraBold,
+                                        letterSpacing = 1.sp
+                                    )
+                                )
+                            }
+
                             items(MapLayer.values()) { layer ->
                                 val isSelected = selectedLayer == layer
                                 Row(
@@ -1122,7 +1244,7 @@ fun MapScreen(
                                         imageVector = layer.icon,
                                         contentDescription = null,
                                         tint = if (isSelected) Color(0xFF00E5FF) else Color.White,
-                                        modifier = Modifier.size(24.dp)
+                                        modifier = Modifier.size(22.dp)
                                     )
                                     Spacer(modifier = Modifier.width(12.dp))
                                     Column(modifier = Modifier.weight(1f)) {
@@ -1138,13 +1260,17 @@ fun MapScreen(
                                             style = MaterialTheme.typography.labelSmall.copy(color = Color(0x88FFFFFF))
                                         )
                                     }
-                                    if (isSelected) {
-                                        Icon(
-                                            imageVector = Icons.Filled.Check,
-                                            contentDescription = "Selected Layer",
-                                            tint = Color(0xFF00E5FF)
+                                    RadioButton(
+                                        selected = isSelected,
+                                        onClick = {
+                                            controller.selectLayer(layer)
+                                            showLayersDialog = false
+                                        },
+                                        colors = RadioButtonDefaults.colors(
+                                            selectedColor = Color(0xFF00E5FF),
+                                            unselectedColor = Color(0x66FFFFFF)
                                         )
-                                    }
+                                    )
                                 }
                             }
                         }

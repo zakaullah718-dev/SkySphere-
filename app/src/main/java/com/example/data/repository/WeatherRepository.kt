@@ -52,6 +52,14 @@ class WeatherRepository(private val context: Context) {
     private val _windUnit = MutableStateFlow("km/h")
     val windUnit = _windUnit.asStateFlow()
 
+    private val _appTheme = MutableStateFlow(prefs.getString("app_theme", "MIDNIGHT_BLUE") ?: "MIDNIGHT_BLUE")
+    val appTheme = _appTheme.asStateFlow()
+
+    fun setAppTheme(themeId: String) {
+        _appTheme.value = themeId
+        prefs.edit().putString("app_theme", themeId).apply()
+    }
+
     private fun isFahrenheitCountry(country: String): Boolean {
         if (country.isBlank()) return false
         val c = country.trim().lowercase()

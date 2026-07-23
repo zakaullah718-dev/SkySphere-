@@ -215,9 +215,12 @@ fun MainScreenShell(
                     }
                 ) {
                     val selectedProvider by repository.selectedProvider.collectAsState()
+                    val currentAppTheme by repository.appTheme.collectAsState()
                     SettingsScreen(
                         darkTheme = darkTheme,
                         onThemeToggle = onThemeToggle,
+                        currentTheme = currentAppTheme,
+                        onAppThemeChange = { repository.setAppTheme(it) },
                         isCelsius = isCelsius,
                         onCelsiusToggle = { repository.setCelsius(it) },
                         windUnit = windUnit,

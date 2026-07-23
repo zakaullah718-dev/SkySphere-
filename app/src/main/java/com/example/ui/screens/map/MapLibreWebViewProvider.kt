@@ -170,6 +170,18 @@ class MapLibreWebViewProvider : RadarMapProvider {
         }
     }
 
+    fun setMapTilerKey(apiKey: String) {
+        webView?.post {
+            webView?.evaluateJavascript("if (typeof setMapTilerKey === 'function') { setMapTilerKey('$apiKey'); }", null)
+        }
+    }
+
+    fun setMapStyle(style: String) {
+        webView?.post {
+            webView?.evaluateJavascript("if (typeof setMapStyle === 'function') { setMapStyle('$style'); }", null)
+        }
+    }
+
     override fun setTimelineIndex(index: Int) {
         webView?.post {
             webView?.evaluateJavascript("if (typeof setTimelineIndex === 'function') { setTimelineIndex($index); }", null)
@@ -226,7 +238,18 @@ class MapAppInterface(
     private val onRequestTimelineRefresh: () -> Unit
 ) {
     @JavascriptInterface
+    fun logDebug(message: String) {
+        Log.d("SkySphereRadar", message)
+    }
+
+    @JavascriptInterface
+    fun logError(message: String) {
+        Log.e("SkySphereRadar", message)
+    }
+
+    @JavascriptInterface
     fun onMapLoaded() {
+        Log.i("SkySphereRadar", "[Leaflet] Map initialized successfully!")
         onMapLoaded.invoke()
     }
 

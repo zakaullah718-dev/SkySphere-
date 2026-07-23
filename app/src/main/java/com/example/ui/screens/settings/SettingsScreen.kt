@@ -18,7 +18,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Palette
@@ -45,10 +47,20 @@ import androidx.compose.ui.unit.sp
 import com.example.data.repository.WeatherRepository.ProviderType
 import com.example.ui.components.SkySphereCard
 
+import androidx.compose.material.icons.filled.NotificationsActive
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.ui.platform.LocalContext
+import com.example.worker.WeatherWorkerScheduler
+
+import com.example.ui.theme.AppThemePreset
+
 @Composable
 fun SettingsScreen(
     darkTheme: Boolean,
     onThemeToggle: (Boolean) -> Unit,
+    currentTheme: String = "MIDNIGHT_BLUE",
+    onAppThemeChange: (String) -> Unit = {},
     isCelsius: Boolean,
     onCelsiusToggle: (Boolean) -> Unit,
     windUnit: String,
@@ -156,19 +168,155 @@ fun SettingsScreen(
             )
         }
 
-        // THEME OPTION
+        // THEME PRESETS GRID ("A lot of theme options")
         item {
-            SettingsSectionHeader(title = "VISUAL SPACE THEME", icon = Icons.Default.Palette)
+            SettingsSectionHeader(title = "VISUAL THEME PRESETS", icon = Icons.Default.Palette)
+            Spacer(modifier = Modifier.height(12.dp))
+
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                AppThemePreset.values().forEach { preset ->
+                    val isSelected = currentTheme.equals(preset.id, ignoreCase = true)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(18.dp))
+                            .background(preset.surfaceColor)
+                            .border(
+                                width = if (isSelected) 2.dp else 1.dp,
+                                color = if (isSelected) preset.primaryColor else Color(0x33FFFFFF),
+                                shape = RoundedCornerShape(18.dp)
+                            )
+                            .clickable {
+                                onAppThemeChange(preset.id)
+                                onThemeToggle(preset.isDark)
+                            }
+                            .padding(14.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                // Theme preview color circle pair
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(CircleShape)
+                                        .background(
+                                            Brush.linearGradient(
+                                                colors = listOf(preset.primaryColor, preset.secondaryColor)
+                                            )
+                                        )
+                                )
+
+                                Spacer(modifier = Modifier.width(12.dp))
+
+                                Column {
+                                    Text(
+                                        text = preset.displayName.uppercase(),
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = if (preset.isDark) Color.White else Color(0xFF0F172A)
+                                        )
+                                    )
+                                    Text(
+                                        text = preset.description,
+                                        style = MaterialTheme.typography.labelSmall.copy(
+                                            color = if (preset.isDark) Color(0x99FFFFFF) else Color(0x990F172A),
+                                            fontSize = 11.sp
+                                        )
+                                    )
+                                }
+                            }
+
+                            if (isSelected) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .background(preset.primaryColor),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Check,
+                                        contentDescription = "Selected",
+                                        tint = if (preset.isDark) Color.Black else Color.White,
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // WORKMANAGER BACKGROUND TASKS & NOTIFICATIONS
+        item {
+            val context = LocalContext.current
+            var isWorkEnabled by remember { mutableStateOf(true) }
+
+            SettingsSectionHeader(title = "BACKGROUND WEATHER ALERTS (WORKMANAGER)", icon = Icons.Default.NotificationsActive)
             Spacer(modifier = Modifier.height(10.dp))
 
-            SegmentedControl(
-                options = listOf("OBSIDIAN (DARK)", "PEARL (LIGHT)"),
-                selectedIndex = if (darkTheme) 0 else 1,
-                onOptionSelected = { index ->
-                    onThemeToggle(index == 0)
-                },
-                modifier = Modifier.testTag("theme_unit_control")
-            )
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                SegmentedControl(
+                    options = listOf("PERIODIC UPDATES (ACTIVE)", "BACKGROUND DISABLED"),
+                    selectedIndex = if (isWorkEnabled) 0 else 1,
+                    onOptionSelected = { index ->
+                        isWorkEnabled = (index == 0)
+                        if (isWorkEnabled) {
+                            WeatherWorkerScheduler.schedulePeriodicWeatherUpdates(context)
+                        } else {
+                            WeatherWorkerScheduler.cancelPeriodicWeatherUpdates(context)
+                        }
+                    },
+                    modifier = Modifier.testTag("work_manager_control")
+                )
+
+                Button(
+                    onClick = {
+                        WeatherWorkerScheduler.triggerImmediateWeatherUpdate(context)
+                    },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .testTag("test_notification_button"),
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
+                        contentColor = MaterialTheme.colorScheme.primary
+                    ),
+                    shape = CircleShape
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.NotificationsActive,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "TRIGGER TEST WEATHER ALERT / NOTIFICATION NOW",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 11.sp,
+                            letterSpacing = 1.sp
+                        )
+                    )
+                }
+
+                Text(
+                    text = "WorkManager fetches background weather updates every 1 hour and triggers local system notifications for severe weather alerts or daily meteorological summaries.",
+                    style = MaterialTheme.typography.bodySmall.copy(
+                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                        fontSize = 11.sp
+                    ),
+                    modifier = Modifier.padding(horizontal = 4.dp)
+                )
+            }
         }
 
         // ABOUT & SCALABILITY METRICS CARD

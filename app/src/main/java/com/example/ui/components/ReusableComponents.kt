@@ -1,7 +1,9 @@
 package com.example.ui.components
 
+import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.InfiniteTransition
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.LinearOutSlowInEasing
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
@@ -296,6 +298,13 @@ fun isDayTime(sunrise: String, sunset: String): Boolean {
     }
 }
 
+private data class WeatherGradientPalette(
+    val c1: Color,
+    val c2: Color,
+    val c3: Color,
+    val orb: Color
+)
+
 /**
  * A highly premium animated backdrop that shifts colors dynamically based on
  * the weather condition and current day/night cycles, complete with micro-rendered particle systems.
@@ -327,43 +336,148 @@ fun WeatherAnimatedBackground(
         else -> "sunny"
     }
 
-    val gradientColors = when (backgroundType) {
-        "night" -> listOf(Color(0xFF02040A), Color(0xFF0F172A), Color(0xFF1E1B4B))
-        "fog" -> listOf(Color(0xFFCFD8DC), Color(0xFFECEFF1), Color(0xFFB0BEC5))
-        "mist" -> listOf(Color(0xFFE2E8F0), Color(0xFFECEFF1), Color(0xFFCFD8DC))
-        "haze" -> listOf(Color(0xFFF5F5F5), Color(0xFFE0E0E0), Color(0xFFD7CCC8))
-        "heavy_rain" -> listOf(Color(0xFF1A237E), Color(0xFF37474F), Color(0xFF263238))
-        "rain" -> listOf(Color(0xFF37474F), Color(0xFF546E7A), Color(0xFF90A4AE))
-        "thunderstorm" -> listOf(Color(0xFF212121), Color(0xFF311B92), Color(0xFF1A237E))
-        "snow" -> listOf(Color(0xFFE0F7FA), Color(0xFFB2EBF2), Color(0xFF80DEEA))
-        "cloudy" -> listOf(Color(0xFF78909C), Color(0xFF90A4AE), Color(0xFFCFD8DC))
-        "partly_cloudy" -> listOf(Color(0xFF4FC3F7), Color(0xFF81D4FA), Color(0xFFE1F5FE))
-        "sunny" -> listOf(Color(0xFFFFB300), Color(0xFFFF8F00), Color(0xFFFF7043))
-        else -> listOf(Color(0xFF4FC3F7), Color(0xFFE1F5FE))
+    val targetPalette = when (backgroundType) {
+        "night" -> WeatherGradientPalette(
+            c1 = Color(0xFF030712), // Obsidian night
+            c2 = Color(0xFF0F172A), // Midnight slate
+            c3 = Color(0xFF1E1B4B), // Deep indigo
+            orb = Color(0xFF312E81)  // Starlight orb
+        )
+        "fog", "mist" -> WeatherGradientPalette(
+            c1 = Color(0xFF1E293B),
+            c2 = Color(0xFF334155),
+            c3 = Color(0xFF0F172A),
+            orb = Color(0xFF64748B)
+        )
+        "haze" -> WeatherGradientPalette(
+            c1 = Color(0xFF27272A),
+            c2 = Color(0xFF3F3F46),
+            c3 = Color(0xFF18181B),
+            orb = Color(0xFF71717A)
+        )
+        "heavy_rain" -> WeatherGradientPalette(
+            c1 = Color(0xFF08101D), // Dark storm ocean
+            c2 = Color(0xFF132A4A), // Deep rain navy
+            c3 = Color(0xFF050B14), // Pitch night
+            orb = Color(0xFF0369A1)  // Ocean storm orb
+        )
+        "rain" -> WeatherGradientPalette(
+            c1 = Color(0xFF0B192C), // Abyssal rain blue
+            c2 = Color(0xFF1E3E62), // Rainstorm slate
+            c3 = Color(0xFF08121E), // Deep night
+            orb = Color(0xFF0284C7)  // Cerulean rain orb
+        )
+        "thunderstorm" -> WeatherGradientPalette(
+            c1 = Color(0xFF190628), // Electric night violet
+            c2 = Color(0xFF0F172A), // Storm navy
+            c3 = Color(0xFF0B0A1A), // Midnight ink
+            orb = Color(0xFF7C3AED)  // Lightning purple orb
+        )
+        "snow" -> WeatherGradientPalette(
+            c1 = Color(0xFF0F1C2E), // Frost navy
+            c2 = Color(0xFF1E293B), // Glacial slate
+            c3 = Color(0xFF0B132B), // Arctic night
+            orb = Color(0xFF38BDF8)  // Icy blue orb
+        )
+        "cloudy" -> WeatherGradientPalette(
+            c1 = Color(0xFF1E293B), // Slate dusk
+            c2 = Color(0xFF334155), // Overcast steel
+            c3 = Color(0xFF0F172A), // Deep gray
+            orb = Color(0xFF64748B)  // Cloud orb
+        )
+        "partly_cloudy" -> WeatherGradientPalette(
+            c1 = Color(0xFF0B2545), // Sky deep blue
+            c2 = Color(0xFF134074), // Ocean slate
+            c3 = Color(0xFF0B132B), // Midnight sky
+            orb = Color(0xFF38BDF8)  // Azure sky orb
+        )
+        "sunny" -> WeatherGradientPalette(
+            c1 = Color(0xFF2C1500), // Warm amber sunset
+            c2 = Color(0xFF1E293B), // Slate blue transition
+            c3 = Color(0xFF0F172A), // Deep twilight steel
+            orb = Color(0xFFD97706)  // Golden sunburst orb
+        )
+        else -> WeatherGradientPalette(
+            c1 = Color(0xFF0F2C40),
+            c2 = Color(0xFF152238),
+            c3 = Color(0xFF0B1220),
+            orb = Color(0xFF0EA5E9)
+        )
     }
+
+    // Smooth color animation when switching weather conditions
+    val animC1 by animateColorAsState(
+        targetValue = targetPalette.c1,
+        animationSpec = tween(1500, easing = LinearOutSlowInEasing),
+        label = "BgColor1Anim"
+    )
+    val animC2 by animateColorAsState(
+        targetValue = targetPalette.c2,
+        animationSpec = tween(1500, easing = LinearOutSlowInEasing),
+        label = "BgColor2Anim"
+    )
+    val animC3 by animateColorAsState(
+        targetValue = targetPalette.c3,
+        animationSpec = tween(1500, easing = LinearOutSlowInEasing),
+        label = "BgColor3Anim"
+    )
+    val animOrb by animateColorAsState(
+        targetValue = targetPalette.orb,
+        animationSpec = tween(1500, easing = LinearOutSlowInEasing),
+        label = "BgOrbAnim"
+    )
 
     val infiniteTransition = rememberInfiniteTransition(label = "BackgroundAnimation")
     
-    val animatedOffset by infiniteTransition.animateFloat(
+    // Continuous fluid motion angle
+    val timeProgress by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = 1000f,
+        targetValue = (2 * kotlin.math.PI).toFloat(),
         animationSpec = infiniteRepeatable(
-            animation = tween(25000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
+            animation = tween(22000, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
         ),
-        label = "SkyGradientShift"
+        label = "SkyMeshRotation"
     )
 
     Box(
         modifier = modifier
             .fillMaxSize()
             .drawBehind {
-                val brush = Brush.linearGradient(
-                    colors = gradientColors,
-                    start = Offset(0f, animatedOffset / 2),
-                    end = Offset(size.width, size.height + animatedOffset)
+                val sinVal = kotlin.math.sin(timeProgress.toDouble()).toFloat()
+                val cosVal = kotlin.math.cos(timeProgress.toDouble()).toFloat()
+
+                // Calculate shifting linear gradient coordinates
+                val startX = size.width * (0.2f + 0.25f * sinVal)
+                val startY = size.height * (0.1f + 0.15f * cosVal)
+                val endX = size.width * (0.8f - 0.25f * sinVal)
+                val endY = size.height * (0.9f - 0.15f * cosVal)
+
+                val baseBrush = Brush.linearGradient(
+                    colors = listOf(animC1, animC2, animC3),
+                    start = Offset(startX, startY),
+                    end = Offset(endX, endY)
                 )
-                drawRect(brush = brush)
+                drawRect(brush = baseBrush)
+
+                // Draw floating dynamic atmospheric glowing orb for depth
+                val orbCenterX = size.width * (0.55f + 0.3f * cosVal)
+                val orbCenterY = size.height * (0.22f + 0.15f * sinVal)
+                val orbRadius = size.width * (0.75f + 0.1f * sinVal)
+
+                drawCircle(
+                    brush = Brush.radialGradient(
+                        colors = listOf(
+                            animOrb.copy(alpha = 0.35f),
+                            animOrb.copy(alpha = 0.10f),
+                            Color.Transparent
+                        ),
+                        center = Offset(orbCenterX, orbCenterY),
+                        radius = orbRadius
+                    ),
+                    center = Offset(orbCenterX, orbCenterY),
+                    radius = orbRadius
+                )
             }
     ) {
         when (backgroundType) {
