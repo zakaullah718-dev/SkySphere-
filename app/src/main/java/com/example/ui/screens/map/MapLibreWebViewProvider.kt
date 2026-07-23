@@ -2,25 +2,24 @@ package com.example.ui.screens.map
 
 import android.content.Context
 import android.os.Build
+import android.util.Log
 import android.view.View
 import android.webkit.CookieManager
 import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
+import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
-import android.webkit.WebResourceResponse
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
 
 /**
- * High-performance WebView-based MapLibre GL JS map provider implementation.
- * Integrates modular RadarOverlayManager, Kotlin RadarTileProxy, and modern RainViewer API.
+ * Modern, simple, hardware-accelerated WebView map provider for MapLibre GL JS.
+ * Connects directly to CartoDB Dark Matter basemaps and RainViewer Doppler radar layers.
  */
 class MapLibreWebViewProvider : RadarMapProvider {
     private var webView: WebView? = null
-    val radarOverlayManager = RadarOverlayManager()
+    var controller: RadarMapController? = null
 
     override fun createMapView(
         context: Context,
@@ -28,22 +27,8 @@ class MapLibreWebViewProvider : RadarMapProvider {
         onCoordinatesSelected: (Double, Double) -> Unit,
         onApiKeyMissing: (String) -> Unit
     ): View {
-        val tileProxy = RadarTileProxy(context)
-
-        try {
-            val cacheDir = context.cacheDir
-            if (cacheDir != null) {
-                val jsCache = java.io.File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/js")
-                val wasmCache = java.io.File(cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm")
-                if (!jsCache.exists()) jsCache.mkdirs()
-                if (!wasmCache.exists()) wasmCache.mkdirs()
-            }
-        } catch (e: Exception) {
-            e.printStackTrace()
-        }
-
-        val wv = WebView(context)
-        wv.apply {
+        val wv = WebView(context).apply {
+            // Configure simple, modern WebView settings
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -56,104 +41,88 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 cacheMode = WebSettings.LOAD_DEFAULT
                 allowContentAccess = true
                 allowFileAccess = true
-                allowFileAccessFromFileURLs = true
-                allowUniversalAccessFromFileURLs = true
                 javaScriptCanOpenWindowsAutomatically = true
                 setSupportMultipleWindows(false)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                     safeBrowsingEnabled = false
                 }
             }
-            
+
+            // Enable cookies and hardware acceleration
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
             cookieManager.setAcceptThirdPartyCookies(this, true)
-
             setLayerType(View.LAYER_TYPE_HARDWARE, null)
-            
+
+            // Layout size listener to notify MapLibre canvas on resize/orientation
             addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
                 val newWidth = right - left
                 val newHeight = bottom - top
                 val oldWidth = oldRight - oldLeft
                 val oldHeight = oldBottom - oldTop
                 if (newWidth > 0 && newHeight > 0 && (newWidth != oldWidth || newHeight != oldHeight)) {
-                    android.util.Log.d("RadarWebView", "WebView layout size changed: ${newWidth}x${newHeight}. Invalidating map size.")
                     v.postDelayed({
                         (v as? WebView)?.evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
                     }, 100)
                 }
             }
 
+            // Standard WebChromeClient for JS console debugging
             webChromeClient = object : WebChromeClient() {
                 override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
                     consoleMessage?.let {
-                        android.util.Log.d("RadarWebView", "[${it.messageLevel()}] ${it.message()} -- at ${it.sourceId()}:${it.lineNumber()}")
+                        Log.d("SkySphereMap", "[${it.messageLevel()}] ${it.message()} (${it.sourceId()}:${it.lineNumber()})")
                     }
                     return super.onConsoleMessage(consoleMessage)
                 }
             }
-            webViewClient = object : WebViewClient() {
-                override fun shouldInterceptRequest(
-                    view: WebView?,
-                    request: WebResourceRequest?
-                ): WebResourceResponse? {
-                    val proxiedResponse = tileProxy.shouldIntercept(request)
-                    if (proxiedResponse != null) {
-                        return proxiedResponse
-                    }
-                    return super.shouldInterceptRequest(view, request)
-                }
 
+            // Simple WebViewClient without unnecessary request proxying
+            webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
                     view?.postDelayed({
                         view.evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
-                    }, 200)
-                }
-
-                override fun onReceivedSslError(
-                    view: WebView?,
-                    handler: android.webkit.SslErrorHandler?,
-                    error: android.net.http.SslError?
-                ) {
-                    android.util.Log.w("RadarWebView", "SSL Error inside WebView: ${error?.primaryError}. Proceeding to ensure high reliability.")
-                    handler?.proceed()
+                    }, 150)
                 }
 
                 override fun onReceivedError(
                     view: WebView?,
                     request: WebResourceRequest?,
-                    error: android.webkit.WebResourceError?
+                    error: WebResourceError?
                 ) {
                     super.onReceivedError(view, request, error)
-                    android.util.Log.e("RadarWebView", "Resource loading error in WebView: ${error?.description} for URL: ${request?.url}")
+                    Log.e("SkySphereMap", "WebView resource error: ${error?.description} for ${request?.url}")
                 }
             }
-            
+
+            // Add JavaScript interfaces for Kotlin <-> MapLibre JS bridge
             addJavascriptInterface(
                 MapAppInterface(
                     onMapLoaded = {
-                        wv.post {
-                            wv.evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
+                        post {
+                            evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
                         }
                         onMapLoaded.invoke()
-                        radarOverlayManager.loadRadarData(CoroutineScope(Dispatchers.Main))
                     },
                     onCoordinatesSelected = onCoordinatesSelected,
-                    onApiKeyMissing = onApiKeyMissing
+                    onApiKeyMissing = onApiKeyMissing,
+                    onRequestTimelineRefresh = {
+                        controller?.let { ctrl ->
+                            post {
+                                ctrl.loadRadarTimeline(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main), forceRefresh = true)
+                            }
+                        }
+                    }
                 ),
                 "AndroidMap"
             )
 
-            addJavascriptInterface(
-                radarOverlayManager.JSInterface(),
-                "AndroidRadar"
-            )
-
+            // Load local radar_map.html asset
             val htmlContent = try {
                 context.assets.open("radar_map.html").bufferedReader().use { it.readText() }
             } catch (e: Exception) {
-                android.util.Log.e("RadarWebView", "Failed to read radar_map.html from assets folder", e)
+                Log.e("SkySphereMap", "Failed to load radar_map.html from assets", e)
                 ""
             }
 
@@ -165,9 +134,8 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 null
             )
         }
-        
+
         webView = wv
-        radarOverlayManager.attachWebView(wv)
         return wv
     }
 
@@ -175,9 +143,6 @@ class MapLibreWebViewProvider : RadarMapProvider {
         val zoomParam = zoom?.toString() ?: "null"
         webView?.post {
             webView?.evaluateJavascript("if (typeof setCenter === 'function') { setCenter($latitude, $longitude, $zoomParam); }", null)
-            webView?.postDelayed({
-                webView?.evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
-            }, 100)
         }
     }
 
@@ -194,7 +159,45 @@ class MapLibreWebViewProvider : RadarMapProvider {
     }
 
     override fun setTimelineIndex(index: Int) {
-        radarOverlayManager.setTimelineIndex(index)
+        webView?.post {
+            webView?.evaluateJavascript("if (typeof setTimelineIndex === 'function') { setTimelineIndex($index); }", null)
+        }
+    }
+
+    fun setRadarOpacity(opacity: Float) {
+        webView?.post {
+            webView?.evaluateJavascript("if (typeof setRadarOpacity === 'function') { setRadarOpacity($opacity); }", null)
+        }
+    }
+
+    fun updateRadarTimeline(jsonPayloadStr: String) {
+        webView?.post {
+            webView?.evaluateJavascript("if (typeof updateRadarTimeline === 'function') { updateRadarTimeline($jsonPayloadStr); }", null)
+        }
+    }
+
+    fun notifyRadarUnavailable(message: String) {
+        webView?.post {
+            webView?.evaluateJavascript("if (typeof showRadarUnavailable === 'function') { showRadarUnavailable('$message'); }", null)
+        }
+    }
+
+    fun zoomIn() {
+        webView?.post {
+            webView?.evaluateJavascript("if (typeof zoomIn === 'function') { zoomIn(); }", null)
+        }
+    }
+
+    fun zoomOut() {
+        webView?.post {
+            webView?.evaluateJavascript("if (typeof zoomOut === 'function') { zoomOut(); }", null)
+        }
+    }
+
+    fun resetNorth() {
+        webView?.post {
+            webView?.evaluateJavascript("if (typeof resetNorth === 'function') { resetNorth(); }", null)
+        }
     }
 
     fun invalidateMapSize() {
@@ -207,7 +210,8 @@ class MapLibreWebViewProvider : RadarMapProvider {
 class MapAppInterface(
     private val onMapLoaded: () -> Unit,
     private val onCoordinatesSelected: (Double, Double) -> Unit,
-    private val onApiKeyMissing: (String) -> Unit
+    private val onApiKeyMissing: (String) -> Unit,
+    private val onRequestTimelineRefresh: () -> Unit
 ) {
     @JavascriptInterface
     fun onMapLoaded() {
@@ -222,5 +226,10 @@ class MapAppInterface(
     @JavascriptInterface
     fun onApiKeyMissing(layerName: String) {
         onApiKeyMissing.invoke(layerName)
+    }
+
+    @JavascriptInterface
+    fun onRequestTimelineRefresh() {
+        onRequestTimelineRefresh.invoke()
     }
 }

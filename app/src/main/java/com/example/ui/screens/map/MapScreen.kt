@@ -12,13 +12,16 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material.icons.outlined.FavoriteBorder
@@ -27,33 +30,44 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 import com.example.BuildConfig
 import com.example.data.models.CityWeather
-import com.example.data.models.WeatherCondition
-import com.example.data.models.WeatherDetails
 import com.example.data.repository.WeatherRepository
 import com.example.ui.components.WeatherConditionIcon
 import com.example.ui.theme.*
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-enum class MapLayer(val displayName: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val description: String) {
-    RAINFALL("Rain Radar", Icons.Filled.WaterDrop, "Active Live Doppler precipitation radar"),
-    CLOUD_COVER("Clouds", Icons.Filled.Cloud, "Multi-spectral infrared satellite cloud cover"),
-    TEMPERATURE("Temperature", Icons.Filled.Thermostat, "Tropospheric thermal spectroscopy"),
-    WIND_SPEED("Wind Speed", Icons.Filled.Air, "Flow streamline velocity vectors"),
-    PRESSURE("Pressure", Icons.Filled.Compress, "Isobaric atmospheric surface tension"),
-    HUMIDITY("Humidity", Icons.Filled.Water, "Relative tropospheric moisture concentration")
+enum class MapLayer(
+    val displayName: String,
+    val icon: ImageVector,
+    val description: String
+) {
+    RAINFALL("Rain Radar", Icons.Filled.WaterDrop, "Active live Doppler precipitation radar"),
+    CLOUD_COVER("Clouds", Icons.Filled.Cloud, "Infrared satellite cloud density"),
+    TEMPERATURE("Temperature", Icons.Filled.Thermostat, "Thermal surface spectroscopy"),
+    WIND_SPEED("Wind", Icons.Filled.Air, "Flow streamline velocity vectors"),
+    PRESSURE("Pressure", Icons.Filled.Compress, "Isobaric atmospheric surface pressure"),
+    HUMIDITY("Humidity", Icons.Filled.Water, "Relative moisture concentration"),
+    SATELLITE("Satellite", Icons.Filled.Public, "High-resolution orbital satellite scan"),
+    LIGHTNING("Lightning", Icons.Filled.FlashOn, "Real-time electrical discharge activity")
 }
 
 data class MapCity(val name: String, val lat: Float, val lon: Float, val country: String)
@@ -67,16 +81,34 @@ fun MapScreen(
     val coroutineScope = rememberCoroutineScope()
     val isCelsius by repository.isCelsius.collectAsState()
 
-    // Modular Map Provider
-    val mapProvider = remember { MapLibreWebViewProvider() }
-    var isMapReady by remember { mutableStateOf(false) }
+    // Map Controller and Provider setup
+    val controller = remember { RadarMapController() }
+    val mapProvider = remember {
+        MapLibreWebViewProvider().apply {
+            this.controller = controller
+        }
+    }
+    LaunchedEffect(mapProvider) {
+        controller.attachProvider(mapProvider)
+    }
 
-    // Screen UI overlays state
-    var selectedLayer by remember { mutableStateOf(MapLayer.RAINFALL) }
+    // Controller states
+    val selectedLayer by controller.selectedLayer.collectAsState()
+    val currentFrameIndex by controller.currentFrameIndex.collectAsState()
+    val isPlayingRadar by controller.isPlaying.collectAsState()
+    val playbackSpeed by controller.playbackSpeed.collectAsState()
+    val radarOpacity by controller.radarOpacity.collectAsState()
+    val isOffline by controller.isOffline.collectAsState()
+    val isMapReady by controller.isMapLoaded.collectAsState()
+
+    // UI overlays state
     var activeLocationHeader by remember { mutableStateOf("LOADING RADAR...") }
-    var searchQuery by remember { mutableStateOf("") }
-    
-    // GPS and location status
+    var showSearchDialog by remember { mutableStateOf(false) }
+    var showLayersDialog by remember { mutableStateOf(false) }
+    var showOpacitySlider by remember { mutableStateOf(false) }
+    var isBottomSheetExpanded by remember { mutableStateOf(false) }
+
+    // GPS and location state
     var currentGpsCoords by remember { mutableStateOf<Pair<Double, Double>?>(null) }
     var hasCentredInitially by remember { mutableStateOf(false) }
     var hasLocationPermissions by remember {
@@ -85,20 +117,17 @@ fun MapScreen(
             ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         )
     }
-    
-    // Bottom detail inspection sheet
+
+    // Weather details state for bottom sheet
     var inspectedWeather by remember { mutableStateOf<CityWeather?>(null) }
-    var isInspecting by remember { mutableStateOf(false) }
     var isFetchingInspected by remember { mutableStateOf(false) }
     var targetCoords by remember { mutableStateOf<Pair<Double, Double>?>(null) }
 
-    // Favorites list
+    // Favorites flow
     val favoritedCities by repository.getFavoritesFlow().collectAsState(initial = emptyList())
+    val recentSearches by repository.getRecentSearchesFlow().collectAsState(initial = emptyList())
 
-    // Timeline player
-    var isPlayingRadar by remember { mutableStateOf(true) }
-    var radarTimeSlider by remember { mutableStateOf(3f) }
-    val timelineLabels = listOf("-3h", "-2h", "-1h", "Now", "+1h", "+2h", "+3h")
+    val timelineLabels = listOf("-3h", "-2h", "-1h", "NOW", "+1h", "+2h", "+3h")
 
     // Static major worldwide cities list for quick matching
     val mapCities = remember {
@@ -125,23 +154,11 @@ fun MapScreen(
         )
     }
 
-    // Timeline auto-slider
-    LaunchedEffect(isPlayingRadar) {
-        if (isPlayingRadar) {
-            while (true) {
-                delay(1200)
-                radarTimeSlider = (radarTimeSlider + 1) % 7
-            }
-        }
-    }
-
-    // Helper to query location-specific micro-climate data
+    // Helper to query location-specific weather details
     val triggerCoordinateFetch: (Double, Double, String?) -> Unit = { lat, lon, customName ->
         targetCoords = Pair(lat, lon)
-        isInspecting = true
         isFetchingInspected = true
-        inspectedWeather = null
-        
+
         coroutineScope.launch {
             val result = repository.fetchWeatherFromApi("$lat,$lon", forceRefresh = true)
             isFetchingInspected = false
@@ -150,12 +167,12 @@ fun MapScreen(
                 activeLocationHeader = "${weather.cityName.uppercase()}, ${weather.country.uppercase()}"
             }.onFailure {
                 inspectedWeather = null
-                activeLocationHeader = customName ?: "COORDINATES: ${String.format("%.4f", lat)}, ${String.format("%.4f", lon)}"
+                activeLocationHeader = customName ?: "COORDINATES: ${String.format("%.2f", lat)}, ${String.format("%.2f", lon)}"
             }
         }
     }
 
-    // Set up Location Manager for GPS location detection
+    // Location manager for GPS tracking
     val locationManager = remember { context.getSystemService(Context.LOCATION_SERVICE) as LocationManager }
     val locationPermissionLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.RequestMultiplePermissions()
@@ -184,7 +201,7 @@ fun MapScreen(
         }
     }
 
-    // Dynamic Location Tracking with precise listeners and cleanup to optimize battery/memory
+    // Location listener setup
     DisposableEffect(locationManager, hasLocationPermissions) {
         val listener = object : LocationListener {
             override fun onLocationChanged(location: Location) {
@@ -204,8 +221,8 @@ fun MapScreen(
                 if (hasFine && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
                     locationManager.requestLocationUpdates(
                         LocationManager.GPS_PROVIDER,
-                        10000L, // 10 seconds interval
-                        10f,    // 10 meters change
+                        10000L,
+                        10f,
                         listener,
                         android.os.Looper.getMainLooper()
                     )
@@ -233,10 +250,11 @@ fun MapScreen(
                     e.printStackTrace()
                 }
             }
+            controller.release()
         }
     }
 
-    // Initial load permission checking
+    // Check location permissions on load
     LaunchedEffect(Unit) {
         val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
@@ -266,51 +284,35 @@ fun MapScreen(
         }
     }
 
-    // Sync map layers and settings reactively when map is ready
+    // Sync map layers when map is loaded
     LaunchedEffect(isMapReady) {
         if (isMapReady) {
-            mapProvider.setWeatherApiKey(BuildConfig.WEATHER_API_KEY)
-            mapProvider.setWeatherLayer(selectedLayer)
+            controller.setWeatherApiKey(BuildConfig.WEATHER_API_KEY)
+            controller.selectLayer(selectedLayer)
         }
     }
 
-    LaunchedEffect(selectedLayer, isMapReady) {
-        if (isMapReady) {
-            mapProvider.setWeatherLayer(selectedLayer)
-        }
-    }
-
-    LaunchedEffect(radarTimeSlider, isMapReady) {
-        if (isMapReady) {
-            mapProvider.setTimelineIndex(radarTimeSlider.toInt())
-        }
-    }
-
-    // Primary FlyTo centering effect
+    // Initial camera placement
     LaunchedEffect(isMapReady, currentGpsCoords) {
         if (isMapReady && !hasCentredInitially) {
             val gps = currentGpsCoords
             if (gps != null) {
                 hasCentredInitially = true
-                mapProvider.setCenter(gps.first, gps.second, 5.0f)
+                controller.setCenter(gps.first, gps.second, 5.0f)
                 triggerCoordinateFetch(gps.first, gps.second, "CURRENT LOCATION")
             } else {
-                // Denied or off: fly to last selected city
                 val lastCity = repository.selectedCity.value
                 if (lastCity.cityName != "Loading...") {
                     hasCentredInitially = true
                     val lat = lastCity.latitude ?: 40.7128
                     val lon = lastCity.longitude ?: -74.0060
-                    mapProvider.setCenter(lat, lon, 4.5f)
+                    controller.setCenter(lat, lon, 4.5f)
                     activeLocationHeader = "${lastCity.cityName.uppercase()}, ${lastCity.country.uppercase()}"
-                    
                     targetCoords = Pair(lat, lon)
-                    isInspecting = true
                     inspectedWeather = lastCity
                 } else {
-                    // absolute default fallback to London
                     hasCentredInitially = true
-                    mapProvider.setCenter(51.5074, -0.1278, 4.0f)
+                    controller.setCenter(51.5074, -0.1278, 4.0f)
                     activeLocationHeader = "LONDON, UK"
                 }
             }
@@ -320,234 +322,217 @@ fun MapScreen(
     Box(
         modifier = modifier
             .fillMaxSize()
-            .background(ObsidianBg)
+            .background(Color(0xFF070913))
             .testTag("radar_map_screen_root")
     ) {
-        // INTERACTIVE MAP CONTAINER
+        // ==========================================
+        // 1. MAP AS THE HERO (100% FULL-BLEED CANVAS)
+        // ==========================================
         AndroidView(
             factory = { ctx ->
                 mapProvider.createMapView(
                     context = ctx,
                     onMapLoaded = {
-                        isMapReady = true
+                        controller.onMapReady(coroutineScope)
                     },
                     onCoordinatesSelected = { lat, lon ->
                         triggerCoordinateFetch(lat, lon, null)
                     },
-                    onApiKeyMissing = { layer ->
-                        // Managed elegantly via fallbacks inside WebView layer
-                    }
+                    onApiKeyMissing = {}
                 )
             },
             modifier = Modifier.fillMaxSize()
         )
 
-        // TOP PREMIUM DESIGN HEADER ROW (CURRENT ACTIVE LOCATION INDICATOR)
+        // ==========================================
+        // 2. TOP FLOATING GLASS HEADER CONTROL BAR
+        // ==========================================
         Column(
             modifier = Modifier
                 .align(Alignment.TopCenter)
                 .statusBarsPadding()
-                .padding(start = 16.dp, end = 16.dp, top = 8.dp)
+                .padding(top = 8.dp, start = 16.dp, end = 16.dp)
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Box(
+            // Offline Warning Toast Banner
+            if (isOffline) {
+                Box(
+                    modifier = Modifier
+                        .padding(bottom = 6.dp)
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(Color(0xDDE53935))
+                        .padding(vertical = 4.dp, horizontal = 12.dp)
+                ) {
+                    Text(
+                        text = "OFFLINE MODE • CACHED RADAR TILES",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = Color.White,
+                            fontSize = 9.sp
+                        )
+                    )
+                }
+            }
+
+            // Compact Header Pill
+            Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(20.dp))
-                    .background(Color(0xE61E1E2E)) // Transparent overlay
-                    .border(1.dp, Color(0xFF374151).copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                    .padding(vertical = 10.dp, horizontal = 24.dp),
-                contentAlignment = Alignment.Center
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color(0xCC0F172A))
+                    .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(28.dp))
+                    .padding(horizontal = 8.dp, vertical = 6.dp)
+                    .fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
+                // Location Title & GPS Indicator
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(start = 12.dp)
+                        .clickable { showSearchDialog = true }
                 ) {
                     Box(
                         modifier = Modifier
                             .size(8.dp)
                             .clip(CircleShape)
-                            .background(if (isMapReady) Color(0xFF00FF66) else Color(0xFFFF5252))
+                            .background(if (isMapReady && !isOffline) Color(0xFF00FF66) else Color(0xFFFF9800))
                     )
-                    Spacer(modifier = Modifier.width(10.dp))
+                    Spacer(modifier = Modifier.width(8.dp))
                     Text(
                         text = activeLocationHeader,
-                        style = MaterialTheme.typography.labelLarge.copy(
-                            fontWeight = FontWeight.ExtraBold,
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = FontWeight.Bold,
                             color = Color.White,
-                            letterSpacing = 1.2.sp
+                            letterSpacing = 0.5.sp
                         ),
-                        textAlign = TextAlign.Center
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                 }
-            }
-        }
 
-        // FLOATING LAYER SWITCHER CAROUSEL (ATTACHED BELOW HEADER)
-        Column(
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 132.dp)
-                .fillMaxWidth(),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Row(
-                modifier = Modifier
-                    .padding(horizontal = 16.dp)
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xE61E1E2E))
-                    .border(1.dp, Color(0xFF374151).copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-                    .padding(vertical = 8.dp, horizontal = 12.dp)
-                    .horizontalScroll(rememberScrollState()),
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                MapLayer.values().forEach { layer ->
-                    val isSelected = selectedLayer == layer
-                    Box(
+                // Header Floating Actions (Search, Layers, Opacity/Settings)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Search Button
+                    IconButton(
+                        onClick = { showSearchDialog = true },
                         modifier = Modifier
-                            .padding(horizontal = 4.dp)
-                            .clip(RoundedCornerShape(16.dp))
-                            .background(if (isSelected) Color(0xFF2FA3FF) else Color.Transparent)
-                            .clickable { selectedLayer = layer }
-                            .padding(vertical = 8.dp, horizontal = 14.dp),
-                        contentAlignment = Alignment.Center
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(Color(0x30FFFFFF))
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Search,
+                            contentDescription = "Search Locations",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Layers Button with Active Layer Badge
+                    Box {
+                        IconButton(
+                            onClick = { showLayersDialog = true },
+                            modifier = Modifier
+                                .size(36.dp)
+                                .clip(CircleShape)
+                                .background(Color(0xFF00E5FF).copy(alpha = 0.25f))
+                                .border(1.dp, Color(0xFF00E5FF), CircleShape)
+                        ) {
                             Icon(
-                                imageVector = layer.icon,
-                                contentDescription = layer.displayName,
-                                tint = if (isSelected) Color.White else Color(0xFFD1D5DB),
-                                modifier = Modifier.size(16.dp)
-                            )
-                            Spacer(modifier = Modifier.width(6.dp))
-                            Text(
-                                text = layer.displayName,
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = if (isSelected) Color.White else Color(0xFFD1D5DB)
-                                )
+                                imageVector = selectedLayer.icon,
+                                contentDescription = "Weather Layers",
+                                tint = Color(0xFF00E5FF),
+                                modifier = Modifier.size(18.dp)
                             )
                         }
                     }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Opacity / Speed Settings Button
+                    IconButton(
+                        onClick = { showOpacitySlider = !showOpacitySlider },
+                        modifier = Modifier
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(if (showOpacitySlider) Color(0xFF2FA3FF) else Color(0x30FFFFFF))
+                    ) {
+                        Icon(
+                            imageVector = Icons.Filled.Tune,
+                            contentDescription = "Radar Settings",
+                            tint = Color.White,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
                 }
             }
-            
-            // Sub-bar description of active layer
-            Box(
+
+            // Quick Layer Chip Pill Indicator
+            Row(
                 modifier = Modifier
-                    .padding(top = 8.dp)
+                    .padding(top = 6.dp)
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Color(0xCC070913))
-                    .padding(horizontal = 12.dp, vertical = 4.dp)
+                    .background(Color(0xBB0B0F19))
+                    .border(1.dp, Color(0x22FFFFFF), RoundedCornerShape(12.dp))
+                    .padding(horizontal = 10.dp, vertical = 3.dp)
+                    .clickable { showLayersDialog = true },
+                verticalAlignment = Alignment.CenterVertically
             ) {
+                Icon(
+                    imageVector = selectedLayer.icon,
+                    contentDescription = null,
+                    tint = Color(0xFF00E5FF),
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(4.dp))
                 Text(
-                    text = selectedLayer.description.uppercase(),
+                    text = selectedLayer.displayName.uppercase(),
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = Color(0xFF00E5FF),
-                        fontWeight = FontWeight.SemiBold,
-                        letterSpacing = 1.sp,
+                        fontWeight = FontWeight.Bold,
+                        letterSpacing = 0.8.sp,
                         fontSize = 9.sp
                     )
                 )
             }
         }
 
-        // FLOATING SEARCH BAR & GPS LAUNCHER (TOP VISUAL OVERLAY)
-        Row(
+        // ==========================================
+        // 3. RIGHT FLOATING MAP CONTROLS
+        // ==========================================
+        Column(
             modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 70.dp, start = 16.dp, end = 16.dp)
-                .fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+                .align(Alignment.CenterEnd)
+                .padding(end = 12.dp)
+                .clip(RoundedCornerShape(24.dp))
+                .background(Color(0xCC0F172A))
+                .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(24.dp))
+                .padding(4.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
-            val performSearchAction = {
-                val query = searchQuery.trim()
-                if (query.isNotEmpty()) {
-                    val match = mapCities.find { it.name.equals(query, ignoreCase = true) }
-                    if (match != null) {
-                        mapProvider.setCenter(match.lat.toDouble(), match.lon.toDouble(), 7.0f)
-                        triggerCoordinateFetch(match.lat.toDouble(), match.lon.toDouble(), match.name)
-                    } else {
-                        // Query dynamic geocoding fetch from current live API
-                        coroutineScope.launch {
-                            val res = repository.fetchWeatherFromApi(query, forceRefresh = true)
-                            res.onSuccess { cw ->
-                                val lat = cw.latitude ?: 30.0
-                                val lon = cw.longitude ?: 0.0
-                                mapProvider.setCenter(lat, lon, 7.0f)
-                                triggerCoordinateFetch(lat, lon, cw.cityName)
-                            }
-                        }
-                    }
-                    searchQuery = ""
-                }
-            }
-
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .height(50.dp)
-                    .clip(RoundedCornerShape(25.dp))
-                    .background(Color(0xE61E1E2E))
-                    .border(1.dp, Color(0xFF374151).copy(alpha = 0.5f), RoundedCornerShape(25.dp))
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.CenterStart
+            IconButton(
+                onClick = { controller.zoomIn() },
+                modifier = Modifier.size(38.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    Icon(
-                        imageVector = Icons.Filled.Search,
-                        contentDescription = "Search",
-                        tint = Color(0xFFD1D5DB),
-                        modifier = Modifier.size(20.dp)
-                    )
-                    Spacer(modifier = Modifier.width(8.dp))
-                    BasicTextField(
-                        value = searchQuery,
-                        onValueChange = { searchQuery = it },
-                        textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
-                        singleLine = true,
-                        keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
-                        keyboardActions = KeyboardActions(onSearch = { performSearchAction() }),
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("map_search_textfield"),
-                        decorationBox = @Composable { innerTextField: @Composable () -> Unit ->
-                            Box(contentAlignment = Alignment.CenterStart) {
-                                if (searchQuery.isEmpty()) {
-                                    Text(
-                                        text = "Search worldwide cities (e.g. Paris)...",
-                                        style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFFD1D5DB))
-                                    )
-                                }
-                                innerTextField()
-                            }
-                        }
-                    )
-                    if (searchQuery.isNotEmpty()) {
-                        IconButton(
-                            onClick = { performSearchAction() }
-                        ) {
-                            Icon(
-                                imageVector = Icons.Filled.ArrowForward,
-                                contentDescription = "Perform Search",
-                                tint = Color(0xFF2FA3FF)
-                            )
-                        }
-                    }
-                }
+                Icon(imageVector = Icons.Filled.Add, contentDescription = "Zoom In", tint = Color.White)
             }
-            Spacer(modifier = Modifier.width(8.dp))
-            
-            // GPS Location Trigger Button
+            Divider(color = Color(0x33FFFFFF), modifier = Modifier.width(24.dp))
+            IconButton(
+                onClick = { controller.zoomOut() },
+                modifier = Modifier.size(38.dp)
+            ) {
+                Icon(imageVector = Icons.Filled.Remove, contentDescription = "Zoom Out", tint = Color.White)
+            }
+            Divider(color = Color(0x33FFFFFF), modifier = Modifier.width(24.dp))
             IconButton(
                 onClick = {
                     currentGpsCoords?.let { (lat, lon) ->
-                        mapProvider.setCenter(lat, lon, 7.5f)
+                        controller.setCenter(lat, lon, 7.5f)
                         triggerCoordinateFetch(lat, lon, "CURRENT LOCATION")
                     } ?: run {
                         locationPermissionLauncher.launch(
@@ -555,53 +540,116 @@ fun MapScreen(
                         )
                     }
                 },
-                modifier = Modifier
-                    .size(50.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xE61E1E2E))
-                    .border(1.dp, Color(0xFF374151).copy(alpha = 0.5f), CircleShape)
-                    .testTag("map_gps_trigger")
+                modifier = Modifier.size(38.dp)
             ) {
                 Icon(
                     imageVector = Icons.Filled.MyLocation,
                     contentDescription = "My GPS Location",
                     tint = if (currentGpsCoords != null) Color(0xFF00FF66) else Color.White,
-                    modifier = Modifier.size(20.dp)
+                    modifier = Modifier.size(18.dp)
                 )
             }
+            Divider(color = Color(0x33FFFFFF), modifier = Modifier.width(24.dp))
+            IconButton(
+                onClick = { controller.resetNorth() },
+                modifier = Modifier.size(38.dp)
+            ) {
+                Icon(imageVector = Icons.Filled.Explore, contentDescription = "Reset Compass North", tint = Color.White, modifier = Modifier.size(18.dp))
+            }
         }
 
-        // FLOATING SIDE CONTROLS (ZOOM BUTTONS ON THE RIGHT)
-        Column(
+        // ==========================================
+        // 4. FLOATING RADAR OPACITY & SPEED POPUP MENU
+        // ==========================================
+        AnimatedVisibility(
+            visible = showOpacitySlider,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
             modifier = Modifier
-                .align(Alignment.CenterEnd)
-                .padding(end = 16.dp)
-                .clip(RoundedCornerShape(20.dp))
-                .background(Color(0xE61E1E2E))
-                .border(1.dp, Color(0xFF374151).copy(alpha = 0.5f), RoundedCornerShape(20.dp))
-                .padding(6.dp),
-            verticalArrangement = Arrangement.Center
+                .align(Alignment.TopEnd)
+                .statusBarsPadding()
+                .padding(top = 60.dp, end = 16.dp)
+                .width(260.dp)
         ) {
-            IconButton(onClick = { mapProvider.setCenter(targetCoords?.first ?: 20.0, targetCoords?.second ?: 0.0, 8.0f) }) {
-                Icon(imageVector = Icons.Filled.Add, contentDescription = "Zoom In", tint = Color.White)
-            }
-            Divider(color = Color(0xFF374151), modifier = Modifier.width(28.dp))
-            IconButton(onClick = { mapProvider.setCenter(targetCoords?.first ?: 20.0, targetCoords?.second ?: 0.0, 3.0f) }) {
-                Icon(imageVector = Icons.Filled.Remove, contentDescription = "Zoom Out", tint = Color.White)
-            }
-            Divider(color = Color(0xFF374151), modifier = Modifier.width(28.dp))
-            IconButton(onClick = {
-                val lastCity = repository.selectedCity.value
-                val lat = lastCity.latitude ?: 40.7128
-                val lon = lastCity.longitude ?: -74.0060
-                mapProvider.setCenter(lat, lon, 4.5f)
-                triggerCoordinateFetch(lat, lon, lastCity.cityName)
-            }) {
-                Icon(imageVector = Icons.Filled.FilterCenterFocus, contentDescription = "Reset Zoom", tint = Color.White)
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Color(0xF00F172A))
+                    .border(1.dp, Color(0xFF00E5FF), RoundedCornerShape(20.dp))
+                    .padding(14.dp)
+            ) {
+                Column {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Text(
+                            text = "RADAR DENSITY",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF00E5FF),
+                                letterSpacing = 1.sp
+                            )
+                        )
+                        Text(
+                            text = "${(radarOpacity * 100).toInt()}%",
+                            style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, color = Color.White)
+                        )
+                    }
+
+                    Slider(
+                        value = radarOpacity,
+                        onValueChange = { controller.setRadarOpacity(it) },
+                        valueRange = 0.1f..1.0f,
+                        colors = SliderDefaults.colors(
+                            thumbColor = Color(0xFF00E5FF),
+                            activeTrackColor = Color(0xFF00E5FF),
+                            inactiveTrackColor = Color(0x33FFFFFF)
+                        )
+                    )
+
+                    Spacer(modifier = Modifier.height(8.dp))
+                    Text(
+                        text = "PLAYBACK SPEED",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
+                            color = Color(0xFF00E5FF),
+                            letterSpacing = 1.sp
+                        )
+                    )
+                    Spacer(modifier = Modifier.height(6.dp))
+
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        listOf(0.5f, 1.0f, 2.0f).forEach { speed ->
+                            val isSelected = playbackSpeed == speed
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(12.dp))
+                                    .background(if (isSelected) Color(0xFF00E5FF) else Color(0x22FFFFFF))
+                                    .clickable { controller.setPlaybackSpeed(speed) }
+                                    .padding(vertical = 6.dp, horizontal = 14.dp)
+                            ) {
+                                Text(
+                                    text = "${speed}x",
+                                    style = MaterialTheme.typography.labelSmall.copy(
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isSelected) Color.Black else Color.White
+                                    )
+                                )
+                            }
+                        }
+                    }
+                }
             }
         }
 
-        // FLOATING RADAR TIMELINE CONTROLS (BOTTOM ATTACHED)
+        // ==========================================
+        // 5. FLOATING RADAR TIMELINE CONTROLLER
+        // ==========================================
         AnimatedVisibility(
             visible = selectedLayer == MapLayer.RAINFALL,
             enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
@@ -609,48 +657,73 @@ fun MapScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = if (isInspecting) 215.dp else 90.dp, start = 16.dp, end = 16.dp)
+                .padding(bottom = if (isBottomSheetExpanded) 340.dp else 120.dp, start = 12.dp, end = 12.dp)
                 .fillMaxWidth()
-                .widthIn(max = 600.dp)
+                .widthIn(max = 560.dp)
         ) {
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(24.dp))
-                    .background(Color(0xE61E1E2E))
-                    .border(1.dp, Color(0xFF374151).copy(alpha = 0.5f), RoundedCornerShape(24.dp))
-                    .padding(vertical = 12.dp, horizontal = 16.dp),
+                    .clip(RoundedCornerShape(28.dp))
+                    .background(Color(0xDD0F172A))
+                    .border(1.dp, Color(0x4000E5FF), RoundedCornerShape(28.dp))
+                    .padding(vertical = 8.dp, horizontal = 12.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
+                // Play / Pause Toggle
                 IconButton(
-                    onClick = { isPlayingRadar = !isPlayingRadar },
+                    onClick = { controller.togglePlayback(coroutineScope) },
                     modifier = Modifier
-                        .size(40.dp)
-                        .background(Color(0xFF2FA3FF), CircleShape)
+                        .size(38.dp)
+                        .background(Color(0xFF00E5FF), CircleShape)
                 ) {
                     Icon(
                         imageVector = if (isPlayingRadar) Icons.Filled.Pause else Icons.Filled.PlayArrow,
-                        contentDescription = "Radar Timeline Controls",
-                        tint = Color.White,
+                        contentDescription = "Playback Toggle",
+                        tint = Color.Black,
                         modifier = Modifier.size(20.dp)
                     )
                 }
-                Spacer(modifier = Modifier.width(16.dp))
 
+                Spacer(modifier = Modifier.width(8.dp))
+
+                // Timeline Scrubber Column
                 Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Text(
+                            text = "LIVE DOPPLER RADAR",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.ExtraBold,
+                                color = Color(0xFF00E5FF),
+                                letterSpacing = 1.sp,
+                                fontSize = 9.sp
+                            )
+                        )
+                        Text(
+                            text = timelineLabels.getOrElse(currentFrameIndex) { "NOW" },
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                fontWeight = FontWeight.Black,
+                                color = Color.White,
+                                fontSize = 10.sp
+                            )
+                        )
+                    }
+
                     Slider(
-                        value = radarTimeSlider,
-                        onValueChange = {
-                            isPlayingRadar = false
-                            radarTimeSlider = it
-                        },
+                        value = currentFrameIndex.toFloat(),
+                        onValueChange = { controller.selectTimelineIndex(it.toInt()) },
                         valueRange = 0f..6f,
                         steps = 5,
                         colors = SliderDefaults.colors(
                             thumbColor = Color(0xFF00E5FF),
-                            activeTrackColor = Color(0xFF2FA3FF),
-                            inactiveTrackColor = Color(0xFF374151)
+                            activeTrackColor = Color(0xFF00E5FF),
+                            inactiveTrackColor = Color(0x33FFFFFF)
                         )
                     )
+
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween
@@ -659,9 +732,9 @@ fun MapScreen(
                             Text(
                                 text = label,
                                 style = MaterialTheme.typography.labelSmall.copy(
-                                    fontWeight = if (idx == radarTimeSlider.toInt()) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (idx == radarTimeSlider.toInt()) Color(0xFF00E5FF) else Color(0xFFD1D5DB),
-                                    fontSize = 9.sp
+                                    fontWeight = if (idx == currentFrameIndex) FontWeight.Black else FontWeight.Normal,
+                                    color = if (idx == currentFrameIndex) Color(0xFF00E5FF) else Color(0x88FFFFFF),
+                                    fontSize = 8.sp
                                 )
                             )
                         }
@@ -670,175 +743,436 @@ fun MapScreen(
             }
         }
 
-        // INSPECTION POPUP CARD FOR SELECTED COORDS
-        AnimatedVisibility(
-            visible = isInspecting,
-            enter = slideInVertically(initialOffsetY = { it }) + fadeIn(),
-            exit = slideOutVertically(targetOffsetY = { it }) + fadeOut(),
+        // ==========================================
+        // 6. DRAGGABLE BOTTOM SHEET WEATHER CARD
+        // ==========================================
+        Box(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = 90.dp, start = 16.dp, end = 16.dp)
+                .padding(bottom = 60.dp, start = 12.dp, end = 12.dp)
                 .fillMaxWidth()
                 .widthIn(max = 600.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(28.dp))
-                    .background(Color(0xE61E1E2E))
-                    .border(1.dp, Color(0xFF374151).copy(alpha = 0.5f), RoundedCornerShape(28.dp))
-                    .padding(16.dp)
-            ) {
-                IconButton(
-                    onClick = { isInspecting = false },
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .size(32.dp)
-                        .background(Color(0x30FFFFFF), CircleShape)
-                ) {
-                    Icon(imageVector = Icons.Filled.Close, contentDescription = "Close Detail Card", tint = Color.White, modifier = Modifier.size(16.dp))
-                }
-
-                if (isFetchingInspected) {
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .padding(vertical = 12.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center
-                    ) {
-                        CircularProgressIndicator(color = Color(0xFF2FA3FF), modifier = Modifier.size(36.dp))
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Text(
-                            text = "Inspecting coordinates & live satellite telemetry...",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFF94A3B8)
-                        )
-                    }
-                } else {
-                    inspectedWeather?.let { weather ->
-                        val details = weather.weatherDetails
-                        val isCelsiusSelected by repository.isCelsius.collectAsState()
-                        val tempStr = if (isCelsiusSelected) {
-                            "${((details.currentTemp - 32) * 5 / 9)}°C"
-                        } else {
-                            "${details.currentTemp}°F"
+                .clip(RoundedCornerShape(28.dp))
+                .background(Color(0xF00F172A))
+                .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(28.dp))
+                .pointerInput(Unit) {
+                    detectVerticalDragGestures { _, dragAmount ->
+                        if (dragAmount < -15) {
+                            isBottomSheetExpanded = true
+                        } else if (dragAmount > 15) {
+                            isBottomSheetExpanded = false
                         }
+                    }
+                }
+                .padding(14.dp)
+        ) {
+            Column {
+                // Drag Handle Bar
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterHorizontally)
+                        .width(36.dp)
+                        .height(4.dp)
+                        .clip(CircleShape)
+                        .background(Color(0x55FFFFFF))
+                        .clickable { isBottomSheetExpanded = !isBottomSheetExpanded }
+                )
 
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(end = 36.dp)
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(64.dp)
-                                    .clip(RoundedCornerShape(16.dp))
-                                    .background(
-                                        Brush.linearGradient(
-                                            colors = listOf(details.condition.startColor, details.condition.endColor)
-                                        )
-                                    ),
-                                contentAlignment = Alignment.Center
-                            ) {
-                                WeatherConditionIcon(
-                                    condition = details.condition,
-                                    modifier = Modifier.size(36.dp),
-                                    tint = Color.White
-                                )
-                            }
-                            Spacer(modifier = Modifier.width(16.dp))
+                Spacer(modifier = Modifier.height(10.dp))
 
-                            Column(modifier = Modifier.weight(1f)) {
-                                Row(verticalAlignment = Alignment.CenterVertically) {
+                // Collapsed View Row
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { isBottomSheetExpanded = !isBottomSheetExpanded }
+                ) {
+                    if (isFetchingInspected) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(color = Color(0xFF00E5FF), modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Fetching location telemetry...", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF94A3B8))
+                        }
+                    } else {
+                        inspectedWeather?.let { weather ->
+                            val details = weather.weatherDetails
+                            val tempStr = if (isCelsius) "${((details.currentTemp - 32) * 5 / 9)}°C" else "${details.currentTemp}°F"
+
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(42.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Brush.linearGradient(listOf(details.condition.startColor, details.condition.endColor))),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    WeatherConditionIcon(condition = details.condition, modifier = Modifier.size(24.dp), tint = Color.White)
+                                }
+                                Spacer(modifier = Modifier.width(12.dp))
+                                Column {
                                     Text(
                                         text = weather.cityName.uppercase(),
                                         style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold, color = Color.White)
                                     )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    
-                                    IconButton(
-                                        onClick = { repository.toggleFavorite(weather.cityName) },
-                                        modifier = Modifier.size(24.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = if (weather.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                                            contentDescription = "Save Map Location",
-                                            tint = if (weather.isFavorite) Color(0xFFFF5252) else Color(0xFFD1D5DB),
-                                            modifier = Modifier.size(18.dp)
-                                        )
-                                    }
+                                    Text(
+                                        text = details.condition.description,
+                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF00E5FF), fontWeight = FontWeight.SemiBold)
+                                    )
                                 }
-                                Text(
-                                    text = weather.country,
-                                    style = MaterialTheme.typography.labelMedium.copy(color = Color(0xFF2FA3FF), fontWeight = FontWeight.Bold)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
-                                Text(
-                                    text = details.condition.description,
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = Color(0xFFD1D5DB)
-                                )
                             }
 
-                            Column(horizontalAlignment = Alignment.End) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
                                 Text(
                                     text = tempStr,
-                                    style = MaterialTheme.typography.headlineLarge.copy(fontWeight = FontWeight.Black, color = Color.White)
+                                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black, color = Color.White)
                                 )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Icon(
+                                    imageVector = if (isBottomSheetExpanded) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp,
+                                    contentDescription = "Expand details",
+                                    tint = Color(0xFF00E5FF)
+                                )
+                            }
+                        } ?: run {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
+                            ) {
+                                Text(
+                                    text = "Tap map location to inspect telemetry",
+                                    style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF94A3B8))
+                                )
+                                Icon(
+                                    imageVector = Icons.Filled.TouchApp,
+                                    contentDescription = null,
+                                    tint = Color(0xFF00E5FF),
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            }
+                        }
+                    }
+                }
+
+                // Expanded Detailed View Breakdown
+                AnimatedVisibility(
+                    visible = isBottomSheetExpanded && inspectedWeather != null,
+                    enter = expandVertically() + fadeIn(),
+                    exit = shrinkVertically() + fadeOut()
+                ) {
+                    inspectedWeather?.let { weather ->
+                        val details = weather.weatherDetails
+                        val feelsLikeStr = if (isCelsius) "${((details.feelsLike - 32) * 5 / 9)}°C" else "${details.feelsLike}°F"
+
+                        Column(modifier = Modifier.padding(top = 14.dp)) {
+                            Divider(color = Color(0x22FFFFFF))
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // 4-Column Atmospheric Grid
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                WeatherMetricBox("FEELS LIKE", feelsLikeStr, Icons.Filled.Thermostat, Modifier.weight(1f))
+                                WeatherMetricBox("HUMIDITY", "${details.humidity}%", Icons.Filled.Water, Modifier.weight(1f))
+                                WeatherMetricBox("WIND", "${details.windSpeed} km/h", Icons.Filled.Air, Modifier.weight(1f))
+                                WeatherMetricBox("PRESSURE", "${details.pressureHpa} hPa", Icons.Filled.Compress, Modifier.weight(1f))
+                            }
+
+                            Spacer(modifier = Modifier.height(10.dp))
+
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
+                                WeatherMetricBox("CLOUDS", "${details.cloudCoverage}%", Icons.Filled.Cloud, Modifier.weight(1f))
+                                WeatherMetricBox("VISIBILITY", "${details.visibilityKm} km", Icons.Filled.Visibility, Modifier.weight(1f))
+                                WeatherMetricBox("UV INDEX", "${details.uvIndex}", Icons.Filled.WbSunny, Modifier.weight(1f))
+                                WeatherMetricBox("SUNSET", details.sunset, Icons.Filled.NightsStay, Modifier.weight(1f))
+                            }
+
+                            Spacer(modifier = Modifier.height(14.dp))
+
+                            // Bottom Action Buttons
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween
+                            ) {
                                 Button(
-                                    onClick = {
-                                        repository.selectCity(weather.cityName)
-                                    },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF2FA3FF)),
-                                    contentPadding = PaddingValues(horizontal = 8.dp, vertical = 2.dp),
-                                    shape = RoundedCornerShape(8.dp),
-                                    modifier = Modifier.height(28.dp)
+                                    onClick = { repository.selectCity(weather.cityName) },
+                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier.weight(1f)
                                 ) {
-                                    Text("SELECT", style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold), color = Color.White)
+                                    Text("SET ACTIVE CITY", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = Color.Black))
+                                }
+
+                                Spacer(modifier = Modifier.width(10.dp))
+
+                                OutlinedButton(
+                                    onClick = { repository.toggleFavorite(weather.cityName) },
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, Color(0xFF00E5FF)),
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = if (weather.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
+                                        contentDescription = null,
+                                        tint = if (weather.isFavorite) Color(0xFFFF5252) else Color(0xFF00E5FF),
+                                        modifier = Modifier.size(16.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(6.dp))
+                                    Text(
+                                        text = if (weather.isFavorite) "SAVED" else "FAVORITE",
+                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF00E5FF))
+                                    )
                                 }
                             }
                         }
-
-                        Spacer(modifier = Modifier.height(12.dp))
-                        Divider(color = Color(0xFF374151))
-                        Spacer(modifier = Modifier.height(12.dp))
-
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                                Text("HUMIDITY", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFD1D5DB), fontWeight = FontWeight.Bold))
-                                Text("${details.humidity}%", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.Bold))
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                                Text("WIND", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFD1D5DB), fontWeight = FontWeight.Bold))
-                                Text("${details.windSpeed} km/h", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.Bold))
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                                Text("PRESSURE", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFD1D5DB), fontWeight = FontWeight.Bold))
-                                Text("${details.pressureHpa} hPa", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.Bold))
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally, modifier = Modifier.weight(1f)) {
-                                Text("CLOUDS", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFFD1D5DB), fontWeight = FontWeight.Bold))
-                                Text("${details.cloudCoverage}%", style = MaterialTheme.typography.bodyMedium.copy(color = Color.White, fontWeight = FontWeight.Bold))
-                            }
-                        }
-                    } ?: run {
-                        Text(
-                            text = "Select any coordinate point on the map to fetch precise real-time tropospheric and radar data forecasts.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = Color(0xFFD1D5DB),
-                            textAlign = TextAlign.Center,
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 16.dp)
-                        )
                     }
                 }
             }
         }
+
+        // ==========================================
+        // 7. FLOATING SEARCH OVERLAY DIALOG
+        // ==========================================
+        if (showSearchDialog) {
+            Dialog(onDismissRequest = { showSearchDialog = false }) {
+                var query by remember { mutableStateOf("") }
+
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(Color(0xF00F172A))
+                        .border(1.dp, Color(0xFF00E5FF), RoundedCornerShape(28.dp))
+                        .padding(20.dp)
+                ) {
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "WORLDWIDE SEARCH",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFF00E5FF),
+                                    letterSpacing = 1.sp
+                                )
+                            )
+                            IconButton(onClick = { showSearchDialog = false }) {
+                                Icon(imageVector = Icons.Filled.Close, contentDescription = "Close Search", tint = Color.White)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(10.dp))
+
+                        // Search Field Input
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .clip(RoundedCornerShape(16.dp))
+                                .background(Color(0x33FFFFFF))
+                                .padding(horizontal = 12.dp),
+                            contentAlignment = Alignment.CenterStart
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(imageVector = Icons.Filled.Search, contentDescription = null, tint = Color(0xFF00E5FF))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                BasicTextField(
+                                    value = query,
+                                    onValueChange = { query = it },
+                                    textStyle = MaterialTheme.typography.bodyMedium.copy(color = Color.White),
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Search),
+                                    keyboardActions = KeyboardActions(onSearch = {
+                                        if (query.isNotEmpty()) {
+                                            coroutineScope.launch {
+                                                val res = repository.fetchWeatherFromApi(query, forceRefresh = true)
+                                                res.onSuccess { cw ->
+                                                    val lat = cw.latitude ?: 30.0
+                                                    val lon = cw.longitude ?: 0.0
+                                                    controller.setCenter(lat, lon, 7.0f)
+                                                    triggerCoordinateFetch(lat, lon, cw.cityName)
+                                                }
+                                            }
+                                            showSearchDialog = false
+                                        }
+                                    }),
+                                    modifier = Modifier.weight(1f),
+                                    decorationBox = @Composable { innerTextField: @Composable () -> Unit ->
+                                        Box(contentAlignment = Alignment.CenterStart) {
+                                            if (query.isEmpty()) {
+                                                Text("Search city name (e.g. Tokyo)...", style = MaterialTheme.typography.bodyMedium.copy(color = Color(0x88FFFFFF)))
+                                            }
+                                            innerTextField()
+                                        }
+                                    }
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        // Quick GPS Shortcut Button
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(Color(0x2200E5FF))
+                                .clickable {
+                                    currentGpsCoords?.let { (lat, lon) ->
+                                        controller.setCenter(lat, lon, 7.5f)
+                                        triggerCoordinateFetch(lat, lon, "CURRENT LOCATION")
+                                    }
+                                    showSearchDialog = false
+                                }
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(imageVector = Icons.Filled.MyLocation, contentDescription = null, tint = Color(0xFF00E5FF))
+                            Spacer(modifier = Modifier.width(10.dp))
+                            Text("Center on Current GPS Position", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold, color = Color.White))
+                        }
+
+                        Spacer(modifier = Modifier.height(16.dp))
+
+                        Text("MAJOR METROPOLISES", style = MaterialTheme.typography.labelSmall.copy(color = Color(0xFF00E5FF), fontWeight = FontWeight.ExtraBold))
+                        Spacer(modifier = Modifier.height(8.dp))
+
+                        LazyRow(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(mapCities.take(8)) { city ->
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(Color(0x22FFFFFF))
+                                        .clickable {
+                                            controller.setCenter(city.lat.toDouble(), city.lon.toDouble(), 7.0f)
+                                            triggerCoordinateFetch(city.lat.toDouble(), city.lon.toDouble(), city.name)
+                                            showSearchDialog = false
+                                        }
+                                        .padding(horizontal = 12.dp, vertical = 6.dp)
+                                ) {
+                                    Text(city.name, style = MaterialTheme.typography.labelSmall.copy(color = Color.White, fontWeight = FontWeight.SemiBold))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ==========================================
+        // 8. FLOATING LAYER SELECTOR DIALOG
+        // ==========================================
+        if (showLayersDialog) {
+            Dialog(onDismissRequest = { showLayersDialog = false }) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(28.dp))
+                        .background(Color(0xF00F172A))
+                        .border(1.dp, Color(0xFF00E5FF), RoundedCornerShape(28.dp))
+                        .padding(20.dp)
+                ) {
+                    Column {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text(
+                                text = "WEATHER OVERLAYS",
+                                style = MaterialTheme.typography.titleMedium.copy(
+                                    fontWeight = FontWeight.Black,
+                                    color = Color(0xFF00E5FF),
+                                    letterSpacing = 1.sp
+                                )
+                            )
+                            IconButton(onClick = { showLayersDialog = false }) {
+                                Icon(imageVector = Icons.Filled.Close, contentDescription = "Close Layers", tint = Color.White)
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                            items(MapLayer.values()) { layer ->
+                                val isSelected = selectedLayer == layer
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(16.dp))
+                                        .background(if (isSelected) Color(0xFF00E5FF).copy(alpha = 0.2f) else Color(0x15FFFFFF))
+                                        .border(
+                                            1.dp,
+                                            if (isSelected) Color(0xFF00E5FF) else Color.Transparent,
+                                            RoundedCornerShape(16.dp)
+                                        )
+                                        .clickable {
+                                            controller.selectLayer(layer)
+                                            showLayersDialog = false
+                                        }
+                                        .padding(12.dp),
+                                    verticalAlignment = Alignment.CenterVertically
+                                ) {
+                                    Icon(
+                                        imageVector = layer.icon,
+                                        contentDescription = null,
+                                        tint = if (isSelected) Color(0xFF00E5FF) else Color.White,
+                                        modifier = Modifier.size(24.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(12.dp))
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(
+                                            text = layer.displayName,
+                                            style = MaterialTheme.typography.bodyMedium.copy(
+                                                fontWeight = FontWeight.Bold,
+                                                color = if (isSelected) Color(0xFF00E5FF) else Color.White
+                                            )
+                                        )
+                                        Text(
+                                            text = layer.description,
+                                            style = MaterialTheme.typography.labelSmall.copy(color = Color(0x88FFFFFF))
+                                        )
+                                    }
+                                    if (isSelected) {
+                                        Icon(
+                                            imageVector = Icons.Filled.Check,
+                                            contentDescription = "Selected Layer",
+                                            tint = Color(0xFF00E5FF)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun WeatherMetricBox(
+    title: String,
+    value: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier
+) {
+    Column(
+        horizontalAlignment = Alignment.CenterHorizontally,
+        modifier = modifier.padding(vertical = 4.dp)
+    ) {
+        Icon(imageVector = icon, contentDescription = null, tint = Color(0xFF00E5FF), modifier = Modifier.size(16.dp))
+        Spacer(modifier = Modifier.height(2.dp))
+        Text(title, style = MaterialTheme.typography.labelSmall.copy(color = Color(0x88FFFFFF), fontSize = 8.sp, fontWeight = FontWeight.Bold))
+        Text(value, style = MaterialTheme.typography.labelSmall.copy(color = Color.White, fontWeight = FontWeight.Bold, fontSize = 10.sp))
     }
 }

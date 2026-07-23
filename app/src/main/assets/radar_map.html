@@ -127,30 +127,17 @@
     </div>
 
     <script>
-        // Global error boundary
-        window.onerror = function(message, source, lineno, colno, error) {
-            console.error('JS Error Boundary: ' + message + ' at ' + (source || 'unknown') + ':' + lineno);
-            return false;
-        };
-
         var map = null;
         var mapLoaded = false;
         var currentLayerType = 'RAINFALL';
         var weatherApiKey = '';
         var currentGpsMarker = null;
 
-        // Radar timeline caching pool
+        // Radar timeline variables
         var radarFrames = []; // Array of { time, path, tileUrl }
         var activeTimelineIndex = 3; // Default to 'Now'
         var rainViewerHost = 'https://tilecache.rainviewer.com';
-
-        function logAndroid(msg) {
-            console.log('[MapLibreEngine] ' + msg);
-        }
-
-        function logErrorAndroid(msg) {
-            console.error('[MapLibreEngine] ' + msg);
-        }
+        var radarOpacity = 0.85;
 
         function invalidateMapSize() {
             if (map) {
@@ -159,7 +146,6 @@
         }
 
         function showError(title, desc) {
-            logErrorAndroid('Error Overlay Shown: ' + title + ' - ' + desc);
             document.getElementById('loader').style.display = 'none';
             document.getElementById('error-title').innerText = title;
             document.getElementById('error-desc').innerText = desc;
@@ -170,7 +156,6 @@
             var warningEl = document.getElementById('api-warning');
             warningEl.innerText = msg || 'Radar temporarily unavailable';
             warningEl.style.display = 'block';
-            logErrorAndroid('Radar Toast: ' + msg);
         }
 
         function hideRadarUnavailable() {
@@ -184,11 +169,9 @@
             loader.style.display = visible ? 'block' : 'none';
         }
 
-        // Initialize MapLibre GL JS Engine with 100% free raster basemap sources
+        // Initialize MapLibre GL JS Engine with 100% free CartoDB Dark basemap
         function initializeMapEngine() {
             try {
-                logAndroid('Initializing MapLibre GL JS Engine with free CartoDB Dark basemap...');
-
                 var darkStyle = {
                     version: 8,
                     sources: {
@@ -222,7 +205,7 @@
                     center: [0, 20], // [lon, lat]
                     zoom: 2.2,
                     minZoom: 1,
-                    maxZoom: 16,
+                    maxZoom: 18,
                     attributionControl: false,
                     fadeDuration: 0,
                     trackResize: true
@@ -246,23 +229,22 @@
 
                 window.addEventListener('online', function() {
                     hideRadarUnavailable();
-                    if (window.AndroidRadar && window.AndroidRadar.onRequestTimelineRefresh) {
-                        window.AndroidRadar.onRequestTimelineRefresh();
+                    if (window.AndroidMap && window.AndroidMap.onRequestTimelineRefresh) {
+                        window.AndroidMap.onRequestTimelineRefresh();
                     } else {
                         fetchRainViewerTimelineDirectly();
                     }
                 });
 
                 map.on('load', function() {
-                    logAndroid('MapLibre WebGL canvas fully loaded and ready.');
                     mapLoaded = true;
                     invalidateMapSize();
 
                     if (window.AndroidMap) {
                         window.AndroidMap.onMapLoaded();
                     }
-                    if (window.AndroidRadar && window.AndroidRadar.onRequestTimelineRefresh) {
-                        window.AndroidRadar.onRequestTimelineRefresh();
+                    if (window.AndroidMap && window.AndroidMap.onRequestTimelineRefresh) {
+                        window.AndroidMap.onRequestTimelineRefresh();
                     } else {
                         fetchRainViewerTimelineDirectly();
                     }
@@ -271,7 +253,6 @@
                 map.on('click', function(e) {
                     var lat = e.lngLat.lat;
                     var lon = e.lngLat.lng;
-                    // Wrap longitude to [-180, 180]
                     lon = ((lon + 180) % 360 + 360) % 360 - 180;
                     updateSelectedMarker(lat, lon);
                     if (window.AndroidMap) {
@@ -280,11 +261,10 @@
                 });
 
                 map.on('error', function(e) {
-                    logErrorAndroid('MapLibre internal message: ' + (e.error ? e.error.message : JSON.stringify(e)));
+                    console.error('MapLibre internal error: ' + (e.error ? e.error.message : JSON.stringify(e)));
                 });
 
             } catch (ex) {
-                logErrorAndroid('MapLibre GL JS initialization exception: ' + ex.message);
                 showError('WebGL Initialization Failed', 'Hardware accelerated map failed to initialize: ' + ex.message);
             }
         }
@@ -293,7 +273,7 @@
             if (!map) return;
             var currentZoom = zoom || map.getZoom();
             map.flyTo({
-                center: [lon, lat], // MapLibre takes [longitude, latitude]
+                center: [lon, lat],
                 zoom: currentZoom,
                 speed: 1.2,
                 curve: 1.4,
@@ -301,6 +281,18 @@
             });
             updateSelectedMarker(lat, lon);
             invalidateMapSize();
+        }
+
+        function zoomIn() {
+            if (map) map.zoomIn();
+        }
+
+        function zoomOut() {
+            if (map) map.zoomOut();
+        }
+
+        function resetNorth() {
+            if (map) map.resetNorth();
         }
 
         function updateSelectedMarker(lat, lon) {
@@ -326,16 +318,21 @@
 
         function setWeatherLayer(layerType) {
             currentLayerType = layerType;
-            logAndroid('Switching weather overlay to: ' + layerType);
             if (mapLoaded) {
                 updateWeatherLayers();
             }
         }
 
-        // Bridge function called by Kotlin RadarOverlayManager with JSON timeline payload
+        function setRadarOpacity(opacity) {
+            radarOpacity = opacity;
+            if (mapLoaded && currentLayerType === 'RAINFALL') {
+                displayFrameAtIndex(activeTimelineIndex);
+            }
+        }
+
+        // Bridge function called by Kotlin RadarMapController
         function updateRadarTimeline(payload) {
             hideRadarUnavailable();
-            logAndroid('Radar timeline received from Kotlin bridge.');
             if (!payload || !payload.frames) {
                 showRadarUnavailable('Radar temporarily unavailable');
                 return;
@@ -344,14 +341,13 @@
             rainViewerHost = payload.host || 'https://tilecache.rainviewer.com';
             radarFrames = payload.frames || [];
 
-            logAndroid('Updated radar timeline with ' + radarFrames.length + ' frames.');
             preloadRadarSourcesAndLayers();
             if (currentLayerType === 'RAINFALL') {
                 displayFrameAtIndex(activeTimelineIndex);
             }
         }
 
-        // Direct API fetch fallback if running standalone
+        // Direct API fetch fallback if running standalone or initial offline load
         function fetchRainViewerTimelineDirectly() {
             showLoader(true, 'Downloading RainViewer Radar Timeline...');
             fetch('https://api.rainviewer.com/public/weather-maps.json')
@@ -362,7 +358,6 @@
                 .then(function(data) {
                     showLoader(false);
                     hideRadarUnavailable();
-                    logAndroid('Timeline downloaded directly via RainViewer API');
 
                     if (data && data.radar && data.radar.past) {
                         rainViewerHost = data.host || 'https://tilecache.rainviewer.com';
@@ -402,7 +397,6 @@
                 })
                 .catch(function(err) {
                     showLoader(false);
-                    logErrorAndroid('Direct RainViewer fetch failed: ' + err.message);
                     showRadarUnavailable('Radar temporarily unavailable (Offline)');
                 });
         }
@@ -445,7 +439,6 @@
 
         function setTimelineIndex(index) {
             activeTimelineIndex = Math.max(0, Math.min(6, index));
-            logAndroid('Setting active timeline index to: ' + activeTimelineIndex);
             if (mapLoaded && currentLayerType === 'RAINFALL') {
                 displayFrameAtIndex(activeTimelineIndex);
             }
@@ -455,19 +448,15 @@
             if (!map || radarFrames.length === 0) return;
 
             var targetFrame = radarFrames[index];
-            if (!targetFrame) {
-                logErrorAndroid('No frame found at index: ' + index);
-                return;
-            }
+            if (!targetFrame) return;
 
             var targetTime = targetFrame.time;
-            logAndroid('Displaying frame timestamp ' + targetTime + ' at timeline index ' + index);
 
             radarFrames.forEach(function(frame) {
                 var layerId = 'radar-lyr-' + frame.time;
                 if (map.getLayer(layerId)) {
                     if (frame.time === targetTime) {
-                        map.setPaintProperty(layerId, 'raster-opacity', 0.88);
+                        map.setPaintProperty(layerId, 'raster-opacity', radarOpacity);
                         map.setLayoutProperty(layerId, 'visibility', 'visible');
                     } else {
                         map.setPaintProperty(layerId, 'raster-opacity', 0);
@@ -483,7 +472,6 @@
             if (!map) return;
             hideRadarUnavailable();
 
-            // Hide non-rainfall overlay layer if present
             if (map.getLayer('owm-layer')) {
                 map.setLayoutProperty('owm-layer', 'visibility', 'none');
             }
@@ -491,7 +479,6 @@
             if (currentLayerType === 'RAINFALL') {
                 displayFrameAtIndex(activeTimelineIndex);
             } else {
-                // Hide all radar layers
                 radarFrames.forEach(function(frame) {
                     var layerId = 'radar-lyr-' + frame.time;
                     if (map.getLayer(layerId)) {
@@ -512,6 +499,8 @@
                     case 'WIND_SPEED': layerCode = 'wind_new'; break;
                     case 'PRESSURE': layerCode = 'pressure_new'; break;
                     case 'HUMIDITY': layerCode = 'precipitation_new'; break;
+                    case 'SATELLITE': layerCode = 'clouds_new'; break;
+                    case 'LIGHTNING': layerCode = 'precipitation_new'; break;
                 }
 
                 if (isApiKeyValid && layerCode) {
@@ -542,9 +531,12 @@
                         map.setLayoutProperty('owm-layer', 'visibility', 'visible');
                     }
 
-                    setTimeout(function() { showLoader(false); }, 1200);
+                    setTimeout(function() { showLoader(false); }, 1000);
                 } else {
-                    showRadarUnavailable(currentLayerType + ' Overlay: OpenWeatherMap API key required');
+                    if (window.AndroidMap) {
+                        window.AndroidMap.onApiKeyMissing(currentLayerType);
+                    }
+                    showRadarUnavailable(currentLayerType + ' Overlay requires valid API key');
                 }
             }
         }
