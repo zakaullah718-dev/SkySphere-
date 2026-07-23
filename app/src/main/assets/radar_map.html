@@ -28,9 +28,9 @@
             left: 0;
             right: 0;
             bottom: 0;
-            width: 100vw;
-            height: 100vh;
-            background-color: #070913;
+            width: 100%;
+            height: 100%;
+            background-color: #0d1322;
             z-index: 1;
         }
 
@@ -172,33 +172,60 @@
         // Initialize MapLibre GL JS Engine with 100% free CartoDB Dark basemap
         function initializeMapEngine() {
             try {
+                console.log('SkySphere JS: [INIT 1] Starting initializeMapEngine()...');
+                
+                if (typeof maplibregl === 'undefined') {
+                    console.error('SkySphere JS: CRITICAL - maplibregl is undefined!');
+                    showError('Engine Missing', 'MapLibre GL JS library not found.');
+                    return;
+                }
+
+                if (!maplibregl.supported()) {
+                    console.error('SkySphere JS: WARNING - maplibregl.supported() returned false. WebGL context might have caveats.');
+                } else {
+                    console.log('SkySphere JS: WebGL supported successfully!');
+                }
+
                 var darkStyle = {
                     version: 8,
                     sources: {
                         'carto-dark': {
                             type: 'raster',
                             tiles: [
-                                'https://a.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-                                'https://b.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-                                'https://c.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png',
-                                'https://d.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png'
+                                'https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+                                'https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+                                'https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
+                                'https://d.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png'
                             ],
                             tileSize: 256,
+                            minzoom: 0,
                             maxzoom: 19,
                             attribution: '&copy; CartoDB &copy; OpenStreetMap'
                         }
                     },
                     layers: [
                         {
+                            id: 'map-background',
+                            type: 'background',
+                            paint: {
+                                'background-color': '#0d1322'
+                            }
+                        },
+                        {
                             id: 'carto-dark-layer',
                             type: 'raster',
                             source: 'carto-dark',
                             minzoom: 0,
-                            maxzoom: 20
+                            maxzoom: 20,
+                            paint: {
+                                'raster-opacity': 1.0,
+                                'raster-fade-duration': 0
+                            }
                         }
                     ]
                 };
 
+                console.log('SkySphere JS: [INIT 2] Instantiating new maplibregl.Map()...');
                 map = new maplibregl.Map({
                     container: 'map',
                     style: darkStyle,
@@ -208,8 +235,10 @@
                     maxZoom: 18,
                     attributionControl: false,
                     fadeDuration: 0,
-                    trackResize: true
+                    trackResize: true,
+                    failIfMajorPerformanceCaveat: false
                 });
+                console.log('SkySphere JS: [INIT 3] maplibregl.Map object instantiated!');
 
                 var mapContainer = document.getElementById('map');
                 if (typeof ResizeObserver !== 'undefined') {
@@ -236,11 +265,21 @@
                     }
                 });
 
-                map.on('load', function() {
-                    mapLoaded = true;
-                    invalidateMapSize();
+                map.on('styledata', function() {
+                    console.log('SkySphere JS: Map style data loaded');
+                });
 
-                    if (window.AndroidMap) {
+                map.on('load', function() {
+                    console.log('SkySphere JS: [INIT 4] Map load event fired successfully!');
+                    mapLoaded = true;
+                    showLoader(false);
+
+                    invalidateMapSize();
+                    setTimeout(function() { invalidateMapSize(); }, 100);
+                    setTimeout(function() { invalidateMapSize(); }, 300);
+
+                    if (window.AndroidMap && window.AndroidMap.onMapLoaded) {
+                        console.log('SkySphere JS: [INIT 5] Calling AndroidMap.onMapLoaded() native bridge');
                         window.AndroidMap.onMapLoaded();
                     }
                     if (window.AndroidMap && window.AndroidMap.onRequestTimelineRefresh) {
@@ -261,10 +300,11 @@
                 });
 
                 map.on('error', function(e) {
-                    console.error('MapLibre internal error: ' + (e.error ? e.error.message : JSON.stringify(e)));
+                    console.error('SkySphere JS MapLibre internal error: ' + (e.error ? e.error.message : JSON.stringify(e)));
                 });
 
             } catch (ex) {
+                console.error('SkySphere JS: WebGL Initialization Exception: ' + ex.message);
                 showError('WebGL Initialization Failed', 'Hardware accelerated map failed to initialize: ' + ex.message);
             }
         }
@@ -542,15 +582,19 @@
         }
 
         function safeInit() {
+            console.log('SkySphere JS: safeInit starting execution');
             var attempts = 0;
             function check() {
                 if (typeof maplibregl !== 'undefined') {
+                    console.log('SkySphere JS: maplibregl detected, initializing map engine...');
                     initializeMapEngine();
                 } else {
                     attempts++;
+                    console.warn('SkySphere JS: Waiting for maplibregl... attempt ' + attempts);
                     if (attempts < 50) {
                         setTimeout(check, 100);
                     } else {
+                        console.error('SkySphere JS: CRITICAL - maplibregl failed to load after 50 attempts!');
                         showError('Script Load Failure', 'Failed to resolve MapLibre GL JS engine library.');
                     }
                 }

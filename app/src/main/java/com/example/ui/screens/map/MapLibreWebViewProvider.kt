@@ -27,8 +27,22 @@ class MapLibreWebViewProvider : RadarMapProvider {
         onCoordinatesSelected: (Double, Double) -> Unit,
         onApiKeyMissing: (String) -> Unit
     ): View {
+        Log.d("SkySphereMap", "[STEP 1] Creating WebView for MapLibre GL engine...")
+
+        // Ensure WebView HTTP cache and WASM code cache directories exist
+        try {
+            val webViewCacheDir = java.io.File(context.cacheDir, "WebView/Default/HTTP Cache/Code Cache/wasm")
+            if (!webViewCacheDir.exists()) {
+                webViewCacheDir.mkdirs()
+            }
+        } catch (e: Exception) {
+            Log.w("SkySphereMap", "Could not pre-create WebView cache directory", e)
+        }
+
         val wv = WebView(context).apply {
-            // Configure simple, modern WebView settings
+            Log.d("SkySphereMap", "[STEP 2] Configuring WebSettings & WebGL Hardware Acceleration...")
+            setLayerType(View.LAYER_TYPE_HARDWARE, null)
+
             settings.apply {
                 javaScriptEnabled = true
                 domStorageEnabled = true
@@ -41,6 +55,12 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 cacheMode = WebSettings.LOAD_DEFAULT
                 allowContentAccess = true
                 allowFileAccess = true
+
+                @Suppress("DEPRECATION")
+                allowFileAccessFromFileURLs = true
+                @Suppress("DEPRECATION")
+                allowUniversalAccessFromFileURLs = true
+
                 javaScriptCanOpenWindowsAutomatically = true
                 setSupportMultipleWindows(false)
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
@@ -48,11 +68,10 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 }
             }
 
-            // Enable cookies and hardware acceleration
+            // Enable cookies
             val cookieManager = CookieManager.getInstance()
             cookieManager.setAcceptCookie(true)
             cookieManager.setAcceptThirdPartyCookies(this, true)
-            setLayerType(View.LAYER_TYPE_HARDWARE, null)
 
             // Layout size listener to notify MapLibre canvas on resize/orientation
             addOnLayoutChangeListener { v, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
@@ -61,6 +80,7 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 val oldWidth = oldRight - oldLeft
                 val oldHeight = oldBottom - oldTop
                 if (newWidth > 0 && newHeight > 0 && (newWidth != oldWidth || newHeight != oldHeight)) {
+                    Log.d("SkySphereMap", "WebView layout resized to ${newWidth}x${newHeight}, triggering invalidateMapSize()")
                     v.postDelayed({
                         (v as? WebView)?.evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
                     }, 100)
@@ -71,16 +91,17 @@ class MapLibreWebViewProvider : RadarMapProvider {
             webChromeClient = object : WebChromeClient() {
                 override fun onConsoleMessage(consoleMessage: android.webkit.ConsoleMessage?): Boolean {
                     consoleMessage?.let {
-                        Log.d("SkySphereMap", "[${it.messageLevel()}] ${it.message()} (${it.sourceId()}:${it.lineNumber()})")
+                        Log.d("SkySphereMap", "JS Console [${it.messageLevel()}] ${it.message()} (${it.sourceId()}:${it.lineNumber()})")
                     }
                     return super.onConsoleMessage(consoleMessage)
                 }
             }
 
-            // Simple WebViewClient without unnecessary request proxying
+            // WebViewClient with comprehensive logging
             webViewClient = object : WebViewClient() {
                 override fun onPageFinished(view: WebView?, url: String?) {
                     super.onPageFinished(view, url)
+                    Log.d("SkySphereMap", "[STEP 4] WebView onPageFinished for URL: $url")
                     view?.postDelayed({
                         view.evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
                     }, 150)
@@ -92,7 +113,7 @@ class MapLibreWebViewProvider : RadarMapProvider {
                     error: WebResourceError?
                 ) {
                     super.onReceivedError(view, request, error)
-                    Log.e("SkySphereMap", "WebView resource error: ${error?.description} for ${request?.url}")
+                    Log.e("SkySphereMap", "WebView resource error: ${error?.description} (code ${error?.errorCode}) for URL: ${request?.url}")
                 }
             }
 
@@ -100,6 +121,7 @@ class MapLibreWebViewProvider : RadarMapProvider {
             addJavascriptInterface(
                 MapAppInterface(
                     onMapLoaded = {
+                        Log.d("SkySphereMap", "[STEP 5] Received onMapLoaded callback from JavaScript bridge!")
                         post {
                             evaluateJavascript("if (typeof invalidateMapSize === 'function') invalidateMapSize();", null)
                         }
@@ -108,6 +130,7 @@ class MapLibreWebViewProvider : RadarMapProvider {
                     onCoordinatesSelected = onCoordinatesSelected,
                     onApiKeyMissing = onApiKeyMissing,
                     onRequestTimelineRefresh = {
+                        Log.d("SkySphereMap", "Received onRequestTimelineRefresh from JS bridge")
                         controller?.let { ctrl ->
                             post {
                                 ctrl.loadRadarTimeline(kotlinx.coroutines.CoroutineScope(kotlinx.coroutines.Dispatchers.Main), forceRefresh = true)
@@ -118,21 +141,8 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 "AndroidMap"
             )
 
-            // Load local radar_map.html asset
-            val htmlContent = try {
-                context.assets.open("radar_map.html").bufferedReader().use { it.readText() }
-            } catch (e: Exception) {
-                Log.e("SkySphereMap", "Failed to load radar_map.html from assets", e)
-                ""
-            }
-
-            loadDataWithBaseURL(
-                "file:///android_asset/",
-                htmlContent,
-                "text/html",
-                "utf-8",
-                null
-            )
+            Log.d("SkySphereMap", "[STEP 3] Loading asset file:///android_asset/radar_map.html into WebView...")
+            loadUrl("file:///android_asset/radar_map.html")
         }
 
         webView = wv
