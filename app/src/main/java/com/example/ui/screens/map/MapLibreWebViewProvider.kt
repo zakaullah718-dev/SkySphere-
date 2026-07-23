@@ -40,8 +40,10 @@ class MapLibreWebViewProvider : RadarMapProvider {
         }
 
         val wv = WebView(context).apply {
-            Log.d("SkySphereMap", "[STEP 2] Configuring WebSettings & WebGL Hardware Acceleration...")
-            setLayerType(View.LAYER_TYPE_HARDWARE, null)
+            Log.d("SkySphereMap", "[STEP 2] Configuring WebSettings & WebGL Acceleration...")
+            // Use View.LAYER_TYPE_NONE so Chromium's internal WebGL hardware pipeline composites directly without View layer conflicts
+            setLayerType(View.LAYER_TYPE_NONE, null)
+            setBackgroundColor(android.graphics.Color.parseColor("#070913"))
 
             settings.apply {
                 javaScriptEnabled = true
@@ -55,6 +57,9 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 cacheMode = WebSettings.LOAD_DEFAULT
                 allowContentAccess = true
                 allowFileAccess = true
+
+                // Use custom Chrome mobile User-Agent to ensure tile servers (CartoDB, OpenStreetMap, RainViewer) accept requests
+                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36 SkySphereWeather/1.0"
 
                 @Suppress("DEPRECATION")
                 allowFileAccessFromFileURLs = true

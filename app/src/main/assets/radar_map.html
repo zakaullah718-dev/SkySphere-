@@ -200,6 +200,7 @@
                         'carto-dark': {
                             type: 'raster',
                             tiles: [
+                                'https://basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
                                 'https://a.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
                                 'https://b.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
                                 'https://c.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png',
@@ -244,9 +245,31 @@
                     attributionControl: false,
                     fadeDuration: 0,
                     trackResize: true,
-                    failIfMajorPerformanceCaveat: false
+                    failIfMajorPerformanceCaveat: false,
+                    preserveDrawingBuffer: true
                 });
                 console.log('SkySphere JS: [INIT 3] maplibregl.Map object instantiated!');
+
+                function notifyMapLoaded() {
+                    if (mapLoaded) return;
+                    mapLoaded = true;
+                    console.log('SkySphere JS: [INIT 4] Map engine ready, notifying native bridge...');
+                    showLoader(false);
+
+                    invalidateMapSize();
+                    setTimeout(function() { invalidateMapSize(); }, 100);
+                    setTimeout(function() { invalidateMapSize(); }, 300);
+
+                    if (window.AndroidMap && window.AndroidMap.onMapLoaded) {
+                        console.log('SkySphere JS: [INIT 5] Calling AndroidMap.onMapLoaded() native bridge');
+                        window.AndroidMap.onMapLoaded();
+                    }
+                    if (window.AndroidMap && window.AndroidMap.onRequestTimelineRefresh) {
+                        window.AndroidMap.onRequestTimelineRefresh();
+                    } else {
+                        fetchRainViewerTimelineDirectly();
+                    }
+                }
 
                 var mapContainer = document.getElementById('map');
                 if (typeof ResizeObserver !== 'undefined') {
@@ -275,27 +298,18 @@
 
                 map.on('styledata', function() {
                     console.log('SkySphere JS: Map style data loaded');
+                    notifyMapLoaded();
                 });
 
                 map.on('load', function() {
-                    console.log('SkySphere JS: [INIT 4] Map load event fired successfully!');
-                    mapLoaded = true;
-                    showLoader(false);
-
-                    invalidateMapSize();
-                    setTimeout(function() { invalidateMapSize(); }, 100);
-                    setTimeout(function() { invalidateMapSize(); }, 300);
-
-                    if (window.AndroidMap && window.AndroidMap.onMapLoaded) {
-                        console.log('SkySphere JS: [INIT 5] Calling AndroidMap.onMapLoaded() native bridge');
-                        window.AndroidMap.onMapLoaded();
-                    }
-                    if (window.AndroidMap && window.AndroidMap.onRequestTimelineRefresh) {
-                        window.AndroidMap.onRequestTimelineRefresh();
-                    } else {
-                        fetchRainViewerTimelineDirectly();
-                    }
+                    console.log('SkySphere JS: Map load event fired!');
+                    notifyMapLoaded();
                 });
+
+                // Fallback timer: ensure notifyMapLoaded() runs if style/load events are delayed
+                setTimeout(function() {
+                    notifyMapLoaded();
+                }, 400);
 
                 map.on('click', function(e) {
                     var lat = e.lngLat.lat;
