@@ -146,7 +146,30 @@ class MapLibreWebViewProvider : RadarMapProvider {
             Log.d("SkySphereMap", "[STEP 3] Loading asset file:///android_asset/radar_map.html into WebView...")
             loadUrl("file:///android_asset/radar_map.html")
         }
-
+// Force check if Leaflet loaded after 3 seconds
+postDelayed({
+    evaluateJavascript("""
+        (function() {
+            if (typeof L === 'undefined') {
+                console.error('Leaflet not loaded - trying CDN');
+                // Try loading from CDN directly
+                var script = document.createElement('script');
+                script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
+                script.onload = function() {
+                    if (typeof initializeLeafletMap === 'function') {
+                        initializeLeafletMap();
+                    }
+                };
+                document.head.appendChild(script);
+            } else {
+                console.log('Leaflet loaded successfully!');
+                if (typeof initializeLeafletMap === 'function') {
+                    initializeLeafletMap();
+                }
+            }
+        })();
+    """.trimIndent(), null)
+}, 3000)
         webView = wv
         return wv
     }
