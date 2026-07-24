@@ -3,7 +3,9 @@ package com.example.ui.screens.map
 import android.content.Context
 import android.util.Log
 import com.example.BuildConfig
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
@@ -12,12 +14,15 @@ import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.overlay.TilesOverlay
+import java.util.Collections
 import java.util.concurrent.TimeUnit
 
 class WeatherTileSource(
+    val layer: MapWeatherLayer,
     sourceName: String,
     val minSupportedZoom: Int = 2,
     val maxSupportedZoom: Int = 12,
+    private val client: OkHttpClient,
     private val tileUrlProvider: (zoom: Int, x: Int, y: Int) -> String
 ) : OnlineTileSourceBase(
     sourceName,
@@ -27,39 +32,51 @@ class WeatherTileSource(
     ".png",
     arrayOf()
 ) {
+    private val loggedUrls = Collections.synchronizedSet(HashSet<String>())
+
     override fun getTileURLString(pMapTileIndex: Long): String {
         val rawZoom = MapTileIndex.getZoom(pMapTileIndex)
         val rawX = MapTileIndex.getX(pMapTileIndex)
         val rawY = MapTileIndex.getY(pMapTileIndex)
 
-        val zoom: Int
-        val x: Int
-        val y: Int
-
-        if (rawZoom > maxSupportedZoom) {
-            zoom = maxSupportedZoom
-            val diff = rawZoom - maxSupportedZoom
-            x = rawX shr diff
-            y = rawY shr diff
-        } else if (rawZoom < minSupportedZoom) {
-            zoom = minSupportedZoom
-            val diff = minSupportedZoom - rawZoom
-            x = rawX shl diff
-            y = rawY shl diff
-        } else {
-            zoom = rawZoom
-            x = rawX
-            y = rawY
-        }
+        val zoom = rawZoom.coerceIn(minSupportedZoom, maxSupportedZoom)
+        val diff = rawZoom - zoom
+        val x = if (diff > 0) rawX shr diff else rawX shl (-diff)
+        val y = if (diff > 0) rawY shr diff else rawY shl (-diff)
 
         val url = tileUrlProvider(zoom, x, y)
         if (url.isNotBlank()) {
-            Log.d(
-                "WeatherTileSource",
-                "HTTP Request -> Layer: '${name()}', RawZoom: $rawZoom, MappedZoom: $zoom, TileCoords: ($x, $y), URL: $url"
-            )
+            Log.d("WeatherRadar", "Selected Layer = ${layer.displayName}")
+            Log.d("WeatherRadar", "Tile URL = $url")
+            Log.d("WeatherRadar", "Tile request URL = $url")
+
+            checkAndLogTileHttp(url)
         }
         return url
+    }
+
+    private fun checkAndLogTileHttp(url: String) {
+        if (!loggedUrls.add(url)) return
+
+        CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val req = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "SkySphere/1.0")
+                    .build()
+                client.newCall(req).execute().use { response ->
+                    val code = response.code
+                    Log.d("WeatherRadar", "HTTP response code = $code")
+                    if (response.isSuccessful) {
+                        Log.d("WeatherRadar", "Tile loaded successfully for layer '${layer.displayName}'")
+                    } else {
+                        Log.e("WeatherRadar", "Tile failed (HTTP $code) for layer '${layer.displayName}'")
+                    }
+                }
+            } catch (e: Exception) {
+                Log.e("WeatherRadar", "Tile failed for '${layer.displayName}': ${e.localizedMessage}")
+            }
+        }
     }
 }
 
@@ -129,28 +146,26 @@ class FutureWeatherLayerManager {
         layer: MapWeatherLayer,
         radarTimestamp: Long?
     ): TilesOverlay? {
-        if (layer == MapWeatherLayer.NONE || layer == MapWeatherLayer.HUMIDITY) return null
+        if (layer == MapWeatherLayer.NONE) return null
 
         val owmApiKey = try { BuildConfig.WEATHER_API_KEY } catch (e: Exception) { "" }
         val hasOwmKey = owmApiKey.isNotBlank() && owmApiKey != "PLACEholder_WEATHER_API_KEY"
 
         val currentRadarPath = cachedRadarPath ?: "/v2/radar/4493c4cc5308"
 
-        // Unique source name per layer for distinct osmdroid tile cache key
-        val uniqueSourceName = "OWM_Layer_${layer.name}"
+        // Unique source name per layer and instantiation to ensure dedicated tile cache & provider
+        val uniqueSourceName = "OWM_Weather_${layer.name}_${System.currentTimeMillis()}"
 
         val tileSource = WeatherTileSource(
+            layer = layer,
             sourceName = uniqueSourceName,
             minSupportedZoom = layer.minZoom.toInt(),
-            maxSupportedZoom = layer.maxZoom.toInt()
+            maxSupportedZoom = layer.maxZoom.toInt(),
+            client = client
         ) { zoom, x, y ->
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
-                    if (hasOwmKey) {
-                        "https://tile.openweathermap.org/map/precipitation_new/$zoom/$x/$y.png?appid=$owmApiKey"
-                    } else {
-                        "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/2/1_1.png"
-                    }
+                    "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/2/1_1.png"
                 }
                 MapWeatherLayer.CLOUDS -> {
                     if (hasOwmKey) {
@@ -182,7 +197,10 @@ class FutureWeatherLayerManager {
                         "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/isobar-900913/$zoom/$x/$y.png"
                     }
                 }
-                MapWeatherLayer.HUMIDITY -> ""
+                MapWeatherLayer.HUMIDITY -> {
+                    // IEM moisture / precipitable water overlay yields valid 200 tiles for Humidity
+                    "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/q2-n1p-900913/$zoom/$x/$y.png"
+                }
                 MapWeatherLayer.NONE -> ""
             }
         }
@@ -195,4 +213,5 @@ class FutureWeatherLayerManager {
         }
     }
 }
+
 

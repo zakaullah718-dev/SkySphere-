@@ -309,15 +309,8 @@ fun MapScreen(
             weatherOverlayRef[0] = null
         }
 
-        // Handle Humidity notification or attach new weather layer overlay
-        if (mapState.selectedLayer == MapWeatherLayer.HUMIDITY) {
-            coroutineScope.launch {
-                snackbarHostState.showSnackbar(
-                    message = "Humidity map tile layer is not supported by the weather provider.",
-                    duration = SnackbarDuration.Short
-                )
-            }
-        } else if (mapState.selectedLayer != MapWeatherLayer.NONE) {
+        // Attach new weather layer overlay if enabled
+        if (mapState.selectedLayer != MapWeatherLayer.NONE) {
             val newOverlay = weatherLayerManager.createTilesOverlay(
                 context = context,
                 layer = mapState.selectedLayer,
