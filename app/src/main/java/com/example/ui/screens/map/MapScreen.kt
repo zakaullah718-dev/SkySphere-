@@ -9,6 +9,8 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -40,7 +42,6 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.WaterDrop
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -49,6 +50,7 @@ import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Scaffold
@@ -58,6 +60,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -108,7 +111,8 @@ fun MapScreen(
     val weatherLayerManager = remember { FutureWeatherLayerManager() }
     val mapState by controller.mapState.collectAsState()
 
-    var showLayerSelectorDialog by remember { mutableStateOf(false) }
+    var showLayerSelectorSheet by remember { mutableStateOf(false) }
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // References for overlays
     val locationOverlayRef = remember { arrayOfNulls<MyLocationNewOverlay>(1) }
@@ -179,7 +183,7 @@ fun MapScreen(
         } else {
             controller.setLocationPermissionGranted(false)
             coroutineScope.launch {
-                snackbarHostState.showSnackbar("Location permission denied. Showing world map.")
+                snackbarHostState.showSnackbar("Location permission denied. Showing default view.")
             }
         }
     }
@@ -358,16 +362,16 @@ fun MapScreen(
                     modifier = Modifier.fillMaxSize().testTag("native_world_map_view")
                 )
 
-                // Active Weather Layer Indicator Pill
+                // Active Weather Layer Indicator Pill with Quick Close Button
                 if (mapState.selectedLayer != MapWeatherLayer.NONE) {
                     Box(
                         modifier = Modifier
                             .align(Alignment.TopCenter)
                             .padding(top = 16.dp)
-                            .clip(RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(24.dp))
                             .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
-                            .border(1.dp, MaterialTheme.colorScheme.primary, RoundedCornerShape(20.dp))
-                            .padding(horizontal = 16.dp, vertical = 8.dp)
+                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(24.dp))
+                            .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp)
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
@@ -384,23 +388,36 @@ fun MapScreen(
                                     color = MaterialTheme.colorScheme.onSurface
                                 )
                             )
+                            Spacer(modifier = Modifier.width(8.dp))
+                            IconButton(
+                                onClick = { controller.setWeatherLayer(MapWeatherLayer.NONE) },
+                                modifier = Modifier.size(24.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Filled.Close,
+                                    contentDescription = "Hide weather layer",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.size(16.dp)
+                                )
+                            }
                         }
                     }
                 }
 
-                // Control Buttons Column (Right Side)
+                // Control Buttons Column (Right Side - Placed safely at bottom = 104.dp above floating bottom bar)
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .navigationBarsPadding()
-                        .padding(bottom = 24.dp, end = 20.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                        .padding(bottom = 104.dp, end = 20.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // Weather Layers Floating Button
                     FloatingActionButton(
-                        onClick = { showLayerSelectorDialog = true },
+                        onClick = { showLayerSelectorSheet = true },
                         containerColor = if (mapState.selectedLayer != MapWeatherLayer.NONE) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceVariant,
                         contentColor = if (mapState.selectedLayer != MapWeatherLayer.NONE) MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurfaceVariant,
+                        shape = CircleShape,
                         modifier = Modifier.testTag("layer_selector_fab")
                     ) {
                         Icon(
@@ -428,6 +445,7 @@ fun MapScreen(
                         },
                         containerColor = MaterialTheme.colorScheme.primaryContainer,
                         contentColor = MaterialTheme.colorScheme.onPrimaryContainer,
+                        shape = CircleShape,
                         modifier = Modifier.testTag("my_location_fab")
                     ) {
                         if (mapState.isLocating) {
@@ -454,50 +472,83 @@ fun MapScreen(
         }
     }
 
-    // Weather Layer Selection Dialog
-    if (showLayerSelectorDialog) {
-        AlertDialog(
-            onDismissRequest = { showLayerSelectorDialog = false },
-            title = {
+    // Weather Layer Selection Modal Bottom Sheet
+    if (showLayerSelectorSheet) {
+        ModalBottomSheet(
+            onDismissRequest = { showLayerSelectorSheet = false },
+            sheetState = sheetState,
+            containerColor = MaterialTheme.colorScheme.surface,
+            shape = RoundedCornerShape(topStart = 28.dp, topEnd = 28.dp)
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 36.dp)
+            ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier.fillMaxWidth()
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(bottom = 16.dp)
                 ) {
-                    Text(
-                        text = "Map Weather Layers",
-                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
-                    )
-                    IconButton(onClick = { showLayerSelectorDialog = false }) {
-                        Icon(imageVector = Icons.Filled.Close, contentDescription = "Close")
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            imageVector = Icons.Filled.Layers,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Spacer(modifier = Modifier.width(12.dp))
+                        Text(
+                            text = "Live Weather Overlays",
+                            style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+                    }
+                    IconButton(onClick = { showLayerSelectorSheet = false }) {
+                        Icon(imageVector = Icons.Filled.Close, contentDescription = "Close sheet")
                     }
                 }
-            },
-            text = {
-                LazyColumn(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+
+                LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(MapWeatherLayer.values()) { layer ->
                         val isSelected = mapState.selectedLayer == layer
                         Card(
                             colors = CardDefaults.cardColors(
-                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.5f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f)
+                                containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                             ),
-                            shape = RoundedCornerShape(12.dp),
+                            shape = RoundedCornerShape(16.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .clickable {
                                     controller.setWeatherLayer(layer)
-                                    showLayerSelectorDialog = false
+                                    showLayerSelectorSheet = false
+                                    coroutineScope.launch {
+                                        if (layer != MapWeatherLayer.NONE) {
+                                            snackbarHostState.showSnackbar("Enabled ${layer.displayName} overlay")
+                                        } else {
+                                            snackbarHostState.showSnackbar("Weather overlays hidden")
+                                        }
+                                    }
                                 }
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
-                                modifier = Modifier.padding(12.dp)
+                                modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp)
                             ) {
                                 RadioButton(
                                     selected = isSelected,
                                     onClick = {
                                         controller.setWeatherLayer(layer)
-                                        showLayerSelectorDialog = false
+                                        showLayerSelectorSheet = false
+                                        coroutineScope.launch {
+                                            if (layer != MapWeatherLayer.NONE) {
+                                                snackbarHostState.showSnackbar("Enabled ${layer.displayName} overlay")
+                                            } else {
+                                                snackbarHostState.showSnackbar("Weather overlays hidden")
+                                            }
+                                        }
                                     },
                                     colors = RadioButtonDefaults.colors(selectedColor = MaterialTheme.colorScheme.primary)
                                 )
@@ -509,29 +560,33 @@ fun MapScreen(
                                     modifier = Modifier.size(22.dp)
                                 )
                                 Spacer(modifier = Modifier.width(12.dp))
-                                Column {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
                                         text = layer.displayName,
-                                        style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold)
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                            color = if (isSelected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
+                                        )
                                     )
                                     Text(
                                         text = layer.description,
                                         style = MaterialTheme.typography.bodySmall.copy(color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     )
                                 }
+                                if (isSelected) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Check,
+                                        contentDescription = "Active",
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
                             }
                         }
                     }
                 }
-            },
-            confirmButton = {
-                TextButton(onClick = { showLayerSelectorDialog = false }) {
-                    Text("Done")
-                }
-            },
-            containerColor = MaterialTheme.colorScheme.surface,
-            shape = RoundedCornerShape(20.dp)
-        )
+            }
+        }
     }
 }
 
