@@ -2,6 +2,7 @@ package com.example.ui.screens.map
 
 import android.content.Context
 import android.util.Log
+import com.example.BuildConfig
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -48,7 +49,14 @@ class WeatherTileSource(
             y = rawY
         }
 
-        return tileUrlProvider(zoom, x, y)
+        val url = tileUrlProvider(zoom, x, y)
+        if (url.isNotBlank()) {
+            Log.d(
+                "WeatherTileSource",
+                "HTTP Request -> Layer: '${name()}', Zoom: $zoom, TileCoords: ($x, $y), URL: $url"
+            )
+        }
+        return url
     }
 }
 
@@ -59,51 +67,58 @@ class FutureWeatherLayerManager {
         .readTimeout(8, TimeUnit.SECONDS)
         .build()
 
-    private var cachedRadarTimestamp: Long? = null
-    private var cachedSatelliteTimestamp: Long? = null
+    private var cachedRadarPath: String? = null
+    private var cachedSatellitePath: String? = null
 
     suspend fun fetchLatestRadarTimestamp(): Long? = withContext(Dispatchers.IO) {
+        fetchLatestWeatherMapPaths()
+        return@withContext System.currentTimeMillis() / 1000
+    }
+
+    suspend fun fetchLatestWeatherMapPaths(): Boolean = withContext(Dispatchers.IO) {
         try {
             val request = Request.Builder()
                 .url("https://api.rainviewer.com/public/weather-maps.json")
+                .header("User-Agent", "SkySphere/1.0")
                 .build()
             val response = client.newCall(request).execute()
             if (response.isSuccessful) {
                 val jsonStr = response.body?.string()
                 if (!jsonStr.isNullOrEmpty()) {
                     val root = JSONObject(jsonStr)
-                    
-                    // Radar timestamp
+
+                    // Extract latest past radar path
                     val radar = root.optJSONObject("radar")
                     val pastRadar = radar?.optJSONArray("past")
                     if (pastRadar != null && pastRadar.length() > 0) {
                         val latestItem = pastRadar.getJSONObject(pastRadar.length() - 1)
-                        val timestamp = latestItem.optLong("time")
-                        if (timestamp > 0) {
-                            cachedRadarTimestamp = timestamp
+                        val path = latestItem.optString("path")
+                        if (path.isNotBlank()) {
+                            cachedRadarPath = path
                         }
                     }
 
-                    // Satellite timestamp for cloud coverage
+                    // Extract latest satellite path
                     val satellite = root.optJSONObject("satellite")
                     val infrared = satellite?.optJSONArray("infrared")
                     if (infrared != null && infrared.length() > 0) {
                         val latestSat = infrared.getJSONObject(infrared.length() - 1)
-                        val satTime = latestSat.optLong("time")
-                        if (satTime > 0) {
-                            cachedSatelliteTimestamp = satTime
+                        val path = latestSat.optString("path")
+                        if (path.isNotBlank()) {
+                            cachedSatellitePath = path
                         }
                     }
 
-                    if (cachedRadarTimestamp != null) {
-                        return@withContext cachedRadarTimestamp
-                    }
+                    Log.d("WeatherLayerManager", "RainViewer paths updated -> Radar: '$cachedRadarPath', Satellite: '$cachedSatellitePath'")
+                    return@withContext true
                 }
+            } else {
+                Log.e("WeatherLayerManager", "Failed to fetch RainViewer map paths HTTP ${response.code}")
             }
         } catch (e: Exception) {
-            Log.e("WeatherLayerManager", "Error fetching RainViewer timestamps: ${e.localizedMessage}")
+            Log.e("WeatherLayerManager", "Error fetching RainViewer map paths: ${e.localizedMessage}")
         }
-        return@withContext cachedRadarTimestamp ?: (System.currentTimeMillis() / 1000 - 600)
+        return@withContext false
     }
 
     fun createTilesOverlay(
@@ -113,49 +128,65 @@ class FutureWeatherLayerManager {
     ): TilesOverlay? {
         if (layer == MapWeatherLayer.NONE) return null
 
-        val owmApiKey = "b1b15e88fa797225412429c1c50c122a"
-        val ts = radarTimestamp ?: cachedRadarTimestamp ?: (System.currentTimeMillis() / 1000 - 600)
-        val satTs = cachedSatelliteTimestamp ?: ts
+        val owmApiKey = try { BuildConfig.WEATHER_API_KEY } catch (e: Exception) { "" }
+        val hasOwmKey = owmApiKey.isNotBlank() && owmApiKey != "PLACEholder_WEATHER_API_KEY"
 
-        val maxZoomForLayer = when (layer) {
-            MapWeatherLayer.RAIN_RADAR -> 12
-            MapWeatherLayer.CLOUDS -> 12
-            else -> 12
-        }
+        val currentRadarPath = cachedRadarPath ?: "/v2/radar/4493c4cc5308"
 
         val tileSource = WeatherTileSource(
-            sourceName = layer.name,
+            sourceName = layer.displayName,
             minZoom = 1,
-            maxZoom = maxZoomForLayer
+            maxZoom = 12
         ) { zoom, x, y ->
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
-                    "https://tilecache.rainviewer.com/v2/radar/$ts/256/$zoom/$x/$y/2/1_1.png"
+                    "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/2/1_1.png"
                 }
                 MapWeatherLayer.CLOUDS -> {
-                    // High performance satellite infrared cloud layer from RainViewer or OWM
-                    "https://tilecache.rainviewer.com/v2/satellite/$satTs/256/$zoom/$x/$y/0/0_0.png"
+                    if (cachedSatellitePath != null) {
+                        "https://tilecache.rainviewer.com$cachedSatellitePath/256/$zoom/$x/$y/0/0_1.png"
+                    } else {
+                        "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/goes-east-ir-4km-900913/$zoom/$x/$y.png"
+                    }
                 }
                 MapWeatherLayer.TEMPERATURE -> {
-                    "https://tile.openweathermap.org/map/temp_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    if (hasOwmKey) {
+                        "https://tile.openweathermap.org/map/temp_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    } else {
+                        "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/6/1_1.png"
+                    }
                 }
                 MapWeatherLayer.WIND -> {
-                    "https://tile.openweathermap.org/map/wind_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    if (hasOwmKey) {
+                        "https://tile.openweathermap.org/map/wind_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    } else {
+                        "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/3/1_1.png"
+                    }
                 }
                 MapWeatherLayer.PRESSURE -> {
-                    "https://tile.openweathermap.org/map/pressure_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    if (hasOwmKey) {
+                        "https://tile.openweathermap.org/map/pressure_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    } else {
+                        "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/8/1_1.png"
+                    }
                 }
                 MapWeatherLayer.HUMIDITY -> {
-                    "https://tile.openweathermap.org/map/precipitation_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    if (hasOwmKey) {
+                        "https://tile.openweathermap.org/map/precipitation_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    } else {
+                        "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/q2-n1p-900913/$zoom/$x/$y.png"
+                    }
                 }
                 MapWeatherLayer.NONE -> ""
             }
         }
 
         val provider = MapTileProviderBasic(context, tileSource)
+
         return TilesOverlay(provider, context).apply {
             loadingBackgroundColor = android.graphics.Color.TRANSPARENT
             loadingLineColor = android.graphics.Color.TRANSPARENT
         }
     }
 }
+

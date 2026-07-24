@@ -161,7 +161,11 @@ fun MapScreen(
 
         if (fineGranted || coarseGranted) {
             controller.setLocationPermissionGranted(true)
-            locationOverlayRef[0]?.enableMyLocation()
+            try {
+                locationOverlayRef[0]?.enableMyLocation()
+            } catch (e: Exception) {
+                Log.w("MapEngine", "Error enabling my location overlay: ${e.localizedMessage}")
+            }
             locationOverlayRef[0]?.runOnFirstFix {
                 val loc = locationOverlayRef[0]?.myLocation
                 if (loc != null) {
@@ -233,8 +237,17 @@ fun MapScreen(
                 this.controller.setZoom(defaultZoom)
                 this.controller.setCenter(GeoPoint(defaultCenter.first, defaultCenter.second))
 
+                val hasLocationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+                        ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
                 val myLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), this).apply {
-                    enableMyLocation()
+                    if (hasLocationPermission) {
+                        try {
+                            enableMyLocation()
+                        } catch (e: Exception) {
+                            Log.w("MapEngine", "Could not enable location overlay: ${e.localizedMessage}")
+                        }
+                    }
                     runOnFirstFix {
                         val loc = myLocation
                         if (loc != null) {
@@ -260,10 +273,13 @@ fun MapScreen(
     LaunchedEffect(mapState.selectedLayer, mapState.radarTimestamp, mapView) {
         if (mapView == null) return@LaunchedEffect
 
-        if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR && mapState.radarTimestamp == null) {
-            val latestTs = weatherLayerManager.fetchLatestRadarTimestamp()
-            if (latestTs != null) {
-                controller.setRadarTimestamp(latestTs)
+        if (mapState.selectedLayer != MapWeatherLayer.NONE) {
+            weatherLayerManager.fetchLatestWeatherMapPaths()
+            if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR && mapState.radarTimestamp == null) {
+                val latestTs = weatherLayerManager.fetchLatestRadarTimestamp()
+                if (latestTs != null) {
+                    controller.setRadarTimestamp(latestTs)
+                }
             }
         }
 
