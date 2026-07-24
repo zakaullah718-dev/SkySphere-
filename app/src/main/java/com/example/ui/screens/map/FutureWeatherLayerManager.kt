@@ -129,24 +129,33 @@ class FutureWeatherLayerManager {
         layer: MapWeatherLayer,
         radarTimestamp: Long?
     ): TilesOverlay? {
-        if (layer == MapWeatherLayer.NONE) return null
+        if (layer == MapWeatherLayer.NONE || layer == MapWeatherLayer.HUMIDITY) return null
 
         val owmApiKey = try { BuildConfig.WEATHER_API_KEY } catch (e: Exception) { "" }
         val hasOwmKey = owmApiKey.isNotBlank() && owmApiKey != "PLACEholder_WEATHER_API_KEY"
 
         val currentRadarPath = cachedRadarPath ?: "/v2/radar/4493c4cc5308"
 
+        // Unique source name per layer for distinct osmdroid tile cache key
+        val uniqueSourceName = "OWM_Layer_${layer.name}"
+
         val tileSource = WeatherTileSource(
-            sourceName = layer.displayName,
+            sourceName = uniqueSourceName,
             minSupportedZoom = layer.minZoom.toInt(),
             maxSupportedZoom = layer.maxZoom.toInt()
         ) { zoom, x, y ->
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
-                    "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/2/1_1.png"
+                    if (hasOwmKey) {
+                        "https://tile.openweathermap.org/map/precipitation_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    } else {
+                        "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/2/1_1.png"
+                    }
                 }
                 MapWeatherLayer.CLOUDS -> {
-                    if (cachedSatellitePath != null) {
+                    if (hasOwmKey) {
+                        "https://tile.openweathermap.org/map/clouds_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    } else if (cachedSatellitePath != null) {
                         "https://tilecache.rainviewer.com$cachedSatellitePath/256/$zoom/$x/$y/0/0_1.png"
                     } else {
                         "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/goes-east-ir-4km-900913/$zoom/$x/$y.png"
@@ -156,30 +165,24 @@ class FutureWeatherLayerManager {
                     if (hasOwmKey) {
                         "https://tile.openweathermap.org/map/temp_new/$zoom/$x/$y.png?appid=$owmApiKey"
                     } else {
-                        "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/6/1_1.png"
+                        "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/iatemp-900913/$zoom/$x/$y.png"
                     }
                 }
                 MapWeatherLayer.WIND -> {
                     if (hasOwmKey) {
                         "https://tile.openweathermap.org/map/wind_new/$zoom/$x/$y.png?appid=$owmApiKey"
                     } else {
-                        "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/3/1_1.png"
+                        "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/iawind-900913/$zoom/$x/$y.png"
                     }
                 }
                 MapWeatherLayer.PRESSURE -> {
                     if (hasOwmKey) {
                         "https://tile.openweathermap.org/map/pressure_new/$zoom/$x/$y.png?appid=$owmApiKey"
                     } else {
-                        "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/8/1_1.png"
+                        "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/isobar-900913/$zoom/$x/$y.png"
                     }
                 }
-                MapWeatherLayer.HUMIDITY -> {
-                    if (hasOwmKey) {
-                        "https://tile.openweathermap.org/map/precipitation_new/$zoom/$x/$y.png?appid=$owmApiKey"
-                    } else {
-                        "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/q2-n1p-900913/$zoom/$x/$y.png"
-                    }
-                }
+                MapWeatherLayer.HUMIDITY -> ""
                 MapWeatherLayer.NONE -> ""
             }
         }

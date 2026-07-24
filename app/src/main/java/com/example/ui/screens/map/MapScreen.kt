@@ -301,11 +301,23 @@ fun MapScreen(
         // Remove previous weather layer overlay
         weatherOverlayRef[0]?.let { oldOverlay ->
             mapView.overlays.remove(oldOverlay)
+            try {
+                oldOverlay.onDetach(mapView)
+            } catch (e: Exception) {
+                Log.w("MapScreen", "Error detaching old weather overlay: ${e.localizedMessage}")
+            }
             weatherOverlayRef[0] = null
         }
 
-        // Attach new weather layer overlay if enabled
-        if (mapState.selectedLayer != MapWeatherLayer.NONE) {
+        // Handle Humidity notification or attach new weather layer overlay
+        if (mapState.selectedLayer == MapWeatherLayer.HUMIDITY) {
+            coroutineScope.launch {
+                snackbarHostState.showSnackbar(
+                    message = "Humidity map tile layer is not supported by the weather provider.",
+                    duration = SnackbarDuration.Short
+                )
+            }
+        } else if (mapState.selectedLayer != MapWeatherLayer.NONE) {
             val newOverlay = weatherLayerManager.createTilesOverlay(
                 context = context,
                 layer = mapState.selectedLayer,
