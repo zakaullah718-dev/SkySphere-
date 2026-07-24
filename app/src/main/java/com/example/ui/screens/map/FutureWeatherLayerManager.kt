@@ -16,19 +16,17 @@ import java.util.concurrent.TimeUnit
 
 class WeatherTileSource(
     sourceName: String,
-    minZoom: Int = 1,
-    maxZoom: Int = 12,
+    val minSupportedZoom: Int = 2,
+    val maxSupportedZoom: Int = 12,
     private val tileUrlProvider: (zoom: Int, x: Int, y: Int) -> String
 ) : OnlineTileSourceBase(
     sourceName,
-    minZoom,
-    maxZoom,
+    1,
+    22,
     256,
     ".png",
     arrayOf()
 ) {
-    private val maxAllowedZoom = maxZoom
-
     override fun getTileURLString(pMapTileIndex: Long): String {
         val rawZoom = MapTileIndex.getZoom(pMapTileIndex)
         val rawX = MapTileIndex.getX(pMapTileIndex)
@@ -38,11 +36,16 @@ class WeatherTileSource(
         val x: Int
         val y: Int
 
-        if (rawZoom > maxAllowedZoom) {
-            zoom = maxAllowedZoom
-            val diff = rawZoom - maxAllowedZoom
+        if (rawZoom > maxSupportedZoom) {
+            zoom = maxSupportedZoom
+            val diff = rawZoom - maxSupportedZoom
             x = rawX shr diff
             y = rawY shr diff
+        } else if (rawZoom < minSupportedZoom) {
+            zoom = minSupportedZoom
+            val diff = minSupportedZoom - rawZoom
+            x = rawX shl diff
+            y = rawY shl diff
         } else {
             zoom = rawZoom
             x = rawX
@@ -53,7 +56,7 @@ class WeatherTileSource(
         if (url.isNotBlank()) {
             Log.d(
                 "WeatherTileSource",
-                "HTTP Request -> Layer: '${name()}', Zoom: $zoom, TileCoords: ($x, $y), URL: $url"
+                "HTTP Request -> Layer: '${name()}', RawZoom: $rawZoom, MappedZoom: $zoom, TileCoords: ($x, $y), URL: $url"
             )
         }
         return url
@@ -135,8 +138,8 @@ class FutureWeatherLayerManager {
 
         val tileSource = WeatherTileSource(
             sourceName = layer.displayName,
-            minZoom = 1,
-            maxZoom = 12
+            minSupportedZoom = layer.minZoom.toInt(),
+            maxSupportedZoom = layer.maxZoom.toInt()
         ) { zoom, x, y ->
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
