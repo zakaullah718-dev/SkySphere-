@@ -30,4 +30,28 @@ class MapController {
         Log.e("MapEngine", "MAP ERROR: ${exception.localizedMessage}", exception)
         _mapState.update { it.copy(errorMessage = exception.localizedMessage) }
     }
+
+    fun updateUserLocation(lat: Double, lon: Double, locationName: String? = null) {
+        Log.d("MapEngine", "USER LOCATION UPDATED: ($lat, $lon) -> $locationName")
+        _mapState.update {
+            it.copy(
+                userLatitude = lat,
+                userLongitude = lon,
+                locationName = locationName ?: it.locationName,
+                isLocating = false
+            )
+        }
+    }
+
+    fun setLocationName(name: String?) {
+        _mapState.update { it.copy(locationName = name) }
+    }
+
+    fun setLocationPermissionGranted(granted: Boolean) {
+        _mapState.update { it.copy(isLocationPermissionGranted = granted) }
+    }
+
+    fun setLocating(isLocating: Boolean) {
+        _mapState.update { it.copy(isLocating = isLocating) }
+    }
 }
