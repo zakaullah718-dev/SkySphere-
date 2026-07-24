@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Favorite
@@ -89,10 +90,10 @@ fun FavoritesScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                items(
+                itemsIndexed(
                     items = safeFavorites,
-                    key = { "${it.cityName}_${it.region ?: ""}_${it.country}_${safeFavorites.indexOf(it)}" }
-                ) { city ->
+                    key = { index, city -> "fav_${index}_${city.cityName}_${city.region ?: ""}_${city.country}" }
+                ) { _, city ->
                     FavoriteCityCard(
                         city = city,
                         isCelsius = isCelsius,

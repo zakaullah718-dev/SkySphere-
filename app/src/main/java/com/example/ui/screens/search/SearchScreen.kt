@@ -17,6 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Close
@@ -215,7 +216,7 @@ fun SearchScreen(
                 modifier = Modifier.fillMaxWidth(),
                 verticalArrangement = Arrangement.spacedBy(8.dp)
             ) {
-                items(recentSearches) { searchItem ->
+                itemsIndexed(recentSearches, key = { index, item -> "recent_${index}_${item}" }) { _, searchItem ->
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -274,7 +275,10 @@ fun SearchScreen(
                 verticalArrangement = Arrangement.spacedBy(16.dp),
                 contentPadding = PaddingValues(bottom = 100.dp)
             ) {
-                items(searchResults, key = { city -> "${city.cityName},${city.region ?: ""},${city.country}_${searchResults.indexOf(city)}" }) { city ->
+                itemsIndexed(
+                    searchResults,
+                    key = { index, city -> "search_${index}_${city.cityName}_${city.region ?: ""}_${city.country}" }
+                ) { _, city ->
                     SearchCityCard(
                         city = city,
                         isCelsius = isCelsius,

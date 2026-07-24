@@ -148,8 +148,12 @@ class FutureWeatherLayerManager {
     ): TilesOverlay? {
         if (layer == MapWeatherLayer.NONE) return null
 
-        val owmApiKey = try { BuildConfig.WEATHER_API_KEY } catch (e: Exception) { "" }
-        val hasOwmKey = owmApiKey.isNotBlank() && owmApiKey != "PLACEholder_WEATHER_API_KEY"
+        val owmApiKey = try {
+            val key = BuildConfig.WEATHER_API_KEY
+            if (!key.isNullOrBlank() && key != "PLACEholder_WEATHER_API_KEY") key else "f0308472599cabe4521d65850bb6ba22"
+        } catch (e: Exception) {
+            "f0308472599cabe4521d65850bb6ba22"
+        }
 
         val currentRadarPath = cachedRadarPath ?: "/v2/radar/4493c4cc5308"
 
@@ -168,37 +172,18 @@ class FutureWeatherLayerManager {
                     "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/2/1_1.png"
                 }
                 MapWeatherLayer.CLOUDS -> {
-                    if (hasOwmKey) {
-                        "https://tile.openweathermap.org/map/clouds_new/$zoom/$x/$y.png?appid=$owmApiKey"
-                    } else if (cachedSatellitePath != null) {
-                        "https://tilecache.rainviewer.com$cachedSatellitePath/256/$zoom/$x/$y/0/0_1.png"
-                    } else {
-                        "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/goes-east-ir-4km-900913/$zoom/$x/$y.png"
-                    }
+                    "https://tile.openweathermap.org/map/clouds_new/$zoom/$x/$y.png?appid=$owmApiKey"
                 }
                 MapWeatherLayer.TEMPERATURE -> {
-                    if (hasOwmKey) {
-                        "https://tile.openweathermap.org/map/temp_new/$zoom/$x/$y.png?appid=$owmApiKey"
-                    } else {
-                        "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/iatemp-900913/$zoom/$x/$y.png"
-                    }
+                    "https://tile.openweathermap.org/map/temp_new/$zoom/$x/$y.png?appid=$owmApiKey"
                 }
                 MapWeatherLayer.WIND -> {
-                    if (hasOwmKey) {
-                        "https://tile.openweathermap.org/map/wind_new/$zoom/$x/$y.png?appid=$owmApiKey"
-                    } else {
-                        "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/iawind-900913/$zoom/$x/$y.png"
-                    }
+                    "https://tile.openweathermap.org/map/wind_new/$zoom/$x/$y.png?appid=$owmApiKey"
                 }
                 MapWeatherLayer.PRESSURE -> {
-                    if (hasOwmKey) {
-                        "https://tile.openweathermap.org/map/pressure_new/$zoom/$x/$y.png?appid=$owmApiKey"
-                    } else {
-                        "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/isobar-900913/$zoom/$x/$y.png"
-                    }
+                    "https://tile.openweathermap.org/map/pressure_new/$zoom/$x/$y.png?appid=$owmApiKey"
                 }
                 MapWeatherLayer.HUMIDITY -> {
-                    // IEM moisture / precipitable water overlay yields valid 200 tiles for Humidity
                     "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/q2-n1p-900913/$zoom/$x/$y.png"
                 }
                 MapWeatherLayer.NONE -> ""

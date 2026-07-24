@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -800,7 +801,7 @@ fun HomeScreenContent(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     contentPadding = PaddingValues(horizontal = 2.dp)
                 ) {
-                    items(details.hourlyForecast) { hour ->
+                    itemsIndexed(details.hourlyForecast, key = { index, hour -> "hourly_${index}_${hour.time}" }) { _, hour ->
                         Card(
                             colors = CardDefaults.cardColors(
                                 containerColor = Color(0xFF1E1E2E) // Solid accessible dark gray card background (as requested)

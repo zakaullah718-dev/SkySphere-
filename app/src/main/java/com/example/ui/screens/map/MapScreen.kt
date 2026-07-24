@@ -304,9 +304,10 @@ fun MapScreen(
             try {
                 oldOverlay.onDetach(mapView)
             } catch (e: Exception) {
-                Log.w("MapScreen", "Error detaching old weather overlay: ${e.localizedMessage}")
+                Log.w("WeatherRadar", "Error detaching old weather overlay: ${e.localizedMessage}")
             }
             weatherOverlayRef[0] = null
+            Log.d("WeatherRadar", "Overlay removed")
         }
 
         // Attach new weather layer overlay if enabled
@@ -317,10 +318,12 @@ fun MapScreen(
                 radarTimestamp = mapState.radarTimestamp
             )
             if (newOverlay != null) {
+                Log.d("WeatherRadar", "Overlay created for ${mapState.selectedLayer.displayName}")
                 // Insert weather overlay underneath the location marker overlay
                 val insertIndex = if (mapView.overlays.isNotEmpty()) mapView.overlays.size - 1 else 0
                 mapView.overlays.add(insertIndex, newOverlay)
                 weatherOverlayRef[0] = newOverlay
+                Log.d("WeatherRadar", "Overlay attached for ${mapState.selectedLayer.displayName}")
             }
         }
 
@@ -548,7 +551,7 @@ fun MapScreen(
                 }
 
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
-                    items(MapWeatherLayer.values()) { layer ->
+                    items(MapWeatherLayer.values(), key = { layer -> layer.name }) { layer ->
                         val isSelected = mapState.selectedLayer == layer
                         Card(
                             colors = CardDefaults.cardColors(

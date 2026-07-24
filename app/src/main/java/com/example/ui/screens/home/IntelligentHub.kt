@@ -13,6 +13,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
@@ -437,7 +438,7 @@ fun IntelligentHub(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxWidth()
                                 ) {
-                                    items(aiQuestions) { q ->
+                                    itemsIndexed(aiQuestions, key = { index, q -> "ai_q_${index}_${q.hashCode()}" }) { _, q ->
                                         Box(
                                             modifier = Modifier
                                                 .clip(RoundedCornerShape(16.dp))
@@ -1334,7 +1335,7 @@ fun IntelligentHub(
                             verticalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp)
                         ) {
-                            items(selectableCities) { city ->
+                            itemsIndexed(selectableCities, key = { index, city -> "hub_city_${index}_${city.cityName}" }) { _, city ->
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     modifier = Modifier
