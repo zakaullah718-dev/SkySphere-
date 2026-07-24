@@ -54,4 +54,13 @@ class MapController {
     fun setLocating(isLocating: Boolean) {
         _mapState.update { it.copy(isLocating = isLocating) }
     }
+
+    fun setWeatherLayer(layer: MapWeatherLayer) {
+        Log.d("MapEngine", "SWITCHING WEATHER LAYER TO: ${layer.displayName}")
+        _mapState.update { it.copy(selectedLayer = layer) }
+    }
+
+    fun setRadarTimestamp(timestamp: Long) {
+        _mapState.update { it.copy(radarTimestamp = timestamp) }
+    }
 }

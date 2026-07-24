@@ -12,5 +12,7 @@ data class MapState(
     val locationName: String? = null,
     val isLocationPermissionGranted: Boolean = false,
     val isLocating: Boolean = false,
+    val selectedLayer: MapWeatherLayer = MapWeatherLayer.NONE,
+    val radarTimestamp: Long? = null,
     val errorMessage: String? = null
 )
