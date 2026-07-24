@@ -55,8 +55,8 @@ class MapLibreWebViewProvider : RadarMapProvider {
                 allowContentAccess = true
                 allowFileAccess = true
 
-                // Use custom Chrome mobile User-Agent to ensure tile servers (CartoDB, OpenStreetMap, RainViewer) accept requests
-                userAgentString = "Mozilla/5.0 (Linux; Android 14; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36 SkySphereWeather/1.0"
+                // Standard Mobile Chrome User-Agent so tile servers (OpenStreetMap, CartoDB, Esri, RainViewer) accept requests without 403
+                userAgentString = "Mozilla/5.0 (Linux; Android 14) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Mobile Safari/537.36"
 
                 @Suppress("DEPRECATION")
                 allowFileAccessFromFileURLs = true
@@ -146,30 +146,7 @@ class MapLibreWebViewProvider : RadarMapProvider {
             Log.d("SkySphereMap", "[STEP 3] Loading asset file:///android_asset/radar_map.html into WebView...")
             loadUrl("file:///android_asset/radar_map.html")
         }
-// Force check if Leaflet loaded after 3 seconds
-postDelayed({
-    evaluateJavascript("""
-        (function() {
-            if (typeof L === 'undefined') {
-                console.error('Leaflet not loaded - trying CDN');
-                // Try loading from CDN directly
-                var script = document.createElement('script');
-                script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-                script.onload = function() {
-                    if (typeof initializeLeafletMap === 'function') {
-                        initializeLeafletMap();
-                    }
-                };
-                document.head.appendChild(script);
-            } else {
-                console.log('Leaflet loaded successfully!');
-                if (typeof initializeLeafletMap === 'function') {
-                    initializeLeafletMap();
-                }
-            }
-        })();
-    """.trimIndent(), null)
-}, 3000)
+
         webView = wv
         return wv
     }

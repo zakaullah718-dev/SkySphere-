@@ -218,6 +218,8 @@
         function invalidateMapSize() {
             if (map) {
                 map.invalidateSize();
+            } else {
+                initializeLeafletMap();
             }
         }
 
@@ -232,6 +234,8 @@
         }
 
         // --- Step 3 & 4: MapTiler & Fallback Map Tiles ---
+        var hasFallenBackToOSM = false;
+
         function loadMapTiles() {
             if (!map) return;
             if (baseTileLayer) {
@@ -246,42 +250,57 @@
                 mapTilerApiKey.trim() !== '';
 
             var tileUrl = '';
-            var attribution = '&copy; CartoDB &copy; OpenStreetMap';
+            var subdomains = ['a', 'b', 'c'];
+            var attribution = '&copy; OpenStreetMap contributors';
 
-            if (currentMapStyle === 'DARK') {
-                tileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png';
+            if (hasFallenBackToOSM) {
+                tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+            } else if (currentMapStyle === 'DARK') {
+                tileUrl = 'https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png';
+                subdomains = ['a', 'b', 'c', 'd'];
+                attribution = '&copy; CartoDB &copy; OpenStreetMap';
             } else if (currentMapStyle === 'HYBRID') {
                 tileUrl = 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}';
+                subdomains = [];
                 attribution = '&copy; Esri &copy; OpenStreetMap';
             } else if (currentMapStyle === 'SYSTEM') {
                 var isDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
                 tileUrl = isDark ? 
-                    'https://{s}.basemaps.cartocdn.com/rastertiles/dark_all/{z}/{x}/{y}.png' : 
-                    'https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png';
-            } else { // LIGHT style (matching Screenshots 3 & 4)
+                    'https://cartodb-basemaps-{s}.global.ssl.fastly.net/dark_all/{z}/{x}/{y}.png' : 
+                    'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+                subdomains = ['a', 'b', 'c'];
+            } else { // LIGHT style
                 if (isValidMapTilerKey) {
                     tileUrl = 'https://api.maptiler.com/maps/dataviz-light/{z}/{x}/{y}.png?key=' + mapTilerApiKey;
+                    subdomains = ['a', 'b', 'c'];
                     attribution = '&copy; MapTiler &copy; OpenStreetMap';
                 } else {
-                    tileUrl = 'https://{s}.basemaps.cartocdn.com/rastertiles/light_all/{z}/{x}/{y}.png';
+                    tileUrl = 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png';
+                    subdomains = ['a', 'b', 'c'];
                 }
             }
 
             baseTileLayer = L.tileLayer(tileUrl, {
-                subdomains: ['a', 'b', 'c', 'd'],
+                subdomains: subdomains,
                 maxZoom: 19,
-                minZoom: 0,
+                minZoom: 1,
                 tileSize: 256,
                 attribution: attribution
             });
 
             baseTileLayer.on('tileload', function() {
                 hideStatusBanner();
+                var loader = document.getElementById('loader');
+                if (loader) showLoader(false);
             });
 
             baseTileLayer.on('tileerror', function(err) {
-                logError('[TileLoadError] Tile request failed: ' + (err.tile ? err.tile.src : 'unknown'));
-                showStatusBanner('Unable to load map tiles.', false);
+                logError('[TileLoadError] Tile request failed for: ' + (err.tile ? err.tile.src : 'unknown'));
+                if (!hasFallenBackToOSM) {
+                    logDebug('[TileFallback] Switching to robust OpenStreetMap tile server...');
+                    hasFallenBackToOSM = true;
+                    setTimeout(loadMapTiles, 100);
+                }
             });
 
             baseTileLayer.addTo(map);
@@ -307,6 +326,13 @@
         // --- Step 2 & 3: Initialize Leaflet Engine ---
         function initializeLeafletMap() {
             if (map) return;
+            var container = document.getElementById('map');
+            if (container && (container.clientWidth === 0 || container.clientHeight === 0)) {
+                logDebug('[LeafletInit] Container dimensions are 0x0. Postponing Leaflet init...');
+                setTimeout(initializeLeafletMap, 50);
+                return;
+            }
+
             try {
                 logDebug('[LeafletInit] Starting Leaflet map engine initialization...');
                 showLoader(true, 'Initializing SkySphere Radar Canvas...');
@@ -669,77 +695,24 @@
         });
 
         function safeInit() {
-    logDebug('safeInit starting execution...');
-    var attempts = 0;
-    var maxAttempts = 100;
-    var delayMs = 150;
-    
-    // Show loader immediately
-    showLoader(true, 'Initializing SkySphere Radar Engine...');
-    
-    function check() {
-        // Check if Leaflet is loaded
-        if (typeof L !== 'undefined') {
-            logDebug('Leaflet library detected! Calling initializeLeafletMap()...');
-            showLoader(true, 'Starting Leaflet map engine...');
-            initializeLeafletMap();
-            return;
-        }
-        
-        attempts++;
-        if (attempts < maxAttempts) {
-            logDebug('Waiting for Leaflet... attempt ' + attempts + '/' + maxAttempts);
-            setTimeout(check, delayMs);
-        } else {
-            logError('CRITICAL - Leaflet JS library failed to load after ' + (maxAttempts * delayMs / 1000) + ' seconds.');
-            showStatusBanner('Failed to load Leaflet library', true);
-            showLoader(false);
-            
-            // Show visible error on screen
-            var loader = document.getElementById('loader');
-            if (loader) {
-                loader.innerHTML = '❌ Leaflet library failed to load. Please check assets folder.';
-                loader.style.display = 'block';
-                loader.style.color = '#FF5252';
-                loader.style.background = 'rgba(30, 30, 30, 0.95)';
-                loader.style.borderColor = '#FF5252';
-                loader.style.boxShadow = '0 0 30px rgba(255, 82, 82, 0.3)';
-                loader.style.padding = '20px 30px';
-                loader.style.fontSize = '14px';
-                loader.style.textAlign = 'center';
-                loader.style.maxWidth = '80%';
-            }
-            
-            // Also try to load from CDN as last resort
-            try {
-                var script = document.createElement('script');
-                script.src = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.js';
-                script.onload = function() {
-                    logDebug('Leaflet loaded from CDN fallback!');
-                    showStatusBanner('Loaded from CDN fallback', false);
+            logDebug('safeInit starting execution...');
+            var attempts = 0;
+            function check() {
+                if (typeof L !== 'undefined') {
+                    logDebug('Leaflet library detected! Calling initializeLeafletMap()...');
                     initializeLeafletMap();
-                };
-                document.head.appendChild(script);
-                
-                var link = document.createElement('link');
-                link.rel = 'stylesheet';
-                link.href = 'https://unpkg.com/leaflet@1.9.4/dist/leaflet.css';
-                document.head.appendChild(link);
-            } catch(e) {
-                logError('CDN fallback failed: ' + e.message);
+                } else {
+                    attempts++;
+                    if (attempts < 50) {
+                        setTimeout(check, 100);
+                    } else {
+                        logError('CRITICAL - Leaflet JS library failed to load after 5 seconds.');
+                        showStatusBanner('Failed to load Leaflet library', true);
+                    }
+                }
             }
+            check();
         }
-    }
-    
-    // Wait a bit for DOM to settle
-    if (document.readyState === 'complete' || document.readyState === 'interactive') {
-        setTimeout(check, 200);
-    } else {
-        document.addEventListener('DOMContentLoaded', function() {
-            setTimeout(check, 200);
-        });
-    }
-}
 
         if (document.readyState === 'complete' || document.readyState === 'interactive') {
             safeInit();

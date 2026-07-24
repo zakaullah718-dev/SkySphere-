@@ -655,7 +655,7 @@ fun MapScreen(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .navigationBarsPadding()
-                .padding(bottom = if (isBottomSheetExpanded) 340.dp else 120.dp, start = 12.dp, end = 12.dp)
+                .padding(bottom = 60.dp, start = 12.dp, end = 12.dp)
                 .fillMaxWidth()
                 .widthIn(max = 560.dp)
         ) {
@@ -742,200 +742,7 @@ fun MapScreen(
         }
 
         // ==========================================
-        // 6. DRAGGABLE BOTTOM SHEET WEATHER CARD
-        // ==========================================
-        Box(
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .navigationBarsPadding()
-                .padding(bottom = 60.dp, start = 12.dp, end = 12.dp)
-                .fillMaxWidth()
-                .widthIn(max = 600.dp)
-                .clip(RoundedCornerShape(28.dp))
-                .background(Color(0xF00F172A))
-                .border(1.dp, Color(0x3300E5FF), RoundedCornerShape(28.dp))
-                .pointerInput(Unit) {
-                    detectVerticalDragGestures { _, dragAmount ->
-                        if (dragAmount < -15) {
-                            isBottomSheetExpanded = true
-                        } else if (dragAmount > 15) {
-                            isBottomSheetExpanded = false
-                        }
-                    }
-                }
-                .padding(14.dp)
-        ) {
-            Column {
-                // Drag Handle Bar
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.CenterHorizontally)
-                        .width(36.dp)
-                        .height(4.dp)
-                        .clip(CircleShape)
-                        .background(Color(0x55FFFFFF))
-                        .clickable { isBottomSheetExpanded = !isBottomSheetExpanded }
-                )
-
-                Spacer(modifier = Modifier.height(10.dp))
-
-                // Collapsed View Row
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable { isBottomSheetExpanded = !isBottomSheetExpanded }
-                ) {
-                    if (isFetchingInspected) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            CircularProgressIndicator(color = Color(0xFF00E5FF), modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            Spacer(modifier = Modifier.width(10.dp))
-                            Text("Fetching location telemetry...", style = MaterialTheme.typography.bodyMedium, color = Color(0xFF94A3B8))
-                        }
-                    } else {
-                        inspectedWeather?.let { weather ->
-                            val details = weather.weatherDetails
-                            val tempStr = if (isCelsius) "${((details.currentTemp - 32) * 5 / 9)}°C" else "${details.currentTemp}°F"
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(42.dp)
-                                        .clip(RoundedCornerShape(12.dp))
-                                        .background(Brush.linearGradient(listOf(details.condition.startColor, details.condition.endColor))),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    WeatherConditionIcon(condition = details.condition, modifier = Modifier.size(24.dp), tint = Color.White)
-                                }
-                                Spacer(modifier = Modifier.width(12.dp))
-                                Column {
-                                    Text(
-                                        text = weather.cityName.uppercase(),
-                                        style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.ExtraBold, color = Color.White)
-                                    )
-                                    Text(
-                                        text = details.condition.description,
-                                        style = MaterialTheme.typography.bodySmall.copy(color = Color(0xFF00E5FF), fontWeight = FontWeight.SemiBold)
-                                    )
-                                }
-                            }
-
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(
-                                    text = tempStr,
-                                    style = MaterialTheme.typography.headlineMedium.copy(fontWeight = FontWeight.Black, color = Color.White)
-                                )
-                                Spacer(modifier = Modifier.width(8.dp))
-                                Icon(
-                                    imageVector = if (isBottomSheetExpanded) Icons.Filled.KeyboardArrowDown else Icons.Filled.KeyboardArrowUp,
-                                    contentDescription = "Expand details",
-                                    tint = Color(0xFF00E5FF)
-                                )
-                            }
-                        } ?: run {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                Text(
-                                    text = "Tap map location to inspect telemetry",
-                                    style = MaterialTheme.typography.bodyMedium.copy(color = Color(0xFF94A3B8))
-                                )
-                                Icon(
-                                    imageVector = Icons.Filled.TouchApp,
-                                    contentDescription = null,
-                                    tint = Color(0xFF00E5FF),
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
-                        }
-                    }
-                }
-
-                // Expanded Detailed View Breakdown
-                AnimatedVisibility(
-                    visible = isBottomSheetExpanded && inspectedWeather != null,
-                    enter = expandVertically() + fadeIn(),
-                    exit = shrinkVertically() + fadeOut()
-                ) {
-                    inspectedWeather?.let { weather ->
-                        val details = weather.weatherDetails
-                        val feelsLikeStr = if (isCelsius) "${((details.feelsLike - 32) * 5 / 9)}°C" else "${details.feelsLike}°F"
-
-                        Column(modifier = Modifier.padding(top = 14.dp)) {
-                            Divider(color = Color(0x22FFFFFF))
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            // 4-Column Atmospheric Grid
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                WeatherMetricBox("FEELS LIKE", feelsLikeStr, Icons.Filled.Thermostat, Modifier.weight(1f))
-                                WeatherMetricBox("HUMIDITY", "${details.humidity}%", Icons.Filled.Water, Modifier.weight(1f))
-                                WeatherMetricBox("WIND", "${details.windSpeed} km/h", Icons.Filled.Air, Modifier.weight(1f))
-                                WeatherMetricBox("PRESSURE", "${details.pressureHpa} hPa", Icons.Filled.Compress, Modifier.weight(1f))
-                            }
-
-                            Spacer(modifier = Modifier.height(10.dp))
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                WeatherMetricBox("CLOUDS", "${details.cloudCoverage}%", Icons.Filled.Cloud, Modifier.weight(1f))
-                                WeatherMetricBox("VISIBILITY", "${details.visibilityKm} km", Icons.Filled.Visibility, Modifier.weight(1f))
-                                WeatherMetricBox("UV INDEX", "${details.uvIndex}", Icons.Filled.WbSunny, Modifier.weight(1f))
-                                WeatherMetricBox("SUNSET", details.sunset, Icons.Filled.NightsStay, Modifier.weight(1f))
-                            }
-
-                            Spacer(modifier = Modifier.height(14.dp))
-
-                            // Bottom Action Buttons
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
-                            ) {
-                                Button(
-                                    onClick = { repository.selectCity(weather.cityName) },
-                                    colors = ButtonDefaults.buttonColors(containerColor = Color(0xFF00E5FF)),
-                                    shape = RoundedCornerShape(12.dp),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Text("SET ACTIVE CITY", style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = Color.Black))
-                                }
-
-                                Spacer(modifier = Modifier.width(10.dp))
-
-                                OutlinedButton(
-                                    onClick = { repository.toggleFavorite(weather.cityName) },
-                                    shape = RoundedCornerShape(12.dp),
-                                    border = BorderStroke(1.dp, Color(0xFF00E5FF)),
-                                    modifier = Modifier.weight(1f)
-                                ) {
-                                    Icon(
-                                        imageVector = if (weather.isFavorite) Icons.Filled.Favorite else Icons.Outlined.FavoriteBorder,
-                                        contentDescription = null,
-                                        tint = if (weather.isFavorite) Color(0xFFFF5252) else Color(0xFF00E5FF),
-                                        modifier = Modifier.size(16.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(6.dp))
-                                    Text(
-                                        text = if (weather.isFavorite) "SAVED" else "FAVORITE",
-                                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold, color = Color(0xFF00E5FF))
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        // ==========================================
-        // 7. FLOATING SEARCH OVERLAY DIALOG
+        // 6. FLOATING SEARCH OVERLAY DIALOG
         // ==========================================
         if (showSearchDialog) {
             Dialog(onDismissRequest = { showSearchDialog = false }) {
@@ -1066,7 +873,7 @@ fun MapScreen(
             }
         }
 
-        // Floating "Layers" pill button at bottom right (Matching Screenshot 4)
+        // Floating "Layers" pill button at bottom right
         FloatingActionButton(
             onClick = { showLayersDialog = true },
             containerColor = Color.White,
@@ -1075,7 +882,7 @@ fun MapScreen(
             modifier = Modifier
                 .align(Alignment.BottomEnd)
                 .navigationBarsPadding()
-                .padding(bottom = if (isBottomSheetExpanded) 340.dp else 120.dp, end = 16.dp)
+                .padding(bottom = if (selectedLayer == MapLayer.RAINFALL) 140.dp else 70.dp, end = 16.dp)
         ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
