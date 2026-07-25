@@ -8,6 +8,9 @@ import android.util.Log
 import com.example.BuildConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
@@ -20,12 +23,21 @@ import org.osmdroid.views.overlay.TilesOverlay
 import java.util.Collections
 import java.util.concurrent.TimeUnit
 
+data class WeatherLayerRuntimeInfo(
+    val layer: MapWeatherLayer = MapWeatherLayer.NONE,
+    val providerName: String = "",
+    val tileUrlSample: String = "",
+    val httpStatus: String = "Initializing...",
+    val isRainViewer: Boolean = false
+)
+
 class WeatherTileSource(
     val layer: MapWeatherLayer,
     sourceName: String,
     val minSupportedZoom: Int = 1,
     val maxSupportedZoom: Int = 18,
     private val client: OkHttpClient,
+    private val onTileRequested: (url: String, httpStatus: String) -> Unit,
     private val tileUrlProvider: (zoom: Int, x: Int, y: Int) -> String
 ) : OnlineTileSourceBase(
     sourceName,
@@ -65,6 +77,9 @@ class WeatherTileSource(
     private fun checkAndLogTileHttp(url: String) {
         if (!loggedUrls.add(url)) return
 
+        val providerTag = if (layer == MapWeatherLayer.RAIN_RADAR) "RainViewer Doppler Radar" else "OpenWeatherMap"
+        Log.d("WeatherRadar", "TILE_REQUEST -> [$providerTag] Layer '${layer.displayName}': $url")
+
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val req = Request.Builder()
@@ -74,13 +89,19 @@ class WeatherTileSource(
                 client.newCall(req).execute().use { response ->
                     val code = response.code
                     if (response.isSuccessful) {
-                        Log.d("WeatherRadar", "Tile loaded successfully (HTTP $code) for layer '${layer.displayName}'")
+                        val statusMsg = "HTTP $code OK • Direct $providerTag Tile"
+                        Log.d("WeatherRadar", "TILE_SUCCESS -> $statusMsg | $url")
+                        onTileRequested(url, statusMsg)
                     } else {
-                        Log.e("WeatherRadar", "Tile failed (HTTP $code) for layer '${layer.displayName}'")
+                        val statusMsg = "HTTP $code Error from $providerTag"
+                        Log.e("WeatherRadar", "TILE_FAILURE -> $statusMsg | $url")
+                        onTileRequested(url, statusMsg)
                     }
                 }
             } catch (e: Exception) {
-                Log.e("WeatherRadar", "Tile failed for '${layer.displayName}': ${e.localizedMessage}")
+                val statusMsg = "Failed: ${e.localizedMessage}"
+                Log.e("WeatherRadar", "TILE_EXCEPTION -> $statusMsg | $url")
+                onTileRequested(url, statusMsg)
             }
         }
     }
@@ -94,7 +115,9 @@ class FutureWeatherLayerManager {
         .build()
 
     private var cachedRadarPath: String? = null
-    private var cachedSatellitePath: String? = null
+
+    private val _runtimeInfo = MutableStateFlow(WeatherLayerRuntimeInfo())
+    val runtimeInfo: StateFlow<WeatherLayerRuntimeInfo> = _runtimeInfo.asStateFlow()
 
     suspend fun fetchLatestRadarTimestamp(): Long? = withContext(Dispatchers.IO) {
         fetchLatestWeatherMapPaths()
@@ -120,17 +143,16 @@ class FutureWeatherLayerManager {
                         val path = latestItem.optString("path")
                         if (path.isNotBlank()) {
                             cachedRadarPath = path
+                            Log.d("WeatherRadar", "RainViewer live radar path acquired: '$path'")
                         }
                     }
-
-                    Log.d("WeatherLayerManager", "RainViewer path updated -> Radar: '$cachedRadarPath'")
                     return@withContext true
                 }
             } else {
-                Log.e("WeatherLayerManager", "Failed to fetch RainViewer map paths HTTP ${response.code}")
+                Log.e("WeatherRadar", "RainViewer API path request failed with HTTP ${response.code}")
             }
         } catch (e: Exception) {
-            Log.e("WeatherLayerManager", "Error fetching RainViewer map paths: ${e.localizedMessage}")
+            Log.e("WeatherRadar", "RainViewer API path request exception: ${e.localizedMessage}")
         }
         return@withContext false
     }
@@ -140,7 +162,10 @@ class FutureWeatherLayerManager {
         layer: MapWeatherLayer,
         radarTimestamp: Long?
     ): TilesOverlay? {
-        if (layer == MapWeatherLayer.NONE) return null
+        if (layer == MapWeatherLayer.NONE) {
+            _runtimeInfo.value = WeatherLayerRuntimeInfo(layer = MapWeatherLayer.NONE)
+            return null
+        }
 
         val owmApiKey = try {
             val key = BuildConfig.WEATHER_API_KEY
@@ -150,21 +175,42 @@ class FutureWeatherLayerManager {
         }
 
         val timeBucket = System.currentTimeMillis() / 300000 // 5-minute cache/refresh window
-        val uniqueSourceName = "OWM_Weather_${layer.name}_$timeBucket"
+        val currentRadarPath = cachedRadarPath ?: "/v2/radar/79c9e619266e"
+        
+        val uniqueSourceName = if (layer == MapWeatherLayer.RAIN_RADAR) {
+            "RainViewer_Radar_${currentRadarPath.replace("/", "_")}"
+        } else {
+            "OWM_Weather_${layer.name}_$timeBucket"
+        }
+        
         val minZoom = 1
-        val maxZoom = 18
+        val maxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) 12 else 18
+        val providerName = if (layer == MapWeatherLayer.RAIN_RADAR) "RainViewer Real-Time Doppler Radar" else "OpenWeatherMap Overlay"
+
+        _runtimeInfo.value = WeatherLayerRuntimeInfo(
+            layer = layer,
+            providerName = providerName,
+            tileUrlSample = if (layer == MapWeatherLayer.RAIN_RADAR) "https://tilecache.rainviewer.com$currentRadarPath/256/{z}/{x}/{y}/2/0_1.png" else "https://tile.openweathermap.org/map/${layer.name}/...",
+            httpStatus = "Requesting live tiles...",
+            isRainViewer = (layer == MapWeatherLayer.RAIN_RADAR)
+        )
 
         val tileSource = WeatherTileSource(
             layer = layer,
             sourceName = uniqueSourceName,
             minSupportedZoom = minZoom,
             maxSupportedZoom = maxZoom,
-            client = client
+            client = client,
+            onTileRequested = { url, httpStatus ->
+                _runtimeInfo.value = _runtimeInfo.value.copy(
+                    tileUrlSample = url,
+                    httpStatus = httpStatus
+                )
+            }
         ) { zoom, x, y ->
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
-                    // Official OpenWeatherMap precipitation & live weather radar endpoint
-                    "https://tile.openweathermap.org/map/precipitation_new/$zoom/$x/$y.png?appid=$owmApiKey&_t=$timeBucket"
+                    "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/2/0_1.png"
                 }
                 MapWeatherLayer.CLOUDS -> {
                     "https://tile.openweathermap.org/map/clouds_new/$zoom/$x/$y.png?appid=$owmApiKey&_t=$timeBucket"
@@ -191,10 +237,8 @@ class FutureWeatherLayerManager {
             loadingBackgroundColor = Color.TRANSPARENT
             loadingLineColor = Color.TRANSPARENT
 
-            // Apply targeted color filters for maximum contrast and layer-specific visibility
             when (layer) {
                 MapWeatherLayer.CLOUDS -> {
-                    // Low clouds -> light gray, High/Dense clouds -> dark/near-black translucent gray with high opacity
                     val cloudMatrix = ColorMatrix(floatArrayOf(
                         0.25f, 0f,    0f,    0f, 30f,
                         0f,    0.25f, 0f,    0f, 30f,
@@ -204,18 +248,10 @@ class FutureWeatherLayerManager {
                     setColorFilter(ColorMatrixColorFilter(cloudMatrix))
                 }
                 MapWeatherLayer.RAIN_RADAR -> {
-                    // Authentic OpenWeather precipitation radar palette (light cyan -> green -> yellow -> orange -> red)
-                    // Equal scaling across R, G, B ensures 100% color fidelity matching official OpenWeather weather map.
-                    val rainMatrix = ColorMatrix(floatArrayOf(
-                        1.0f, 0f,   0f,   0f, 0f,
-                        0f,   1.0f, 0f,   0f, 0f,
-                        0f,   0f,   1.0f, 0f, 0f,
-                        0f,   0f,   0f,   1.05f, 0f
-                    ))
-                    setColorFilter(ColorMatrixColorFilter(rainMatrix))
+                    // Raw, unmodified Doppler NEXRAD radar colors directly from RainViewer tiles
+                    setColorFilter(null)
                 }
                 MapWeatherLayer.HUMIDITY -> {
-                    // Saturate moisture / humidity blue/teal channels and boost visibility
                     val humidityMatrix = ColorMatrix(floatArrayOf(
                         1.1f, 0f,   0f,   0f, 0f,
                         0f,   1.3f, 0f,   0f, 10f,
@@ -225,7 +261,6 @@ class FutureWeatherLayerManager {
                     setColorFilter(ColorMatrixColorFilter(humidityMatrix))
                 }
                 MapWeatherLayer.TEMPERATURE -> {
-                    // Rich temperature contrast: cold (blue) vs cool (cyan) vs warm (yellow) vs hot (orange/red)
                     val tempMatrix = ColorMatrix(floatArrayOf(
                         1.3f, 0f,   0f,   0f, 5f,
                         0f,   1.3f, 0f,   0f, 5f,
@@ -257,6 +292,7 @@ class FutureWeatherLayerManager {
         }
     }
 }
+
 
 
 

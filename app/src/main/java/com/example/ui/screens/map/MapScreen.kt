@@ -111,6 +111,7 @@ fun MapScreen(
     val controller = remember { MapController() }
     val weatherLayerManager = remember { FutureWeatherLayerManager() }
     val mapState by controller.mapState.collectAsState()
+    val runtimeInfo by weatherLayerManager.runtimeInfo.collectAsState()
 
     var showLayerSelectorSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -387,43 +388,119 @@ fun MapScreen(
                     modifier = Modifier.fillMaxSize().testTag("native_world_map_view")
                 )
 
-                // Active Weather Layer Indicator Pill with Quick Close Button
+                // Active Weather Layer Indicator & Live Radar Inspector Card
                 if (mapState.selectedLayer != MapWeatherLayer.NONE) {
-                    Box(
+                    Card(
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+                        ),
+                        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .padding(top = 16.dp)
-                            .clip(RoundedCornerShape(24.dp))
-                            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.92f))
-                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.6f), RoundedCornerShape(24.dp))
-                            .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp)
+                            .padding(top = 12.dp, start = 16.dp, end = 16.dp)
+                            .fillMaxWidth(0.92f)
+                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
                     ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Icon(
-                                imageVector = getLayerIcon(mapState.selectedLayer),
-                                contentDescription = null,
-                                tint = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.size(18.dp)
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            Text(
-                                text = "Live ${mapState.selectedLayer.displayName}",
-                                style = MaterialTheme.typography.labelMedium.copy(
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.onSurface
-                                )
-                            )
-                            Spacer(modifier = Modifier.width(8.dp))
-                            IconButton(
-                                onClick = { controller.setWeatherLayer(MapWeatherLayer.NONE) },
-                                modifier = Modifier.size(24.dp)
+                        Column(
+                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                modifier = Modifier.fillMaxWidth()
                             ) {
-                                Icon(
-                                    imageVector = Icons.Filled.Close,
-                                    contentDescription = "Hide weather layer",
-                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.size(16.dp)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = getLayerIcon(mapState.selectedLayer),
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Column {
+                                        Text(
+                                            text = "Live ${mapState.selectedLayer.displayName}",
+                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                        )
+                                        Text(
+                                            text = if (runtimeInfo.isRainViewer) "RainViewer Real-Time Doppler API" else "OpenWeatherMap Weather API",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                color = MaterialTheme.colorScheme.primary,
+                                                fontSize = 11.sp
+                                            )
+                                        )
+                                    }
+                                }
+
+                                IconButton(
+                                    onClick = { controller.setWeatherLayer(MapWeatherLayer.NONE) },
+                                    modifier = Modifier.size(28.dp)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Filled.Close,
+                                        contentDescription = "Hide weather layer",
+                                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.size(18.dp)
+                                    )
+                                }
+                            }
+
+                            // Live Tile URL & Response Verification Status
+                            Spacer(modifier = Modifier.height(6.dp))
+                            Text(
+                                text = "Status: ${runtimeInfo.httpStatus}",
+                                style = MaterialTheme.typography.bodySmall.copy(
+                                    color = if (runtimeInfo.httpStatus.contains("HTTP 200")) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
+                                    fontWeight = FontWeight.SemiBold,
+                                    fontSize = 11.sp
                                 )
+                            )
+
+                            if (runtimeInfo.tileUrlSample.isNotBlank()) {
+                                Text(
+                                    text = "Tile: ${runtimeInfo.tileUrlSample}",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                        fontSize = 10.sp
+                                    ),
+                                    maxLines = 1
+                                )
+                            }
+
+                            // Precipitation Intensity Legend Bar for Rain Radar
+                            if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR) {
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = "Rain Intensity Palette (NEXRAD Color Scale):",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp)
+                                )
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Row(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .height(12.dp)
+                                        .clip(RoundedCornerShape(4.dp))
+                                ) {
+                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFF00ECEC))) // Light Cyan
+                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFF00A000))) // Green
+                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFFF8E000))) // Yellow
+                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFFF88000))) // Orange
+                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFFE00000))) // Red
+                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFFD000D0))) // Magenta
+                                }
+                                Row(
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                                ) {
+                                    Text("Light", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                                    Text("Moderate", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                                    Text("Heavy", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                                    Text("Severe Storm", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                                }
                             }
                         }
                     }
