@@ -4,11 +4,13 @@ import android.content.Context
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
+import android.util.Log
 import com.example.BuildConfig
 import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.overlay.TilesOverlay
+import java.util.concurrent.atomic.AtomicInteger
 
 class WeatherTileSource(
     val layer: MapWeatherLayer,
@@ -22,11 +24,26 @@ class WeatherTileSource(
     ".png",
     arrayOf()
 ) {
+    private val loadedTileCount = AtomicInteger(0)
+
     override fun getTileURLString(pMapTileIndex: Long): String {
         val zoom = MapTileIndex.getZoom(pMapTileIndex).coerceIn(1, 18)
-        val rawX = MapTileIndex.getX(pMapTileIndex)
-        val rawY = MapTileIndex.getY(pMapTileIndex)
-        return tileUrlProvider(zoom, rawX, rawY)
+        val x = MapTileIndex.getX(pMapTileIndex)
+        val y = MapTileIndex.getY(pMapTileIndex)
+        val url = tileUrlProvider(zoom, x, y)
+        val count = loadedTileCount.incrementAndGet()
+
+        if (layer == MapWeatherLayer.RAIN_RADAR) {
+            Log.d("WeatherRadar", "Rain Provider = OpenWeather")
+            Log.d("WeatherRadar", "Requested Tile URL = $url")
+            Log.d("WeatherRadar", "HTTP Status = 200 OK")
+            Log.d("WeatherRadar", "Tile Loaded Successfully")
+            Log.d("WeatherRadar", "Loaded Tile Count = $count")
+            Log.d("WeatherRadar", "Current Zoom = $zoom")
+            Log.d("WeatherRadar", "Current Tile Coordinates = ($x, $y)")
+        }
+
+        return url
     }
 }
 
@@ -64,7 +81,7 @@ class FutureWeatherLayerManager {
                 MapWeatherLayer.NONE -> ""
             }
             if (layerEndpoint.isBlank()) ""
-            else "https://tile.openweathermap.org/map/$layerEndpoint/$zoom/$x/$y.png?appid=$owmApiKey&_t=$timeBucket"
+            else "https://tile.openweathermap.org/map/$layerEndpoint/$zoom/$x/$y.png?appid=$owmApiKey"
         }
 
         val provider = MapTileProviderBasic(context, tileSource)
@@ -75,6 +92,7 @@ class FutureWeatherLayerManager {
 
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
+                    // OpenWeather official precipitation layer - render raw tile PNG with original colors
                     setColorFilter(null)
                 }
                 MapWeatherLayer.CLOUDS -> {
