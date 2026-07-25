@@ -388,22 +388,22 @@ fun MapScreen(
                     modifier = Modifier.fillMaxSize().testTag("native_world_map_view")
                 )
 
-                // Active Weather Layer Indicator & Live Radar Inspector Card
+                // Active Weather Layer Indicator & Production Radar Legend Card
                 if (mapState.selectedLayer != MapWeatherLayer.NONE) {
                     Card(
-                        shape = RoundedCornerShape(18.dp),
+                        shape = RoundedCornerShape(20.dp),
                         colors = CardDefaults.cardColors(
-                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.95f)
+                            containerColor = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f)
                         ),
                         elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
                         modifier = Modifier
                             .align(Alignment.TopCenter)
-                            .padding(top = 12.dp, start = 16.dp, end = 16.dp)
-                            .fillMaxWidth(0.92f)
-                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f), RoundedCornerShape(18.dp))
+                            .padding(top = 16.dp, start = 16.dp, end = 16.dp)
+                            .fillMaxWidth(0.90f)
+                            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
                     ) {
                         Column(
-                            modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp)
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -420,20 +420,14 @@ fun MapScreen(
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(20.dp)
                                     )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Column {
-                                        Text(
-                                            text = "Live ${mapState.selectedLayer.displayName}",
-                                            style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold)
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Text(
+                                        text = "Live ${mapState.selectedLayer.displayName}",
+                                        style = MaterialTheme.typography.titleMedium.copy(
+                                            fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onSurface
                                         )
-                                        Text(
-                                            text = if (runtimeInfo.isRainViewer) "RainViewer Real-Time Doppler API" else "OpenWeatherMap Weather API",
-                                            style = MaterialTheme.typography.labelSmall.copy(
-                                                color = MaterialTheme.colorScheme.primary,
-                                                fontSize = 11.sp
-                                            )
-                                        )
-                                    }
+                                    )
                                 }
 
                                 IconButton(
@@ -449,41 +443,14 @@ fun MapScreen(
                                 }
                             }
 
-                            // Live Tile URL & Response Verification Status
-                            Spacer(modifier = Modifier.height(6.dp))
-                            Text(
-                                text = "Status: ${runtimeInfo.httpStatus}",
-                                style = MaterialTheme.typography.bodySmall.copy(
-                                    color = if (runtimeInfo.httpStatus.contains("HTTP 200")) Color(0xFF2E7D32) else MaterialTheme.colorScheme.onSurfaceVariant,
-                                    fontWeight = FontWeight.SemiBold,
-                                    fontSize = 11.sp
-                                )
-                            )
-
-                            if (runtimeInfo.tileUrlSample.isNotBlank()) {
-                                Text(
-                                    text = "Tile: ${runtimeInfo.tileUrlSample}",
-                                    style = MaterialTheme.typography.bodySmall.copy(
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                                        fontSize = 10.sp
-                                    ),
-                                    maxLines = 1
-                                )
-                            }
-
                             // Precipitation Intensity Legend Bar for Rain Radar
                             if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR) {
                                 Spacer(modifier = Modifier.height(8.dp))
-                                Text(
-                                    text = "Rain Intensity Palette (NEXRAD Color Scale):",
-                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold, fontSize = 10.sp)
-                                )
-                                Spacer(modifier = Modifier.height(4.dp))
                                 Row(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(12.dp)
-                                        .clip(RoundedCornerShape(4.dp))
+                                        .height(10.dp)
+                                        .clip(RoundedCornerShape(5.dp))
                                 ) {
                                     Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFF00ECEC))) // Light Cyan
                                     Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFF00A000))) // Green
@@ -494,12 +461,12 @@ fun MapScreen(
                                 }
                                 Row(
                                     horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth().padding(top = 2.dp)
+                                    modifier = Modifier.fillMaxWidth().padding(top = 3.dp)
                                 ) {
-                                    Text("Light", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                                    Text("Moderate", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                                    Text("Heavy", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                                    Text("Severe Storm", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                                    Text("Light", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant))
+                                    Text("Moderate", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant))
+                                    Text("Heavy", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant))
+                                    Text("Severe", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant))
                                 }
                             }
                         }

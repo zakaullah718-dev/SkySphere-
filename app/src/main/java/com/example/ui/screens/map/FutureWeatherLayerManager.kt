@@ -77,9 +77,6 @@ class WeatherTileSource(
     private fun checkAndLogTileHttp(url: String) {
         if (!loggedUrls.add(url)) return
 
-        val providerTag = if (layer == MapWeatherLayer.RAIN_RADAR) "RainViewer Doppler Radar" else "OpenWeatherMap"
-        Log.d("WeatherRadar", "TILE_REQUEST -> [$providerTag] Layer '${layer.displayName}': $url")
-
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val req = Request.Builder()
@@ -87,21 +84,16 @@ class WeatherTileSource(
                     .header("User-Agent", "SkySphere/1.0")
                     .build()
                 client.newCall(req).execute().use { response ->
-                    val code = response.code
                     if (response.isSuccessful) {
-                        val statusMsg = "HTTP $code OK • Direct $providerTag Tile"
-                        Log.d("WeatherRadar", "TILE_SUCCESS -> $statusMsg | $url")
-                        onTileRequested(url, statusMsg)
+                        onTileRequested(url, "OK")
                     } else {
-                        val statusMsg = "HTTP $code Error from $providerTag"
-                        Log.e("WeatherRadar", "TILE_FAILURE -> $statusMsg | $url")
-                        onTileRequested(url, statusMsg)
+                        Log.w("WeatherRadar", "Tile request returned HTTP ${response.code} (handled silently)")
+                        onTileRequested(url, "HTTP ${response.code}")
                     }
                 }
             } catch (e: Exception) {
-                val statusMsg = "Failed: ${e.localizedMessage}"
-                Log.e("WeatherRadar", "TILE_EXCEPTION -> $statusMsg | $url")
-                onTileRequested(url, statusMsg)
+                Log.w("WeatherRadar", "Tile request network exception: ${e.localizedMessage}")
+                onTileRequested(url, "Network Exception")
             }
         }
     }
