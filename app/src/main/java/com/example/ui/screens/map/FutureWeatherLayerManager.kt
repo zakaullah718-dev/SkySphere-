@@ -29,8 +29,8 @@ class WeatherTileSource(
     private val tileUrlProvider: (zoom: Int, x: Int, y: Int) -> String
 ) : OnlineTileSourceBase(
     sourceName,
-    1,
-    18,
+    minSupportedZoom,
+    maxSupportedZoom,
     256,
     ".png",
     arrayOf()
@@ -144,18 +144,21 @@ class FutureWeatherLayerManager {
         val currentRadarPath = cachedRadarPath ?: "/v2/radar/4493c4cc5308"
         val uniqueSourceName = "OWM_Weather_${layer.name}_${System.currentTimeMillis()}"
 
+        val minZoom = 1
+        val maxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) 12 else 18
+
         val tileSource = WeatherTileSource(
             layer = layer,
             sourceName = uniqueSourceName,
-            minSupportedZoom = layer.minZoom.toInt(),
-            maxSupportedZoom = layer.maxZoom.toInt(),
+            minSupportedZoom = minZoom,
+            maxSupportedZoom = maxZoom,
             client = client
         ) { zoom, x, y ->
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
-                    // RainViewer color scheme 2 (NWS Rainbow NEXRAD palette: Light green -> dark green -> yellow -> orange -> red -> magenta)
+                    // RainViewer color scheme 4 (Dark Sky precipitation palette: Light blue -> Blue -> Yellow -> Orange -> Red)
                     // Smooth 0 (sharp boundaries) and Snow 1 (cyan snow)
-                    "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/2/0_1.png"
+                    "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/4/0_1.png"
                 }
                 MapWeatherLayer.CLOUDS -> {
                     "https://tile.openweathermap.org/map/clouds_new/$zoom/$x/$y.png?appid=$owmApiKey"
@@ -186,31 +189,31 @@ class FutureWeatherLayerManager {
             // Apply targeted color filters for maximum contrast and layer-specific visibility
             when (layer) {
                 MapWeatherLayer.CLOUDS -> {
-                    // Enhance cloud contrast and alpha so cloud fields stand out brightly while preserving base map readability
+                    // Low clouds -> light gray, High/Dense clouds -> dark/near-black translucent gray with high opacity
                     val cloudMatrix = ColorMatrix(floatArrayOf(
-                        1.2f, 0f,    0f,    0f, 20f,
-                        0f,   1.2f,  0f,    0f, 20f,
-                        0f,   0f,    1.3f,  0f, 30f,
-                        0f,   0f,    0f,    1.85f, 0f
+                        0.25f, 0f,    0f,    0f, 30f,
+                        0f,    0.25f, 0f,    0f, 30f,
+                        0f,    0f,    0.25f, 0f, 35f,
+                        0f,    0f,    0f,    1.9f, 0f
                     ))
                     setColorFilter(ColorMatrixColorFilter(cloudMatrix))
                 }
                 MapWeatherLayer.RAIN_RADAR -> {
-                    // Crisp precipitation NEXRAD palette with boosted contrast for instant recognition
+                    // Crisp precipitation radar palette with boosted saturation and contrast (light blue -> blue -> yellow -> orange -> red)
                     val rainMatrix = ColorMatrix(floatArrayOf(
-                        1.1f, 0f,   0f,   0f, 5f,
-                        0f,   1.1f, 0f,   0f, 5f,
-                        0f,   0f,   1.1f, 0f, 5f,
-                        0f,   0f,   0f,   1.35f, 0f
+                        1.25f, 0f,    0f,    0f, 0f,
+                        0f,    1.25f, 0f,    0f, 0f,
+                        0f,    0f,    1.35f, 0f, 0f,
+                        0f,    0f,    0f,    1.4f, 0f
                     ))
                     setColorFilter(ColorMatrixColorFilter(rainMatrix))
                 }
                 MapWeatherLayer.HUMIDITY -> {
                     // Saturate moisture / humidity blue/teal channels and boost visibility
                     val humidityMatrix = ColorMatrix(floatArrayOf(
-                        0.9f, 0f,   0f,   0f, 0f,
-                        0f,   1.2f, 0f,   0f, 15f,
-                        0f,   0f,   1.4f, 0f, 30f,
+                        1.1f, 0f,   0f,   0f, 0f,
+                        0f,   1.3f, 0f,   0f, 10f,
+                        0f,   0f,   1.5f, 0f, 20f,
                         0f,   0f,   0f,   1.6f, 0f
                     ))
                     setColorFilter(ColorMatrixColorFilter(humidityMatrix))
@@ -218,28 +221,28 @@ class FutureWeatherLayerManager {
                 MapWeatherLayer.TEMPERATURE -> {
                     // Rich temperature contrast: cold (blue) vs cool (cyan) vs warm (yellow) vs hot (orange/red)
                     val tempMatrix = ColorMatrix(floatArrayOf(
-                        1.25f, 0f,    0f,    0f, 10f,
-                        0f,    1.25f, 0f,    0f, 10f,
-                        0f,    0f,    1.3f,  0f, 15f,
-                        0f,    0f,    0f,    1.4f, 0f
+                        1.3f, 0f,   0f,   0f, 5f,
+                        0f,   1.3f, 0f,   0f, 5f,
+                        0f,   0f,   1.4f, 0f, 10f,
+                        0f,   0f,   0f,   1.5f, 0f
                     ))
                     setColorFilter(ColorMatrixColorFilter(tempMatrix))
                 }
                 MapWeatherLayer.PRESSURE -> {
                     val pressureMatrix = ColorMatrix(floatArrayOf(
-                        1.15f, 0f,    0f,    0f, 5f,
-                        0f,    1.15f, 0f,    0f, 5f,
-                        0f,    0f,    1.2f,  0f, 10f,
-                        0f,    0f,    0f,    1.25f, 0f
+                        1.2f, 0f,   0f,   0f, 5f,
+                        0f,   1.2f, 0f,   0f, 5f,
+                        0f,   0f,   1.25f,0f, 10f,
+                        0f,   0f,   0f,   1.3f, 0f
                     ))
                     setColorFilter(ColorMatrixColorFilter(pressureMatrix))
                 }
                 MapWeatherLayer.WIND -> {
                     val windMatrix = ColorMatrix(floatArrayOf(
-                        1.2f, 0f,   0f,   0f, 10f,
-                        0f,   1.2f, 0f,   0f, 10f,
-                        0f,   0f,   1.25f,0f, 15f,
-                        0f,   0f,   0f,   1.35f, 0f
+                        1.25f, 0f,   0f,   0f, 5f,
+                        0f,    1.25f,0f,   0f, 5f,
+                        0f,    0f,    1.3f, 0f, 10f,
+                        0f,    0f,    0f,   1.4f, 0f
                     ))
                     setColorFilter(ColorMatrixColorFilter(windMatrix))
                 }

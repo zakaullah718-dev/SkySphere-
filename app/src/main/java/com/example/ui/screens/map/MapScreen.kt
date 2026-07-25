@@ -275,20 +275,6 @@ fun MapScreen(
         if (mapView == null) return@LaunchedEffect
 
         if (mapState.selectedLayer != MapWeatherLayer.NONE) {
-            val minZ = mapState.selectedLayer.minZoom
-            val maxZ = mapState.selectedLayer.maxZoom
-            val currentZoom = mapView.zoomLevelDouble
-            if (currentZoom < minZ || currentZoom > maxZ) {
-                val targetZoom = currentZoom.coerceIn(minZ, maxZ)
-                mapView.controller.animateTo(mapView.mapCenter, targetZoom, 500L)
-                coroutineScope.launch {
-                    snackbarHostState.showSnackbar(
-                        message = "Zoom adjusted to optimal range (${minZ.toInt()}-${maxZ.toInt()}) for ${mapState.selectedLayer.displayName}",
-                        duration = SnackbarDuration.Short
-                    )
-                }
-            }
-
             weatherLayerManager.fetchLatestWeatherMapPaths()
             if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR && mapState.radarTimestamp == null) {
                 val latestTs = weatherLayerManager.fetchLatestRadarTimestamp()
