@@ -169,7 +169,8 @@ class FutureWeatherLayerManager {
         ) { zoom, x, y ->
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
-                    "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/2/1_1.png"
+                    // RainViewer color scheme 1 (Original NEXRAD multi-color: green -> yellow -> orange -> red -> purple for rain intensity)
+                    "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/1/1_1.png"
                 }
                 MapWeatherLayer.CLOUDS -> {
                     "https://tile.openweathermap.org/map/clouds_new/$zoom/$x/$y.png?appid=$owmApiKey"
