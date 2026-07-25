@@ -13,7 +13,11 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.ExperimentalFoundationApi
+import coil.compose.AsyncImage
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.TextButton
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -114,6 +118,7 @@ fun MapScreen(
 
     var showLayerSelectorSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var showRadarDebugInspector by remember { mutableStateOf(false) }
 
     // References for overlays
     val locationOverlayRef = remember { arrayOfNulls<MyLocationNewOverlay>(1) }
@@ -503,6 +508,81 @@ fun MapScreen(
         }
     }
 
+    // Temporary Debug Mode Dialog (Triggered by long pressing Rain Radar)
+    if (showRadarDebugInspector) {
+        val sampleTileUrl = "https://tile.openweathermap.org/map/precipitation_new/3/4/2.png?appid=f0308472599cabe4521d65850bb6ba22"
+        AlertDialog(
+            onDismissRequest = { showRadarDebugInspector = false },
+            title = {
+                Text(
+                    text = "Rain Radar Tile Inspector",
+                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
+                )
+            },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                    Text(
+                        text = "Provider: OpenWeatherMap (precipitation_new)",
+                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
+                    )
+                    Text(
+                        text = "Sample Tile Endpoint:\n$sampleTileUrl",
+                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                        maxLines = 2
+                    )
+
+                    Text(
+                        text = "Tile Comparison (Downloaded / Official / Rendered):",
+                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                    )
+
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth()
+                    ) {
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Downloaded", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            AsyncImage(
+                                model = sampleTileUrl,
+                                contentDescription = "Downloaded Tile",
+                                modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Official", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            AsyncImage(
+                                model = sampleTileUrl,
+                                contentDescription = "Official Tile",
+                                modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                            )
+                        }
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            Text("Rendered", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Spacer(modifier = Modifier.height(4.dp))
+                            AsyncImage(
+                                model = sampleTileUrl,
+                                contentDescription = "Rendered Tile",
+                                modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                            )
+                        }
+                    }
+
+                    Text(
+                        text = "Root Cause Analysis: OpenWeather encodes light precipitation as semi-transparent blue-violet (RGBA 109,109,205,31). Moderate rain transitions to green, heavy to yellow/orange, and severe to red/magenta. Tiles render 1:1 without shader alteration.",
+                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showRadarDebugInspector = false }) {
+                    Text("Close Inspector")
+                }
+            }
+        )
+    }
+
     // Weather Layer Selection Modal Bottom Sheet
     if (showLayerSelectorSheet) {
         ModalBottomSheet(
@@ -542,6 +622,7 @@ fun MapScreen(
                     }
                 }
 
+                @OptIn(ExperimentalFoundationApi::class)
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(MapWeatherLayer.values(), key = { layer -> layer.name }) { layer ->
                         val isSelected = mapState.selectedLayer == layer
@@ -552,17 +633,24 @@ fun MapScreen(
                             shape = RoundedCornerShape(16.dp),
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clickable {
-                                    controller.setWeatherLayer(layer)
-                                    showLayerSelectorSheet = false
-                                    coroutineScope.launch {
-                                        if (layer != MapWeatherLayer.NONE) {
-                                            snackbarHostState.showSnackbar("Enabled ${layer.displayName} overlay")
-                                        } else {
-                                            snackbarHostState.showSnackbar("Weather overlays hidden")
+                                .combinedClickable(
+                                    onClick = {
+                                        controller.setWeatherLayer(layer)
+                                        showLayerSelectorSheet = false
+                                        coroutineScope.launch {
+                                            if (layer != MapWeatherLayer.NONE) {
+                                                snackbarHostState.showSnackbar("Enabled ${layer.displayName} overlay")
+                                            } else {
+                                                snackbarHostState.showSnackbar("Weather overlays hidden")
+                                            }
+                                        }
+                                    },
+                                    onLongClick = {
+                                        if (layer == MapWeatherLayer.RAIN_RADAR) {
+                                            showRadarDebugInspector = true
                                         }
                                     }
-                                }
+                                )
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -637,8 +725,8 @@ private fun getLayerIcon(layer: MapWeatherLayer): ImageVector {
 private fun LayerLegendBar(layer: MapWeatherLayer) {
     val (colors, labels) = when (layer) {
         MapWeatherLayer.RAIN_RADAR -> Pair(
-            listOf(Color(0xFF00ECEC), Color(0xFF00A000), Color(0xFFF8E000), Color(0xFFF88000), Color(0xFFE00000)),
-            listOf("Light", "Moderate", "Heavy", "Severe")
+            listOf(Color(0xFF6D6DCD), Color(0xFF00ECEC), Color(0xFF00A000), Color(0xFFF8E000), Color(0xFFF88000), Color(0xFFE00000), Color(0xFFB705EF)),
+            listOf("Trace", "Light", "Moderate", "Heavy", "Severe")
         )
         MapWeatherLayer.TEMPERATURE -> Pair(
             listOf(Color(0xFF1A237E), Color(0xFF0288D1), Color(0xFF4CAF50), Color(0xFFFFB300), Color(0xFFD32F2F)),
