@@ -204,12 +204,13 @@ class FutureWeatherLayerManager {
                     setColorFilter(ColorMatrixColorFilter(cloudMatrix))
                 }
                 MapWeatherLayer.RAIN_RADAR -> {
-                    // Crisp precipitation radar palette with boosted saturation and contrast (light blue -> blue -> yellow -> orange -> red)
+                    // Authentic OpenWeather precipitation radar palette (light cyan -> green -> yellow -> orange -> red)
+                    // Equal scaling across R, G, B ensures 100% color fidelity matching official OpenWeather weather map.
                     val rainMatrix = ColorMatrix(floatArrayOf(
-                        1.25f, 0f,    0f,    0f, 0f,
-                        0f,    1.25f, 0f,    0f, 0f,
-                        0f,    0f,    1.35f, 0f, 0f,
-                        0f,    0f,    0f,    1.4f, 0f
+                        1.0f, 0f,   0f,   0f, 0f,
+                        0f,   1.0f, 0f,   0f, 0f,
+                        0f,   0f,   1.0f, 0f, 0f,
+                        0f,   0f,   0f,   1.05f, 0f
                     ))
                     setColorFilter(ColorMatrixColorFilter(rainMatrix))
                 }
