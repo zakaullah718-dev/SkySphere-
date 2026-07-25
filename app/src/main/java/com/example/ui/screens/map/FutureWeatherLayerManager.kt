@@ -44,8 +44,16 @@ class WeatherTileSource(
 
         val zoom = rawZoom.coerceIn(minSupportedZoom, maxSupportedZoom)
         val diff = rawZoom - zoom
-        val x = if (diff > 0) rawX shr diff else rawX shl (-diff)
-        val y = if (diff > 0) rawY shr diff else rawY shl (-diff)
+        val x = when {
+            diff > 0 -> rawX shr diff
+            diff < 0 -> rawX shl (-diff)
+            else -> rawX
+        }
+        val y = when {
+            diff > 0 -> rawY shr diff
+            diff < 0 -> rawY shl (-diff)
+            else -> rawY
+        }
 
         val url = tileUrlProvider(zoom, x, y)
         if (url.isNotBlank()) {
@@ -141,11 +149,10 @@ class FutureWeatherLayerManager {
             "f0308472599cabe4521d65850bb6ba22"
         }
 
-        val currentRadarPath = cachedRadarPath ?: "/v2/radar/4493c4cc5308"
-        val uniqueSourceName = "OWM_Weather_${layer.name}_${System.currentTimeMillis()}"
-
+        val timeBucket = System.currentTimeMillis() / 300000 // 5-minute cache/refresh window
+        val uniqueSourceName = "OWM_Weather_${layer.name}_$timeBucket"
         val minZoom = 1
-        val maxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) 12 else 18
+        val maxZoom = 18
 
         val tileSource = WeatherTileSource(
             layer = layer,
@@ -156,25 +163,23 @@ class FutureWeatherLayerManager {
         ) { zoom, x, y ->
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
-                    // RainViewer color scheme 4 (Dark Sky precipitation palette: Light blue -> Blue -> Yellow -> Orange -> Red)
-                    // Smooth 0 (sharp boundaries) and Snow 1 (cyan snow)
-                    "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/4/0_1.png"
+                    // Official OpenWeatherMap precipitation & live weather radar endpoint
+                    "https://tile.openweathermap.org/map/precipitation_new/$zoom/$x/$y.png?appid=$owmApiKey&_t=$timeBucket"
                 }
                 MapWeatherLayer.CLOUDS -> {
-                    "https://tile.openweathermap.org/map/clouds_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    "https://tile.openweathermap.org/map/clouds_new/$zoom/$x/$y.png?appid=$owmApiKey&_t=$timeBucket"
                 }
                 MapWeatherLayer.TEMPERATURE -> {
-                    "https://tile.openweathermap.org/map/temp_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    "https://tile.openweathermap.org/map/temp_new/$zoom/$x/$y.png?appid=$owmApiKey&_t=$timeBucket"
                 }
                 MapWeatherLayer.WIND -> {
-                    "https://tile.openweathermap.org/map/wind_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    "https://tile.openweathermap.org/map/wind_new/$zoom/$x/$y.png?appid=$owmApiKey&_t=$timeBucket"
                 }
                 MapWeatherLayer.PRESSURE -> {
-                    "https://tile.openweathermap.org/map/pressure_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    "https://tile.openweathermap.org/map/pressure_new/$zoom/$x/$y.png?appid=$owmApiKey&_t=$timeBucket"
                 }
                 MapWeatherLayer.HUMIDITY -> {
-                    // OpenWeatherMap precipitation & moisture layer for global humidity + precipitation distribution
-                    "https://tile.openweathermap.org/map/precipitation_new/$zoom/$x/$y.png?appid=$owmApiKey"
+                    "https://tile.openweathermap.org/map/precipitation_new/$zoom/$x/$y.png?appid=$owmApiKey&_t=$timeBucket"
                 }
                 MapWeatherLayer.NONE -> ""
             }
