@@ -1,6 +1,9 @@
 package com.example.ui.screens.map
 
 import android.content.Context
+import android.graphics.Color
+import android.graphics.ColorMatrix
+import android.graphics.ColorMatrixColorFilter
 import android.util.Log
 import com.example.BuildConfig
 import kotlinx.coroutines.CoroutineScope
@@ -20,14 +23,14 @@ import java.util.concurrent.TimeUnit
 class WeatherTileSource(
     val layer: MapWeatherLayer,
     sourceName: String,
-    val minSupportedZoom: Int = 2,
-    val maxSupportedZoom: Int = 12,
+    val minSupportedZoom: Int = 1,
+    val maxSupportedZoom: Int = 18,
     private val client: OkHttpClient,
     private val tileUrlProvider: (zoom: Int, x: Int, y: Int) -> String
 ) : OnlineTileSourceBase(
     sourceName,
     1,
-    22,
+    18,
     256,
     ".png",
     arrayOf()
@@ -46,10 +49,6 @@ class WeatherTileSource(
 
         val url = tileUrlProvider(zoom, x, y)
         if (url.isNotBlank()) {
-            Log.d("WeatherRadar", "Selected Layer = ${layer.displayName}")
-            Log.d("WeatherRadar", "Tile URL = $url")
-            Log.d("WeatherRadar", "Tile request URL = $url")
-
             checkAndLogTileHttp(url)
         }
         return url
@@ -66,9 +65,8 @@ class WeatherTileSource(
                     .build()
                 client.newCall(req).execute().use { response ->
                     val code = response.code
-                    Log.d("WeatherRadar", "HTTP response code = $code")
                     if (response.isSuccessful) {
-                        Log.d("WeatherRadar", "Tile loaded successfully for layer '${layer.displayName}'")
+                        Log.d("WeatherRadar", "Tile loaded successfully (HTTP $code) for layer '${layer.displayName}'")
                     } else {
                         Log.e("WeatherRadar", "Tile failed (HTTP $code) for layer '${layer.displayName}'")
                     }
@@ -107,7 +105,6 @@ class FutureWeatherLayerManager {
                 if (!jsonStr.isNullOrEmpty()) {
                     val root = JSONObject(jsonStr)
 
-                    // Extract latest past radar path
                     val radar = root.optJSONObject("radar")
                     val pastRadar = radar?.optJSONArray("past")
                     if (pastRadar != null && pastRadar.length() > 0) {
@@ -118,18 +115,7 @@ class FutureWeatherLayerManager {
                         }
                     }
 
-                    // Extract latest satellite path
-                    val satellite = root.optJSONObject("satellite")
-                    val infrared = satellite?.optJSONArray("infrared")
-                    if (infrared != null && infrared.length() > 0) {
-                        val latestSat = infrared.getJSONObject(infrared.length() - 1)
-                        val path = latestSat.optString("path")
-                        if (path.isNotBlank()) {
-                            cachedSatellitePath = path
-                        }
-                    }
-
-                    Log.d("WeatherLayerManager", "RainViewer paths updated -> Radar: '$cachedRadarPath', Satellite: '$cachedSatellitePath'")
+                    Log.d("WeatherLayerManager", "RainViewer path updated -> Radar: '$cachedRadarPath'")
                     return@withContext true
                 }
             } else {
@@ -156,8 +142,6 @@ class FutureWeatherLayerManager {
         }
 
         val currentRadarPath = cachedRadarPath ?: "/v2/radar/4493c4cc5308"
-
-        // Unique source name per layer and instantiation to ensure dedicated tile cache & provider
         val uniqueSourceName = "OWM_Weather_${layer.name}_${System.currentTimeMillis()}"
 
         val tileSource = WeatherTileSource(
@@ -169,8 +153,9 @@ class FutureWeatherLayerManager {
         ) { zoom, x, y ->
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
-                    // RainViewer color scheme 1 (Original NEXRAD multi-color: green -> yellow -> orange -> red -> purple for rain intensity)
-                    "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/1/1_1.png"
+                    // RainViewer color scheme 2 (NWS Rainbow NEXRAD palette: Light green -> dark green -> yellow -> orange -> red -> magenta)
+                    // Smooth 0 (sharp boundaries) and Snow 1 (cyan snow)
+                    "https://tilecache.rainviewer.com$currentRadarPath/256/$zoom/$x/$y/2/0_1.png"
                 }
                 MapWeatherLayer.CLOUDS -> {
                     "https://tile.openweathermap.org/map/clouds_new/$zoom/$x/$y.png?appid=$owmApiKey"
@@ -185,7 +170,8 @@ class FutureWeatherLayerManager {
                     "https://tile.openweathermap.org/map/pressure_new/$zoom/$x/$y.png?appid=$owmApiKey"
                 }
                 MapWeatherLayer.HUMIDITY -> {
-                    "https://mesonet.agron.iastate.edu/cache/tile.py/1.0.0/q2-n1p-900913/$zoom/$x/$y.png"
+                    // OpenWeatherMap precipitation & moisture layer for global humidity + precipitation distribution
+                    "https://tile.openweathermap.org/map/precipitation_new/$zoom/$x/$y.png?appid=$owmApiKey"
                 }
                 MapWeatherLayer.NONE -> ""
             }
@@ -194,10 +180,74 @@ class FutureWeatherLayerManager {
         val provider = MapTileProviderBasic(context, tileSource)
 
         return TilesOverlay(provider, context).apply {
-            loadingBackgroundColor = android.graphics.Color.TRANSPARENT
-            loadingLineColor = android.graphics.Color.TRANSPARENT
+            loadingBackgroundColor = Color.TRANSPARENT
+            loadingLineColor = Color.TRANSPARENT
+
+            // Apply targeted color filters for maximum contrast and layer-specific visibility
+            when (layer) {
+                MapWeatherLayer.CLOUDS -> {
+                    // Enhance cloud contrast and alpha so cloud fields stand out brightly while preserving base map readability
+                    val cloudMatrix = ColorMatrix(floatArrayOf(
+                        1.2f, 0f,    0f,    0f, 20f,
+                        0f,   1.2f,  0f,    0f, 20f,
+                        0f,   0f,    1.3f,  0f, 30f,
+                        0f,   0f,    0f,    1.85f, 0f
+                    ))
+                    setColorFilter(ColorMatrixColorFilter(cloudMatrix))
+                }
+                MapWeatherLayer.RAIN_RADAR -> {
+                    // Crisp precipitation NEXRAD palette with boosted contrast for instant recognition
+                    val rainMatrix = ColorMatrix(floatArrayOf(
+                        1.1f, 0f,   0f,   0f, 5f,
+                        0f,   1.1f, 0f,   0f, 5f,
+                        0f,   0f,   1.1f, 0f, 5f,
+                        0f,   0f,   0f,   1.35f, 0f
+                    ))
+                    setColorFilter(ColorMatrixColorFilter(rainMatrix))
+                }
+                MapWeatherLayer.HUMIDITY -> {
+                    // Saturate moisture / humidity blue/teal channels and boost visibility
+                    val humidityMatrix = ColorMatrix(floatArrayOf(
+                        0.9f, 0f,   0f,   0f, 0f,
+                        0f,   1.2f, 0f,   0f, 15f,
+                        0f,   0f,   1.4f, 0f, 30f,
+                        0f,   0f,   0f,   1.6f, 0f
+                    ))
+                    setColorFilter(ColorMatrixColorFilter(humidityMatrix))
+                }
+                MapWeatherLayer.TEMPERATURE -> {
+                    // Rich temperature contrast: cold (blue) vs cool (cyan) vs warm (yellow) vs hot (orange/red)
+                    val tempMatrix = ColorMatrix(floatArrayOf(
+                        1.25f, 0f,    0f,    0f, 10f,
+                        0f,    1.25f, 0f,    0f, 10f,
+                        0f,    0f,    1.3f,  0f, 15f,
+                        0f,    0f,    0f,    1.4f, 0f
+                    ))
+                    setColorFilter(ColorMatrixColorFilter(tempMatrix))
+                }
+                MapWeatherLayer.PRESSURE -> {
+                    val pressureMatrix = ColorMatrix(floatArrayOf(
+                        1.15f, 0f,    0f,    0f, 5f,
+                        0f,    1.15f, 0f,    0f, 5f,
+                        0f,    0f,    1.2f,  0f, 10f,
+                        0f,    0f,    0f,    1.25f, 0f
+                    ))
+                    setColorFilter(ColorMatrixColorFilter(pressureMatrix))
+                }
+                MapWeatherLayer.WIND -> {
+                    val windMatrix = ColorMatrix(floatArrayOf(
+                        1.2f, 0f,   0f,   0f, 10f,
+                        0f,   1.2f, 0f,   0f, 10f,
+                        0f,   0f,   1.25f,0f, 15f,
+                        0f,   0f,   0f,   1.35f, 0f
+                    ))
+                    setColorFilter(ColorMatrixColorFilter(windMatrix))
+                }
+                MapWeatherLayer.NONE -> {}
+            }
         }
     }
 }
+
 
 
