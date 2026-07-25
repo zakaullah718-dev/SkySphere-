@@ -111,7 +111,6 @@ fun MapScreen(
     val controller = remember { MapController() }
     val weatherLayerManager = remember { FutureWeatherLayerManager() }
     val mapState by controller.mapState.collectAsState()
-    val runtimeInfo by weatherLayerManager.runtimeInfo.collectAsState()
 
     var showLayerSelectorSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
@@ -272,18 +271,8 @@ fun MapScreen(
     }
 
     // Dynamic Weather Overlay Manager
-    LaunchedEffect(mapState.selectedLayer, mapState.radarTimestamp, mapView) {
+    LaunchedEffect(mapState.selectedLayer, mapView) {
         if (mapView == null) return@LaunchedEffect
-
-        if (mapState.selectedLayer != MapWeatherLayer.NONE) {
-            weatherLayerManager.fetchLatestWeatherMapPaths()
-            if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR && mapState.radarTimestamp == null) {
-                val latestTs = weatherLayerManager.fetchLatestRadarTimestamp()
-                if (latestTs != null) {
-                    controller.setRadarTimestamp(latestTs)
-                }
-            }
-        }
 
         // Remove previous weather layer overlay
         weatherOverlayRef[0]?.let { oldOverlay ->
@@ -294,23 +283,19 @@ fun MapScreen(
                 Log.w("WeatherRadar", "Error detaching old weather overlay: ${e.localizedMessage}")
             }
             weatherOverlayRef[0] = null
-            Log.d("WeatherRadar", "Overlay removed")
         }
 
         // Attach new weather layer overlay if enabled
         if (mapState.selectedLayer != MapWeatherLayer.NONE) {
             val newOverlay = weatherLayerManager.createTilesOverlay(
                 context = context,
-                layer = mapState.selectedLayer,
-                radarTimestamp = mapState.radarTimestamp
+                layer = mapState.selectedLayer
             )
             if (newOverlay != null) {
-                Log.d("WeatherRadar", "Overlay created for ${mapState.selectedLayer.displayName}")
                 // Insert weather overlay underneath the location marker overlay
                 val insertIndex = if (mapView.overlays.isNotEmpty()) mapView.overlays.size - 1 else 0
                 mapView.overlays.add(insertIndex, newOverlay)
                 weatherOverlayRef[0] = newOverlay
-                Log.d("WeatherRadar", "Overlay attached for ${mapState.selectedLayer.displayName}")
             }
         }
 
@@ -443,32 +428,9 @@ fun MapScreen(
                                 }
                             }
 
-                            // Precipitation Intensity Legend Bar for Rain Radar
-                            if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR) {
-                                Spacer(modifier = Modifier.height(8.dp))
-                                Row(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(10.dp)
-                                        .clip(RoundedCornerShape(5.dp))
-                                ) {
-                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFF00ECEC))) // Light Cyan
-                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFF00A000))) // Green
-                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFFF8E000))) // Yellow
-                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFFF88000))) // Orange
-                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFFE00000))) // Red
-                                    Box(modifier = Modifier.weight(1f).fillMaxSize().background(Color(0xFFD000D0))) // Magenta
-                                }
-                                Row(
-                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                    modifier = Modifier.fillMaxWidth().padding(top = 3.dp)
-                                ) {
-                                    Text("Light", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant))
-                                    Text("Moderate", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant))
-                                    Text("Heavy", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant))
-                                    Text("Severe", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant))
-                                }
-                            }
+                            // Layer Legend Bar for active weather overlay
+                            Spacer(modifier = Modifier.height(8.dp))
+                            LayerLegendBar(layer = mapState.selectedLayer)
                         }
                     }
                 }
@@ -668,5 +630,70 @@ private fun getLayerIcon(layer: MapWeatherLayer): ImageVector {
         MapWeatherLayer.WIND -> Icons.Filled.Air
         MapWeatherLayer.PRESSURE -> Icons.Filled.Compress
         MapWeatherLayer.HUMIDITY -> Icons.Filled.WaterDrop
+    }
+}
+
+@Composable
+private fun LayerLegendBar(layer: MapWeatherLayer) {
+    val (colors, labels) = when (layer) {
+        MapWeatherLayer.RAIN_RADAR -> Pair(
+            listOf(Color(0xFF00ECEC), Color(0xFF00A000), Color(0xFFF8E000), Color(0xFFF88000), Color(0xFFE00000)),
+            listOf("Light", "Moderate", "Heavy", "Severe")
+        )
+        MapWeatherLayer.TEMPERATURE -> Pair(
+            listOf(Color(0xFF1A237E), Color(0xFF0288D1), Color(0xFF4CAF50), Color(0xFFFFB300), Color(0xFFD32F2F)),
+            listOf("Very Cold", "Cold", "Mild", "Warm", "Hot")
+        )
+        MapWeatherLayer.WIND -> Pair(
+            listOf(Color(0xFFE0F7FA), Color(0xFF4DD0E1), Color(0xFF1976D2), Color(0xFF7B1FA2), Color(0xFF4A148C)),
+            listOf("Calm", "Breeze", "Moderate", "Strong", "Storm")
+        )
+        MapWeatherLayer.PRESSURE -> Pair(
+            listOf(Color(0xFF512DA8), Color(0xFF0288D1), Color(0xFF009688), Color(0xFFF57C00)),
+            listOf("Low", "Normal", "High")
+        )
+        MapWeatherLayer.HUMIDITY -> Pair(
+            listOf(Color(0xFFFFF8E1), Color(0xFF81C784), Color(0xFF00ACC1), Color(0xFF1565C0)),
+            listOf("Dry", "Comfortable", "Humid", "Very Humid")
+        )
+        MapWeatherLayer.CLOUDS -> Pair(
+            listOf(Color(0xFFE0E0E0), Color(0xFFBDBDBD), Color(0xFF9E9E9E), Color(0xFF616161), Color(0xFF37474F)),
+            listOf("Clear", "Few", "Scattered", "Broken", "Overcast")
+        )
+        MapWeatherLayer.NONE -> return
+    }
+
+    Column {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(10.dp)
+                .clip(RoundedCornerShape(5.dp))
+        ) {
+            colors.forEach { color ->
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .fillMaxSize()
+                        .background(color)
+                )
+            }
+        }
+        Row(
+            horizontalArrangement = Arrangement.SpaceBetween,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 3.dp)
+        ) {
+            labels.forEach { label ->
+                Text(
+                    text = label,
+                    style = MaterialTheme.typography.labelSmall.copy(
+                        fontSize = 9.sp,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                )
+            }
+        }
     }
 }
