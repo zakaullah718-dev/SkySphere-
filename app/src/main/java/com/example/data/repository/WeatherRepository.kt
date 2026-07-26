@@ -33,6 +33,10 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import org.json.JSONObject
 import retrofit2.Retrofit
 import retrofit2.converter.moshi.MoshiConverterFactory
@@ -210,11 +214,12 @@ class WeatherRepository(private val context: Context) {
                     try {
                         val details = moshi.adapter(WeatherDetails::class.java).fromJson(cached.weatherJson)
                         if (details != null) {
+                            val alignedDetails = alignWeatherDetailsHourly(details)
                             CityWeather(
                                 cityName = cached.cityName,
                                 country = cached.country,
                                 isFavorite = cached.isFavorite,
-                                weatherDetails = details,
+                                weatherDetails = alignedDetails,
                                 localTime = null, // recalculated dynamically on load if needed
                                 region = cached.region
                             )
@@ -605,14 +610,19 @@ class WeatherRepository(private val context: Context) {
                 try {
                     val details = moshi.adapter(WeatherDetails::class.java).fromJson(cached.weatherJson)
                     if (details != null) {
-                        return Result.success(
-                            CityWeather(
-                                cityName = cached.cityName,
-                                country = cached.country,
-                                isFavorite = cached.isFavorite,
-                                weatherDetails = details
+                        val hasValidTimestamps = details.hourlyForecast.any { it.timestampEpochMillis > 0L }
+                        if (hasValidTimestamps) {
+                            val alignedDetails = alignWeatherDetailsHourly(details)
+                            return Result.success(
+                                CityWeather(
+                                    cityName = cached.cityName,
+                                    country = cached.country,
+                                    isFavorite = cached.isFavorite,
+                                    weatherDetails = alignedDetails,
+                                    region = cached.region
+                                )
                             )
-                        )
+                        }
                     }
                 } catch (e: Exception) {
                     // fallback to network fetch
@@ -631,6 +641,40 @@ class WeatherRepository(private val context: Context) {
             saveCityToCache(finalWeather)
         }
         return result
+    }
+
+    private fun alignWeatherDetailsHourly(details: WeatherDetails): WeatherDetails {
+        val list = details.hourlyForecast
+        if (list.isEmpty()) return details
+        val hasTimestamps = list.any { it.timestampEpochMillis > 0L }
+        if (!hasTimestamps) return details
+
+        val nowMillis = System.currentTimeMillis()
+        val cal = Calendar.getInstance().apply {
+            timeInMillis = nowMillis
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val currentHourStartMillis = cal.timeInMillis
+
+        val futureList = list.filter { it.timestampEpochMillis >= currentHourStartMillis }
+        val selectedList = if (futureList.isNotEmpty()) futureList.take(12) else list.take(12)
+
+        val displayFormat = java.text.SimpleDateFormat("h:mm a", java.util.Locale.US)
+
+        val reMapped = selectedList.mapIndexed { idx, hour ->
+            val label = if (idx == 0) "Now" else {
+                if (hour.timestampEpochMillis > 0L) {
+                    displayFormat.format(java.util.Date(hour.timestampEpochMillis))
+                } else {
+                    hour.time
+                }
+            }
+            hour.copy(time = label)
+        }
+
+        return details.copy(hourlyForecast = reMapped)
     }
 
     // Live geocoding search for worldwide location detection and autocomplete

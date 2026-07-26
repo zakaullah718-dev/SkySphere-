@@ -11,6 +11,11 @@ import com.example.weather.data.api.WeatherApiService
 import com.example.weather.data.models.WeatherResponseDto
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
+import java.util.TimeZone
 
 class WeatherApiProvider(
     private val apiService: WeatherApiService
@@ -125,32 +130,52 @@ class WeatherApiProvider(
         val forecastDays = dto.forecast?.forecastday ?: emptyList()
         val conditionEnum = mapCodeToCondition(current.condition.code)
 
-        val hourlyList = forecastDays.firstOrNull()?.hour?.mapIndexed { index, hourDto ->
-            val displayTime = try {
-                val parts = hourDto.time.split(" ")
-                if (parts.size >= 2) {
-                    val timePart = parts[1]
-                    val hr = timePart.split(":")[0].toInt()
-                    when {
-                        hr == 0 -> "12:00 AM"
-                        hr < 12 -> "$hr:00 AM"
-                        hr == 12 -> "12:00 PM"
-                        else -> "${hr - 12}:00 PM"
-                    }
-                } else {
-                    hourDto.time
-                }
-            } catch (e: Exception) {
-                hourDto.time
-            }
+        val targetTz = location.tzId?.let {
+            try { TimeZone.getTimeZone(it) } catch (e: Exception) { null }
+        } ?: TimeZone.getDefault()
 
-            ForecastHour(
-                time = if (index == 0) "Now" else displayTime,
-                temperature = hourDto.tempF.toInt(),
+        val displayFormat = SimpleDateFormat("h:mm a", Locale.US).apply {
+            timeZone = targetTz
+        }
+
+        val nowMillis = System.currentTimeMillis()
+        val cal = Calendar.getInstance(targetTz).apply {
+            timeInMillis = nowMillis
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val currentHourStartMillis = cal.timeInMillis
+
+        val allHours = forecastDays.flatMap { it.hour ?: emptyList() }
+        data class WeatherApiHourCandidate(
+            val epochMillis: Long,
+            val tempF: Int,
+            val condition: WeatherCondition,
+            val precipChance: Int
+        )
+        val candidates = allHours.map { hourDto ->
+            WeatherApiHourCandidate(
+                epochMillis = hourDto.timeEpoch * 1000L,
+                tempF = hourDto.tempF.toInt(),
                 condition = mapCodeToCondition(hourDto.condition.code),
-                precipitationChance = hourDto.chanceOfRain ?: 0
+                precipChance = hourDto.chanceOfRain ?: 0
             )
-        } ?: emptyList()
+        }
+
+        val futureCandidates = candidates.filter { it.epochMillis >= currentHourStartMillis }
+        val selectedCandidates = if (futureCandidates.isNotEmpty()) futureCandidates.take(12) else candidates.take(12)
+
+        val hourlyList = selectedCandidates.mapIndexed { index, candidate ->
+            val timeLabel = if (index == 0) "Now" else displayFormat.format(Date(candidate.epochMillis))
+            ForecastHour(
+                time = timeLabel,
+                temperature = candidate.tempF,
+                condition = candidate.condition,
+                precipitationChance = candidate.precipChance,
+                timestampEpochMillis = candidate.epochMillis
+            )
+        }
 
         val dailyList = forecastDays.mapIndexed { index, fDay ->
             val dayName = if (index == 0) {

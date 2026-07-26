@@ -21,7 +21,8 @@ data class ForecastHour(
     val time: String,
     val temperature: Int,
     val condition: WeatherCondition,
-    val precipitationChance: Int = 0
+    val precipitationChance: Int = 0,
+    val timestampEpochMillis: Long = 0L
 )
 
 data class ForecastDay(

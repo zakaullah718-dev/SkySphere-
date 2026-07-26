@@ -197,30 +197,68 @@ class OpenMeteoProvider(
         val sunriseStr = formatTimeString(rawSunrise) ?: "06:00 AM"
         val sunsetStr = formatTimeString(rawSunset) ?: "08:00 PM"
 
-        // Map hourly
+        // Map hourly with accurate local time conversion
+        val targetTz = resp.timezone?.let {
+            try { TimeZone.getTimeZone(it) } catch (e: Exception) { null }
+        } ?: TimeZone.getDefault()
+
+        val isoFormat = SimpleDateFormat("yyyy-MM-dd'T'HH:mm", Locale.US).apply {
+            timeZone = targetTz
+        }
+        val displayFormat = SimpleDateFormat("h:mm a", Locale.US).apply {
+            timeZone = targetTz
+        }
+
+        val nowMillis = System.currentTimeMillis()
+        val cal = Calendar.getInstance(targetTz).apply {
+            timeInMillis = nowMillis
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val currentHourStartMillis = cal.timeInMillis
+
         val hourlyForecast = mutableListOf<ForecastHour>()
-        val currentTimeMillis = System.currentTimeMillis()
-        val hourLimit = 12
-        var addedHours = 0
         resp.hourly?.let { hourly ->
             val size = hourly.time.size
+            data class RawHourCandidate(
+                val epochMillis: Long,
+                val tempF: Int,
+                val condition: WeatherCondition,
+                val precipChance: Int
+            )
+            val candidates = mutableListOf<RawHourCandidate>()
             for (i in 0 until size) {
-                if (addedHours >= hourLimit) break
                 val timeStr = hourly.time[i]
+                val parsedDate = try { isoFormat.parse(timeStr) } catch (e: Exception) { null }
+                val epochMillis = parsedDate?.time ?: 0L
                 val hourTempF = (hourly.temperature_2m[i] * 9 / 5 + 32).toInt()
                 val hourCondition = mapWmoCodeToCondition(hourly.weather_code[i])
                 val precipChance = hourly.precipitation_probability.getOrNull(i) ?: 0
-
-                val displayTime = formatTimeHourOnly(timeStr) ?: timeStr
-                hourlyForecast.add(
-                    ForecastHour(
-                        time = if (addedHours == 0) "Now" else displayTime,
-                        temperature = hourTempF,
+                candidates.add(
+                    RawHourCandidate(
+                        epochMillis = epochMillis,
+                        tempF = hourTempF,
                         condition = hourCondition,
-                        precipitationChance = precipChance
+                        precipChance = precipChance
                     )
                 )
-                addedHours++
+            }
+
+            val futureCandidates = candidates.filter { it.epochMillis >= currentHourStartMillis }
+            val selectedCandidates = if (futureCandidates.isNotEmpty()) futureCandidates.take(12) else candidates.take(12)
+
+            selectedCandidates.forEachIndexed { idx, candidate ->
+                val timeLabel = if (idx == 0) "Now" else displayFormat.format(Date(candidate.epochMillis))
+                hourlyForecast.add(
+                    ForecastHour(
+                        time = timeLabel,
+                        temperature = candidate.tempF,
+                        condition = candidate.condition,
+                        precipitationChance = candidate.precipChance,
+                        timestampEpochMillis = candidate.epochMillis
+                    )
+                )
             }
         }
 

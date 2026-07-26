@@ -123,9 +123,6 @@ fun MapScreen(
 
     var showLayerSelectorSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    var showRadarDebugInspector by remember { mutableStateOf(false) }
-    var auditResult by remember { mutableStateOf<TileAuditResult?>(null) }
-    var isAuditing by remember { mutableStateOf(false) }
 
     // References for overlays
     val locationOverlayRef = remember { arrayOfNulls<MyLocationNewOverlay>(1) }
@@ -317,22 +314,6 @@ fun MapScreen(
         }
 
         mapView.invalidate()
-    }
-
-    LaunchedEffect(showRadarDebugInspector) {
-        if (showRadarDebugInspector) {
-            isAuditing = true
-            val lat = mapState.centerLatitude
-            val lon = mapState.centerLongitude
-            val zoom = mapState.zoomLevel.toInt().coerceIn(0, 12)
-            val res = radarRepository.runPipelineAudit(lat, lon, zoom)
-            auditResult = res
-            isAuditing = false
-
-            // Step 15: Force a map redraw after rendering
-            mapView?.invalidate()
-            Log.d("RainRadarAudit", "[Checklist Step 15] Map invalidated and redrawn.")
-        }
     }
 
     // Lifecycle & battery optimization
@@ -536,119 +517,6 @@ fun MapScreen(
         }
     }
 
-    // Rain Radar Tile Inspector Dialog (Triggered by long pressing Rain Radar)
-    if (showRadarDebugInspector) {
-        AlertDialog(
-            onDismissRequest = { showRadarDebugInspector = false },
-            title = {
-                Text(
-                    text = "Rain Radar Tile Inspector",
-                    style = MaterialTheme.typography.titleLarge.copy(fontWeight = FontWeight.Bold)
-                )
-            },
-            text = {
-                Column(
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                    modifier = Modifier.verticalScroll(rememberScrollState())
-                ) {
-                    Text(
-                        text = "Provider: RainViewer Doppler Radar (TWC Palette 4)",
-                        style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
-                    )
-
-                    if (isAuditing) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.padding(vertical = 12.dp)
-                        ) {
-                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
-                            Text("Running 15-step pipeline audit...", style = MaterialTheme.typography.bodySmall)
-                        }
-                    } else if (auditResult != null) {
-                        val res = auditResult!!
-
-                        Text(
-                            text = "Live Tile URL:\n${res.step3_tileUrl}",
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                            maxLines = 2
-                        )
-
-                        Text(
-                            text = "Audit Checklist Results:",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-
-                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text("✓ Step 1: Downloaded weather-maps.json (${if (res.step1_jsonDownloaded) "OK" else "Fallback"})", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Text("✓ Step 2: Timestamp Verified (${res.step2_latestTimestamp}, Path: ${res.step2_latestPath})", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Text("✓ Step 5: HTTP Code = ${res.step5_httpResponseCode}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Text("✓ Step 6: Content-Type = ${res.step6_contentType}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Text("✓ Step 7: Content-Length = ${res.step7_contentLength} B", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Text("✓ Step 8 & 9: PNG Decoded = ${res.step8_pngDecoded} (${res.step9_width}x${res.step10_height})", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Text("✓ Step 10: Non-transparent pixels = ${res.step11_nonTransparentPixels}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Text("✓ Step 11: Coloured pixels = ${res.step12_colouredPixels}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Text("✓ Step 12: Average Alpha = ${res.step13_avgAlpha}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Text("✓ Step 13 & 14: Canvas Render Verified = ${res.step14_renderedCanvasVerified}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Text("✓ Step 15: Map Redrawn = ${res.step15_mapRedrawn}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                        }
-
-                        Text(
-                            text = "Tile Comparison (Downloaded / Official / Rendered):",
-                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                        )
-
-                        Row(
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            modifier = Modifier.fillMaxWidth()
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Downloaded", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                                Spacer(modifier = Modifier.height(4.dp))
-                                if (res.downloadedBitmap != null) {
-                                    Image(
-                                        bitmap = res.downloadedBitmap.asImageBitmap(),
-                                        contentDescription = "Downloaded Tile",
-                                        modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                                    )
-                                } else {
-                                    Box(modifier = Modifier.size(68.dp).background(Color.DarkGray, RoundedCornerShape(8.dp)))
-                                }
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Official", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                                Spacer(modifier = Modifier.height(4.dp))
-                                AsyncImage(
-                                    model = res.step3_tileUrl,
-                                    contentDescription = "Official Tile",
-                                    modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                                )
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                Text("Rendered", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                                Spacer(modifier = Modifier.height(4.dp))
-                                if (res.renderedBitmap != null) {
-                                    Image(
-                                        bitmap = res.renderedBitmap.asImageBitmap(),
-                                        contentDescription = "Rendered Tile",
-                                        modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                                    )
-                                } else {
-                                    Box(modifier = Modifier.size(68.dp).background(Color.DarkGray, RoundedCornerShape(8.dp)))
-                                }
-                            }
-                        }
-                    }
-                }
-            },
-            confirmButton = {
-                TextButton(onClick = { showRadarDebugInspector = false }) {
-                    Text("Close Inspector")
-                }
-            }
-        )
-    }
-
     // Weather Layer Selection Modal Bottom Sheet
     if (showLayerSelectorSheet) {
         ModalBottomSheet(
@@ -688,7 +556,6 @@ fun MapScreen(
                     }
                 }
 
-                @OptIn(ExperimentalFoundationApi::class)
                 LazyColumn(verticalArrangement = Arrangement.spacedBy(10.dp)) {
                     items(MapWeatherLayer.values(), key = { layer -> layer.name }) { layer ->
                         val isSelected = mapState.selectedLayer == layer
@@ -697,26 +564,18 @@ fun MapScreen(
                                 containerColor = if (isSelected) MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.6f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f)
                             ),
                             shape = RoundedCornerShape(16.dp),
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .combinedClickable(
-                                    onClick = {
-                                        controller.setWeatherLayer(layer)
-                                        showLayerSelectorSheet = false
-                                        coroutineScope.launch {
-                                            if (layer != MapWeatherLayer.NONE) {
-                                                snackbarHostState.showSnackbar("Enabled ${layer.displayName} overlay")
-                                            } else {
-                                                snackbarHostState.showSnackbar("Weather overlays hidden")
-                                            }
-                                        }
-                                    },
-                                    onLongClick = {
-                                        if (layer == MapWeatherLayer.RAIN_RADAR) {
-                                            showRadarDebugInspector = true
-                                        }
+                            onClick = {
+                                controller.setWeatherLayer(layer)
+                                showLayerSelectorSheet = false
+                                coroutineScope.launch {
+                                    if (layer != MapWeatherLayer.NONE) {
+                                        snackbarHostState.showSnackbar("Enabled ${layer.displayName} overlay")
+                                    } else {
+                                        snackbarHostState.showSnackbar("Weather overlays hidden")
                                     }
-                                )
+                                }
+                            },
+                            modifier = Modifier.fillMaxWidth()
                         ) {
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,

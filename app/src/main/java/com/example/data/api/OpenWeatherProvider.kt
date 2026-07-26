@@ -131,17 +131,47 @@ class OpenWeatherProvider(
         val sunriseStr = sdf.format(sunriseDate)
         val sunsetStr = sdf.format(sunsetDate)
 
-        // Parse hourly forecast (take first 8 records -> 24 hours of 3-hour chunks)
-        val hourlyForecast = resp.list.take(8).mapIndexed { idx, item ->
-            val hourDate = Date(item.dt * 1000L)
-            val formatHour = SimpleDateFormat("h:mm a", Locale.US).apply {
-                timeZone = TimeZone.getTimeZone("GMT").apply { rawOffset = tzOffsetSeconds * 1000 }
-            }
-            ForecastHour(
-                time = if (idx == 0) "Now" else formatHour.format(hourDate),
-                temperature = item.main.temp.toInt(),
+        val targetTz = TimeZone.getTimeZone("GMT").apply { rawOffset = tzOffsetSeconds * 1000 }
+        val displayFormat = SimpleDateFormat("h:mm a", Locale.US).apply {
+            timeZone = targetTz
+        }
+
+        val nowMillis = System.currentTimeMillis()
+        val cal = Calendar.getInstance(targetTz).apply {
+            timeInMillis = nowMillis
+            set(Calendar.MINUTE, 0)
+            set(Calendar.SECOND, 0)
+            set(Calendar.MILLISECOND, 0)
+        }
+        val currentHourStartMillis = cal.timeInMillis
+
+        data class OpenWeatherHourCandidate(
+            val epochMillis: Long,
+            val tempF: Int,
+            val condition: WeatherCondition,
+            val precipChance: Int
+        )
+
+        val candidates = resp.list.map { item ->
+            OpenWeatherHourCandidate(
+                epochMillis = item.dt * 1000L,
+                tempF = item.main.temp.toInt(),
                 condition = mapOpenWeatherIconToCondition(item.weather.firstOrNull()?.icon ?: ""),
-                precipitationChance = (item.pop * 100).toInt()
+                precipChance = (item.pop * 100).toInt()
+            )
+        }
+
+        val futureCandidates = candidates.filter { it.epochMillis >= currentHourStartMillis - 3 * 3600 * 1000L }
+        val selectedCandidates = if (futureCandidates.isNotEmpty()) futureCandidates.take(8) else candidates.take(8)
+
+        val hourlyForecast = selectedCandidates.mapIndexed { idx, candidate ->
+            val timeLabel = if (idx == 0) "Now" else displayFormat.format(Date(candidate.epochMillis))
+            ForecastHour(
+                time = timeLabel,
+                temperature = candidate.tempF,
+                condition = candidate.condition,
+                precipitationChance = candidate.precipChance,
+                timestampEpochMillis = candidate.epochMillis
             )
         }
 
