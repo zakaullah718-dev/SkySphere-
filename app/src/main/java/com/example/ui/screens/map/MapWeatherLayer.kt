@@ -11,6 +11,5 @@ enum class MapWeatherLayer(
     CLOUDS("Cloud Coverage", "Satellite cloud density overlay", 1.0, 20.0),
     TEMPERATURE("Temperature", "Thermal color gradient overlay", 1.0, 20.0),
     WIND("Wind Speed", "Atmospheric wind streamlines", 1.0, 20.0),
-    PRESSURE("Air Pressure", "Isobaric surface pressure overlay", 1.0, 20.0),
-    HUMIDITY("Humidity & Rain", "Relative moisture & precipitation", 1.0, 20.0)
+    PRESSURE("Air Pressure", "Isobaric surface pressure overlay", 1.0, 20.0)
 }

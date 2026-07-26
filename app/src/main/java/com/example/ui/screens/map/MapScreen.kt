@@ -113,7 +113,8 @@ fun MapScreen(
 
     val mapRepository = remember { MapRepository(repository) }
     val controller = remember { MapController() }
-    val weatherLayerManager = remember { FutureWeatherLayerManager() }
+    val radarRepository = remember { FutureRadarRepository() }
+    val weatherLayerManager = remember { FutureWeatherLayerManager(radarRepository) }
     val mapState by controller.mapState.collectAsState()
 
     var showLayerSelectorSheet by remember { mutableStateOf(false) }
@@ -292,9 +293,14 @@ fun MapScreen(
 
         // Attach new weather layer overlay if enabled
         if (mapState.selectedLayer != MapWeatherLayer.NONE) {
+            val radarTimestamp = if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR) {
+                radarRepository.getLatestRadarTimestamp()
+            } else 0L
+
             val newOverlay = weatherLayerManager.createTilesOverlay(
                 context = context,
-                layer = mapState.selectedLayer
+                layer = mapState.selectedLayer,
+                radarTimestamp = radarTimestamp
             )
             if (newOverlay != null) {
                 // Insert weather overlay underneath the location marker overlay
@@ -510,7 +516,7 @@ fun MapScreen(
 
     // Temporary Debug Mode Dialog (Triggered by long pressing Rain Radar)
     if (showRadarDebugInspector) {
-        val sampleTileUrl = "https://tile.openweathermap.org/map/precipitation_new/3/4/2.png?appid=f0308472599cabe4521d65850bb6ba22"
+        val sampleTileUrl = "https://tilecache.rainviewer.com/v2/radar/1712345678/256/3/4/2/4/1_1.png"
         AlertDialog(
             onDismissRequest = { showRadarDebugInspector = false },
             title = {
@@ -522,7 +528,7 @@ fun MapScreen(
             text = {
                 Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Text(
-                        text = "Provider: OpenWeatherMap (precipitation_new)",
+                        text = "Provider: RainViewer Doppler Radar (TWC Palette 4)",
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     )
                     Text(
@@ -570,7 +576,7 @@ fun MapScreen(
                     }
 
                     Text(
-                        text = "Root Cause Analysis: OpenWeather encodes light precipitation as semi-transparent blue-violet (RGBA 109,109,205,31). Moderate rain transitions to green, heavy to yellow/orange, and severe to red/magenta. Tiles render 1:1 without shader alteration.",
+                        text = "Rain radar layer now connects directly to live Doppler radar tiles. Precipitation cells render with full Weather Channel color palette (Green, Yellow, Orange, Red, Magenta).",
                         style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
                     )
                 }
@@ -717,7 +723,6 @@ private fun getLayerIcon(layer: MapWeatherLayer): ImageVector {
         MapWeatherLayer.TEMPERATURE -> Icons.Filled.Thermostat
         MapWeatherLayer.WIND -> Icons.Filled.Air
         MapWeatherLayer.PRESSURE -> Icons.Filled.Compress
-        MapWeatherLayer.HUMIDITY -> Icons.Filled.WaterDrop
     }
 }
 
@@ -739,10 +744,6 @@ private fun LayerLegendBar(layer: MapWeatherLayer) {
         MapWeatherLayer.PRESSURE -> Pair(
             listOf(Color(0xFF512DA8), Color(0xFF0288D1), Color(0xFF009688), Color(0xFFF57C00)),
             listOf("Low", "Normal", "High")
-        )
-        MapWeatherLayer.HUMIDITY -> Pair(
-            listOf(Color(0xFFFFF8E1), Color(0xFF81C784), Color(0xFF00ACC1), Color(0xFF1565C0)),
-            listOf("Dry", "Comfortable", "Humid", "Very Humid")
         )
         MapWeatherLayer.CLOUDS -> Pair(
             listOf(Color(0xFFE0E0E0), Color(0xFFBDBDBD), Color(0xFF9E9E9E), Color(0xFF616161), Color(0xFF37474F)),
