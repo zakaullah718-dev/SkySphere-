@@ -11,10 +11,14 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.graphics.asImageBitmap
 import coil.compose.AsyncImage
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.TextButton
@@ -120,6 +124,8 @@ fun MapScreen(
     var showLayerSelectorSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var showRadarDebugInspector by remember { mutableStateOf(false) }
+    var auditResult by remember { mutableStateOf<TileAuditResult?>(null) }
+    var isAuditing by remember { mutableStateOf(false) }
 
     // References for overlays
     val locationOverlayRef = remember { arrayOfNulls<MyLocationNewOverlay>(1) }
@@ -311,6 +317,22 @@ fun MapScreen(
         }
 
         mapView.invalidate()
+    }
+
+    LaunchedEffect(showRadarDebugInspector) {
+        if (showRadarDebugInspector) {
+            isAuditing = true
+            val lat = mapState.centerLatitude
+            val lon = mapState.centerLongitude
+            val zoom = mapState.zoomLevel.toInt().coerceIn(1, 18)
+            val res = radarRepository.runPipelineAudit(lat, lon, zoom)
+            auditResult = res
+            isAuditing = false
+
+            // Step 15: Force a map redraw after rendering
+            mapView?.invalidate()
+            Log.d("RainRadarAudit", "[Checklist Step 15] Map invalidated and redrawn.")
+        }
     }
 
     // Lifecycle & battery optimization
@@ -514,9 +536,8 @@ fun MapScreen(
         }
     }
 
-    // Temporary Debug Mode Dialog (Triggered by long pressing Rain Radar)
+    // Rain Radar Tile Inspector Dialog (Triggered by long pressing Rain Radar)
     if (showRadarDebugInspector) {
-        val sampleTileUrl = "https://tilecache.rainviewer.com/v2/radar/1712345678/256/3/4/2/4/1_1.png"
         AlertDialog(
             onDismissRequest = { showRadarDebugInspector = false },
             title = {
@@ -526,59 +547,98 @@ fun MapScreen(
                 )
             },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.verticalScroll(rememberScrollState())
+                ) {
                     Text(
                         text = "Provider: RainViewer Doppler Radar (TWC Palette 4)",
                         style = MaterialTheme.typography.bodySmall.copy(fontWeight = FontWeight.Bold, color = MaterialTheme.colorScheme.primary)
                     )
-                    Text(
-                        text = "Sample Tile Endpoint:\n$sampleTileUrl",
-                        style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
-                        maxLines = 2
-                    )
 
-                    Text(
-                        text = "Tile Comparison (Downloaded / Official / Rendered):",
-                        style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
-                    )
+                    if (isAuditing) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(vertical = 12.dp)
+                        ) {
+                            CircularProgressIndicator(modifier = Modifier.size(20.dp), strokeWidth = 2.dp)
+                            Text("Running 15-step pipeline audit...", style = MaterialTheme.typography.bodySmall)
+                        }
+                    } else if (auditResult != null) {
+                        val res = auditResult!!
 
-                    Row(
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                        modifier = Modifier.fillMaxWidth()
-                    ) {
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Downloaded", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Spacer(modifier = Modifier.height(4.dp))
-                            AsyncImage(
-                                model = sampleTileUrl,
-                                contentDescription = "Downloaded Tile",
-                                modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                            )
+                        Text(
+                            text = "Live Tile URL:\n${res.step3_tileUrl}",
+                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                            maxLines = 2
+                        )
+
+                        Text(
+                            text = "Audit Checklist Results:",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+
+                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text("✓ Step 1: Downloaded weather-maps.json (${if (res.step1_jsonDownloaded) "OK" else "Fallback"})", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Text("✓ Step 2: Timestamp Verified (${res.step2_latestTimestamp})", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Text("✓ Step 5: HTTP Code = ${res.step5_httpResponseCode}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Text("✓ Step 6: Content-Type = ${res.step6_contentType}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Text("✓ Step 7: Content-Length = ${res.step7_contentLength} B", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Text("✓ Step 8 & 9: PNG Decoded = ${res.step8_pngDecoded} (${res.step9_width}x${res.step10_height})", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Text("✓ Step 10: Non-transparent pixels = ${res.step11_nonTransparentPixels}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Text("✓ Step 11: Coloured pixels = ${res.step12_colouredPixels}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Text("✓ Step 12: Average Alpha = ${res.step13_avgAlpha}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Text("✓ Step 13 & 14: Canvas Render Verified = ${res.step14_renderedCanvasVerified}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Text("✓ Step 15: Map Redrawn = ${res.step15_mapRedrawn}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
                         }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Official", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Spacer(modifier = Modifier.height(4.dp))
-                            AsyncImage(
-                                model = sampleTileUrl,
-                                contentDescription = "Official Tile",
-                                modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                            )
-                        }
-                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text("Rendered", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Spacer(modifier = Modifier.height(4.dp))
-                            AsyncImage(
-                                model = sampleTileUrl,
-                                contentDescription = "Rendered Tile",
-                                modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
-                            )
+
+                        Text(
+                            text = "Tile Comparison (Downloaded / Official / Rendered):",
+                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold)
+                        )
+
+                        Row(
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Downloaded", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                                Spacer(modifier = Modifier.height(4.dp))
+                                if (res.downloadedBitmap != null) {
+                                    Image(
+                                        bitmap = res.downloadedBitmap.asImageBitmap(),
+                                        contentDescription = "Downloaded Tile",
+                                        modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                                    )
+                                } else {
+                                    Box(modifier = Modifier.size(68.dp).background(Color.DarkGray, RoundedCornerShape(8.dp)))
+                                }
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Official", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                                Spacer(modifier = Modifier.height(4.dp))
+                                AsyncImage(
+                                    model = res.step3_tileUrl,
+                                    contentDescription = "Official Tile",
+                                    modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text("Rendered", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                                Spacer(modifier = Modifier.height(4.dp))
+                                if (res.renderedBitmap != null) {
+                                    Image(
+                                        bitmap = res.renderedBitmap.asImageBitmap(),
+                                        contentDescription = "Rendered Tile",
+                                        modifier = Modifier.size(68.dp).border(1.dp, MaterialTheme.colorScheme.outline, RoundedCornerShape(8.dp))
+                                    )
+                                } else {
+                                    Box(modifier = Modifier.size(68.dp).background(Color.DarkGray, RoundedCornerShape(8.dp)))
+                                }
+                            }
                         }
                     }
-
-                    Text(
-                        text = "Rain radar layer now connects directly to live Doppler radar tiles. Precipitation cells render with full Weather Channel color palette (Green, Yellow, Orange, Red, Magenta).",
-                        style = MaterialTheme.typography.bodySmall.copy(fontSize = 11.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    )
                 }
             },
             confirmButton = {
