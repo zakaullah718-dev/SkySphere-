@@ -84,53 +84,41 @@ class WeatherTileSource(
 
             if (connection.responseCode == 200) {
                 val bytes = connection.inputStream.readBytes()
-                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                val options = BitmapFactory.Options().apply {
+                    inPremultiplied = false
+                }
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size, options)
                 if (bitmap != null) {
                     val width = bitmap.width
                     val height = bitmap.height
                     val pixels = IntArray(width * height)
                     bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
 
-                    var tracePx = 0
-                    var cyanPx = 0
-                    var greenPx = 0
-                    var yellowPx = 0
-                    var redPx = 0
-                    var otherPx = 0
+                    val colorCounts = HashMap<String, Int>()
                     var totalColored = 0
 
                     for (pixel in pixels) {
                         val a = (pixel shr 24) and 0xFF
                         if (a > 0) {
                             totalColored++
-                            // Un-premultiply RGB channels because Android BitmapFactory premultiplies RGB by alpha during PNG decoding
-                            val premultR = (pixel shr 16) and 0xFF
-                            val premultG = (pixel shr 8) and 0xFF
-                            val premultB = pixel and 0xFF
-
-                            val r = ((premultR * 255) / a).coerceAtMost(255)
-                            val g = ((premultG * 255) / a).coerceAtMost(255)
-                            val b = ((premultB * 255) / a).coerceAtMost(255)
-
-                            when {
-                                g > r + 20 && g > b + 10 -> greenPx++
-                                r > 180 && g > 140 && b < 100 -> yellowPx++
-                                (r > 180 && g < 120 && b < 120) || (r > 150 && b > 150 && g < 100) -> redPx++
-                                g > 180 && b > 180 && r < 120 -> cyanPx++
-                                b > 100 && r in 40..160 && g in 40..160 -> tracePx++
-                                else -> otherPx++
-                            }
+                            val r = (pixel shr 16) and 0xFF
+                            val g = (pixel shr 8) and 0xFF
+                            val b = pixel and 0xFF
+                            val rgbaKey = "RGBA($r, $g, $b, $a)"
+                            colorCounts[rgbaKey] = (colorCounts[rgbaKey] ?: 0) + 1
                         }
                     }
 
+                    val top50 = colorCounts.entries
+                        .sortedByDescending { it.value }
+                        .take(50)
+
                     Log.d("WeatherRadar", "--- TILE PIXEL AUDIT (z=$zoom, x=$x, y=$y) ---")
                     Log.d("WeatherRadar", "Total Colored Pixels: $totalColored")
-                    Log.d("WeatherRadar", "Trace (Purple/Blue): $tracePx px")
-                    Log.d("WeatherRadar", "Light (Cyan): $cyanPx px")
-                    Log.d("WeatherRadar", "Moderate (Green): $greenPx px")
-                    Log.d("WeatherRadar", "Heavy (Yellow/Orange): $yellowPx px")
-                    Log.d("WeatherRadar", "Severe (Red/Magenta): $redPx px")
-                    Log.d("WeatherRadar", "Other RGBA Tones: $otherPx px")
+                    Log.d("WeatherRadar", "Top 50 Real RGBA Values:")
+                    top50.forEach { (rgba, count) ->
+                        Log.d("WeatherRadar", "$rgba | Count: $count")
+                    }
                 }
             }
         } catch (e: Exception) {
@@ -145,7 +133,7 @@ class FutureWeatherLayerManager {
         context: Context,
         layer: MapWeatherLayer
     ): TilesOverlay? {
-        if (layer == MapWeatherLayer.NONE) {
+        if (layer == MapWeatherLayer.NONE || layer == MapWeatherLayer.HUMIDITY) {
             return null
         }
 
@@ -169,7 +157,7 @@ class FutureWeatherLayerManager {
                 MapWeatherLayer.TEMPERATURE -> "temp_new"
                 MapWeatherLayer.WIND -> "wind_new"
                 MapWeatherLayer.PRESSURE -> "pressure_new"
-                MapWeatherLayer.HUMIDITY -> "precipitation_new"
+                MapWeatherLayer.HUMIDITY -> ""
                 MapWeatherLayer.NONE -> ""
             }
             if (layerEndpoint.isBlank()) ""
@@ -184,14 +172,7 @@ class FutureWeatherLayerManager {
 
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
-                    // Boost color saturation (1.35x) and alpha channel (2.8x) so green, yellow, orange, and red rain cores render with 100% opacity and high contrast
-                    val rainMatrix = ColorMatrix(floatArrayOf(
-                        1.35f, 0f,    0f,    0f, 0f,
-                        0f,    1.35f, 0f,    0f, 0f,
-                        0f,    0f,    1.35f, 0f, 0f,
-                        0f,    0f,    0f,    2.8f, 0f
-                    ))
-                    setColorFilter(ColorMatrixColorFilter(rainMatrix))
+                    // Raw OpenWeather PNG tiles rendered directly without any color filter or modification
                 }
                 MapWeatherLayer.CLOUDS -> {
                     val cloudMatrix = ColorMatrix(floatArrayOf(
