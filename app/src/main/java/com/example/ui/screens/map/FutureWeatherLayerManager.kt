@@ -179,8 +179,14 @@ class FutureWeatherLayerManager {
 
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
-                    // OpenWeather official precipitation layer - render raw tile PNG with original colors
-                    setColorFilter(null)
+                    // Boost color saturation (1.25x) and alpha channel (1.75x) so green, yellow, orange, and red rain cores render with 100% opacity and high contrast
+                    val rainMatrix = ColorMatrix(floatArrayOf(
+                        1.25f, 0f,    0f,    0f, 0f,
+                        0f,    1.25f, 0f,    0f, 0f,
+                        0f,    0f,    1.25f, 0f, 0f,
+                        0f,    0f,    0f,    1.75f, 0f
+                    ))
+                    setColorFilter(ColorMatrixColorFilter(rainMatrix))
                 }
                 MapWeatherLayer.CLOUDS -> {
                     val cloudMatrix = ColorMatrix(floatArrayOf(
