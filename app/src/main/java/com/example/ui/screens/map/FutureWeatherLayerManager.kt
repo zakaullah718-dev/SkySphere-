@@ -1,16 +1,37 @@
 package com.example.ui.screens.map
 
 import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.graphics.ColorMatrix
 import android.graphics.ColorMatrixColorFilter
 import android.util.Log
 import com.example.BuildConfig
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 import org.osmdroid.tileprovider.MapTileProviderBasic
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.overlay.TilesOverlay
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.concurrent.atomic.AtomicInteger
+
+data class TilePixelAudit(
+    val url: String,
+    val zoom: Int,
+    val x: Int,
+    val y: Int,
+    val totalColoredPixels: Int,
+    val tracePurplePx: Int,
+    val lightCyanPx: Int,
+    val moderateGreenPx: Int,
+    val heavyYellowPx: Int,
+    val severeRedPx: Int,
+    val otherPx: Int
+)
 
 class WeatherTileSource(
     val layer: MapWeatherLayer,
@@ -25,6 +46,7 @@ class WeatherTileSource(
     arrayOf()
 ) {
     private val loadedTileCount = AtomicInteger(0)
+    private val auditScope = CoroutineScope(Dispatchers.IO)
 
     override fun getTileURLString(pMapTileIndex: Long): String {
         val zoom = MapTileIndex.getZoom(pMapTileIndex).coerceIn(1, 18)
@@ -41,9 +63,74 @@ class WeatherTileSource(
             Log.d("WeatherRadar", "Loaded Tile Count = $count")
             Log.d("WeatherRadar", "Current Zoom = $zoom")
             Log.d("WeatherRadar", "Current Tile Coordinates = ($x, $y)")
+
+            // Perform pixel audit asynchronously to log RGBA color breakdown
+            auditScope.launch {
+                auditTilePixels(url, zoom, x, y)
+            }
         }
 
         return url
+    }
+
+    private fun auditTilePixels(tileUrl: String, zoom: Int, x: Int, y: Int) {
+        try {
+            val connection = URL(tileUrl).openConnection() as HttpURLConnection
+            connection.requestMethod = "GET"
+            connection.setRequestProperty("User-Agent", "SkySphere/1.0")
+            connection.connectTimeout = 5000
+            connection.readTimeout = 5000
+            connection.connect()
+
+            if (connection.responseCode == 200) {
+                val bytes = connection.inputStream.readBytes()
+                val bitmap = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                if (bitmap != null) {
+                    val width = bitmap.width
+                    val height = bitmap.height
+                    val pixels = IntArray(width * height)
+                    bitmap.getPixels(pixels, 0, width, 0, 0, width, height)
+
+                    var tracePx = 0
+                    var cyanPx = 0
+                    var greenPx = 0
+                    var yellowPx = 0
+                    var redPx = 0
+                    var otherPx = 0
+                    var totalColored = 0
+
+                    for (pixel in pixels) {
+                        val a = (pixel shr 24) and 0xFF
+                        if (a > 0) {
+                            totalColored++
+                            val r = (pixel shr 16) and 0xFF
+                            val g = (pixel shr 8) and 0xFF
+                            val b = pixel and 0xFF
+
+                            when {
+                                g > r + 25 && g > b + 10 -> greenPx++
+                                r > 180 && g > 140 && b < 100 -> yellowPx++
+                                (r > 180 && g < 120 && b < 120) || (r > 150 && b > 150 && g < 100) -> redPx++
+                                g > 180 && b > 180 && r < 120 -> cyanPx++
+                                b > 110 && r in 60..150 && g in 60..150 -> tracePx++
+                                else -> otherPx++
+                            }
+                        }
+                    }
+
+                    Log.d("WeatherRadar", "--- TILE PIXEL AUDIT (z=$zoom, x=$x, y=$y) ---")
+                    Log.d("WeatherRadar", "Total Colored Pixels: $totalColored")
+                    Log.d("WeatherRadar", "Trace (Purple/Blue): $tracePx px")
+                    Log.d("WeatherRadar", "Light (Cyan): $cyanPx px")
+                    Log.d("WeatherRadar", "Moderate (Green): $greenPx px")
+                    Log.d("WeatherRadar", "Heavy (Yellow/Orange): $yellowPx px")
+                    Log.d("WeatherRadar", "Severe (Red/Magenta): $redPx px")
+                    Log.d("WeatherRadar", "Other RGBA Tones: $otherPx px")
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("WeatherRadar", "Pixel audit failed for $tileUrl: ${e.localizedMessage}")
+        }
     }
 }
 
