@@ -149,15 +149,31 @@ class OpenWeatherProvider(
             val epochMillis: Long,
             val tempF: Int,
             val condition: WeatherCondition,
-            val precipChance: Int
+            val precipChance: Int,
+            val isNight: Boolean
         )
 
         val candidates = resp.list.map { item ->
+            val epochMillis = item.dt * 1000L
+            val iconStr = item.weather.firstOrNull()?.icon ?: ""
+            val isNight = if (iconStr.endsWith("n")) {
+                true
+            } else if (iconStr.endsWith("d")) {
+                false
+            } else {
+                com.example.utils.WeatherTimeUtils.isNightForLocation(
+                    timestampEpochMillis = epochMillis,
+                    timeZoneId = targetTz.id,
+                    sunriseStr = sunriseStr,
+                    sunsetStr = sunsetStr
+                )
+            }
             OpenWeatherHourCandidate(
-                epochMillis = item.dt * 1000L,
+                epochMillis = epochMillis,
                 tempF = item.main.temp.toInt(),
-                condition = mapOpenWeatherIconToCondition(item.weather.firstOrNull()?.icon ?: ""),
-                precipChance = (item.pop * 100).toInt()
+                condition = mapOpenWeatherIconToCondition(iconStr),
+                precipChance = (item.pop * 100).toInt(),
+                isNight = isNight
             )
         }
 
@@ -171,7 +187,8 @@ class OpenWeatherProvider(
                 temperature = candidate.tempF,
                 condition = candidate.condition,
                 precipitationChance = candidate.precipChance,
-                timestampEpochMillis = candidate.epochMillis
+                timestampEpochMillis = candidate.epochMillis,
+                isNight = candidate.isNight
             )
         }
 

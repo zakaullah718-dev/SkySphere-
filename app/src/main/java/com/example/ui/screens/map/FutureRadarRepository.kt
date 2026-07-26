@@ -20,7 +20,7 @@ data class RadarFrame(
     val host: String = "https://tilecache.rainviewer.com"
 ) {
     fun buildTileUrl(zoom: Int, x: Int, y: Int, palette: Int = 4): String {
-        val clampedZoom = zoom.coerceIn(0, 12)
+        val clampedZoom = zoom.coerceIn(1, 12)
         val cleanHost = host.trimEnd('/')
         val cleanPath = if (path.startsWith("/")) path else if (path.isNotBlank()) "/$path" else ""
         return if (cleanPath.isNotBlank() && cleanPath != "/") {

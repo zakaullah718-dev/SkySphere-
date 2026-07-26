@@ -148,18 +148,36 @@ class WeatherApiProvider(
         val currentHourStartMillis = cal.timeInMillis
 
         val allHours = forecastDays.flatMap { it.hour ?: emptyList() }
+        val astroFirst = forecastDays.firstOrNull()?.astro
+        val sunriseStr = astroFirst?.sunrise ?: "06:00 AM"
+        val sunsetStr = astroFirst?.sunset ?: "07:00 PM"
+        val tzId = location.tzId
+
         data class WeatherApiHourCandidate(
             val epochMillis: Long,
             val tempF: Int,
             val condition: WeatherCondition,
-            val precipChance: Int
+            val precipChance: Int,
+            val isNight: Boolean
         )
         val candidates = allHours.map { hourDto ->
+            val epochMillis = hourDto.timeEpoch * 1000L
+            val isNight = if (hourDto.isDay != null) {
+                hourDto.isDay == 0
+            } else {
+                com.example.utils.WeatherTimeUtils.isNightForLocation(
+                    timestampEpochMillis = epochMillis,
+                    timeZoneId = tzId,
+                    sunriseStr = sunriseStr,
+                    sunsetStr = sunsetStr
+                )
+            }
             WeatherApiHourCandidate(
-                epochMillis = hourDto.timeEpoch * 1000L,
+                epochMillis = epochMillis,
                 tempF = hourDto.tempF.toInt(),
                 condition = mapCodeToCondition(hourDto.condition.code),
-                precipChance = hourDto.chanceOfRain ?: 0
+                precipChance = hourDto.chanceOfRain ?: 0,
+                isNight = isNight
             )
         }
 
@@ -173,7 +191,8 @@ class WeatherApiProvider(
                 temperature = candidate.tempF,
                 condition = candidate.condition,
                 precipitationChance = candidate.precipChance,
-                timestampEpochMillis = candidate.epochMillis
+                timestampEpochMillis = candidate.epochMillis,
+                isNight = candidate.isNight
             )
         }
 

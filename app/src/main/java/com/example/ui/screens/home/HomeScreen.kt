@@ -49,6 +49,7 @@ import com.example.ui.theme.LuxurySkyBlue
 import com.example.ui.theme.LuxuryCyan
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -323,6 +324,13 @@ fun HomeScreenContent(
     var pullOffset by remember { mutableFloatStateOf(0f) }
     var isPullRefreshing by remember { mutableStateOf(false) }
 
+    LaunchedEffect(isUpdating) {
+        if (!isUpdating) {
+            isPullRefreshing = false
+            pullOffset = 0f
+        }
+    }
+
     val nestedScrollConnection = remember {
         object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
             override fun onPreScroll(
@@ -360,11 +368,6 @@ fun HomeScreenContent(
                         isPullRefreshing = true
                         pullOffset = 120f
                         onRefresh()
-                        coroutineScope.launch {
-                            delay(1500)
-                            isPullRefreshing = false
-                            pullOffset = 0f
-                        }
                     } else {
                         pullOffset = 0f
                     }

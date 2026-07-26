@@ -240,6 +240,8 @@ fun MapScreen(
 
                 setMultiTouchControls(true)
                 setBuiltInZoomControls(false)
+                minZoomLevel = 2.0
+                maxZoomLevel = 20.0
 
                 val defaultCenter = mapRepository.getDefaultCenter()
                 val defaultZoom = mapRepository.getDefaultZoom()

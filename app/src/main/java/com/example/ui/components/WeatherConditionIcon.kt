@@ -8,8 +8,10 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.AcUnit
+import androidx.compose.material.icons.filled.Bedtime
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.CloudQueue
+import androidx.compose.material.icons.filled.NightsStay
 import androidx.compose.material.icons.filled.Thunderstorm
 import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material.icons.filled.WbSunny
@@ -26,25 +28,40 @@ import com.example.data.models.WeatherCondition
 fun WeatherConditionIcon(
     condition: WeatherCondition?,
     modifier: Modifier = Modifier,
-    tint: Color? = null
+    tint: Color? = null,
+    isNight: Boolean = false
 ) {
     val safeCondition = condition ?: WeatherCondition.PARTLY_CLOUDY
-    val icon = when (safeCondition) {
-        WeatherCondition.SUNNY -> Icons.Filled.WbSunny
-        WeatherCondition.PARTLY_CLOUDY -> Icons.Filled.CloudQueue
-        WeatherCondition.CLOUDY -> Icons.Filled.Cloud
-        WeatherCondition.RAINY -> Icons.Filled.WaterDrop
-        WeatherCondition.STORM -> Icons.Filled.Thunderstorm
-        WeatherCondition.SNOWY -> Icons.Filled.AcUnit
+    val icon = when {
+        isNight && safeCondition == WeatherCondition.SUNNY -> Icons.Filled.Bedtime
+        isNight && safeCondition == WeatherCondition.PARTLY_CLOUDY -> Icons.Filled.NightsStay
+        isNight && safeCondition == WeatherCondition.CLOUDY -> Icons.Filled.Cloud
+        isNight && safeCondition == WeatherCondition.RAINY -> Icons.Filled.WaterDrop
+        isNight && safeCondition == WeatherCondition.STORM -> Icons.Filled.Thunderstorm
+        isNight && safeCondition == WeatherCondition.SNOWY -> Icons.Filled.AcUnit
+        safeCondition == WeatherCondition.SUNNY -> Icons.Filled.WbSunny
+        safeCondition == WeatherCondition.PARTLY_CLOUDY -> Icons.Filled.CloudQueue
+        safeCondition == WeatherCondition.CLOUDY -> Icons.Filled.Cloud
+        safeCondition == WeatherCondition.RAINY -> Icons.Filled.WaterDrop
+        safeCondition == WeatherCondition.STORM -> Icons.Filled.Thunderstorm
+        safeCondition == WeatherCondition.SNOWY -> Icons.Filled.AcUnit
+        else -> Icons.Filled.CloudQueue
     }
 
-    val defaultTint = when (safeCondition) {
-        WeatherCondition.SUNNY -> Color(0xFFFFD54F) // Radiant Sun Amber
-        WeatherCondition.PARTLY_CLOUDY -> Color(0xFF546E7A) // Dark steel slate
-        WeatherCondition.CLOUDY -> Color(0xFF455A64) // Dark charcoal storm slate
-        WeatherCondition.RAINY -> Color(0xFF4FC3F7) // Ocean rain blue
-        WeatherCondition.STORM -> Color(0xFFB39DDB) // Cosmic storm lavender
-        WeatherCondition.SNOWY -> Color(0xFF80DEEA) // Frozen glacial ice
+    val defaultTint = when {
+        isNight && safeCondition == WeatherCondition.SUNNY -> Color(0xFFFFE082) // Soft Crescent Moon Amber
+        isNight && safeCondition == WeatherCondition.PARTLY_CLOUDY -> Color(0xFF90CAF9) // Soft Night Cloud Blue
+        isNight && safeCondition == WeatherCondition.CLOUDY -> Color(0xFF78909C) // Slate Night Cloud
+        isNight && safeCondition == WeatherCondition.RAINY -> Color(0xFF80D8FF) // Night Rain Cyan
+        isNight && safeCondition == WeatherCondition.STORM -> Color(0xFFD1C4E9) // Night Thunderstorm Lavender
+        isNight && safeCondition == WeatherCondition.SNOWY -> Color(0xFFE0F7FA) // Night Snow Crystal White
+        safeCondition == WeatherCondition.SUNNY -> Color(0xFFFFD54F) // Radiant Sun Amber
+        safeCondition == WeatherCondition.PARTLY_CLOUDY -> Color(0xFF546E7A) // Dark steel slate
+        safeCondition == WeatherCondition.CLOUDY -> Color(0xFF455A64) // Dark charcoal storm slate
+        safeCondition == WeatherCondition.RAINY -> Color(0xFF4FC3F7) // Ocean rain blue
+        safeCondition == WeatherCondition.STORM -> Color(0xFFB39DDB) // Cosmic storm lavender
+        safeCondition == WeatherCondition.SNOWY -> Color(0xFF80DEEA) // Frozen glacial ice
+        else -> Color(0xFF546E7A)
     }
 
     val infiniteTransition = rememberInfiniteTransition(label = "IconAnimation")

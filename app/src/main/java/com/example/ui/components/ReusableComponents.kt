@@ -1,5 +1,7 @@
 package com.example.ui.components
 
+import com.example.utils.WeatherTimeUtils
+
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.InfiniteTransition
 import androidx.compose.animation.core.LinearEasing
@@ -267,35 +269,20 @@ fun SkySphereLoadingAnimation(
 }
 
 /**
- * Parses sunrise and sunset string times to decide if it's currently day or night.
+ * Parses sunrise and sunset string times to decide if it's currently day or night at location.
  */
-fun isDayTime(sunrise: String, sunset: String): Boolean {
-    try {
-        val now = java.util.Calendar.getInstance()
-        val hour = now.get(java.util.Calendar.HOUR_OF_DAY)
-        val minute = now.get(java.util.Calendar.MINUTE)
-        val currentMinutes = hour * 60 + minute
-
-        fun parseTimeToMinutes(timeStr: String): Int {
-            val cleaned = timeStr.trim().uppercase()
-            val isPm = cleaned.endsWith("PM")
-            val isAm = cleaned.endsWith("AM")
-            val timePart = cleaned.replace("AM", "").replace("PM", "").trim()
-            val parts = timePart.split(":")
-            var h = parts[0].toInt()
-            val m = parts[1].toInt()
-            if (isPm && h < 12) h += 12
-            if (isAm && h == 12) h = 0
-            return h * 60 + m
-        }
-
-        val sunriseMin = parseTimeToMinutes(sunrise)
-        val sunsetMin = parseTimeToMinutes(sunset)
-        return currentMinutes in sunriseMin..sunsetMin
-    } catch (e: Exception) {
-        val hour = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-        return hour in 6..19
-    }
+fun isDayTime(
+    sunrise: String,
+    sunset: String,
+    timeZoneId: String? = null,
+    timestampEpochMillis: Long = 0L
+): Boolean {
+    return WeatherTimeUtils.isDayTimeForLocation(
+        timestampEpochMillis = timestampEpochMillis,
+        timeZoneId = timeZoneId,
+        sunriseStr = sunrise,
+        sunsetStr = sunset
+    )
 }
 
 private data class WeatherGradientPalette(

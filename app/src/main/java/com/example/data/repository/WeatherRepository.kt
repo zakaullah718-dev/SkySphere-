@@ -562,11 +562,19 @@ class WeatherRepository(private val context: Context) {
         try {
             val result = fetchWeatherFromApi(active.cityName, forceRefresh = true)
             result.onSuccess { fullCityWeather ->
-                val withFav = fullCityWeather.copy(isFavorite = active.isFavorite)
-                saveCityToCache(withFav)
-                _selectedCity.value = withFav
-                updateUnitForCountryIfNeeded(withFav.country)
+                val refreshedCity = fullCityWeather.copy(
+                    isFavorite = active.isFavorite,
+                    weatherDetails = fullCityWeather.weatherDetails.copy()
+                )
+                saveCityToCache(refreshedCity)
+                _selectedCity.value = refreshedCity
+                updateUnitForCountryIfNeeded(refreshedCity.country)
             }
+            result.onFailure { error ->
+                _repositoryError.value = "Failed to refresh weather for ${active.cityName}: ${error.localizedMessage ?: "Network connection error"}"
+            }
+        } catch (e: Exception) {
+            _repositoryError.value = "Refresh error: ${e.localizedMessage ?: "Unable to update weather"}"
         } finally {
             _isUpdating.value = false
         }
@@ -671,7 +679,16 @@ class WeatherRepository(private val context: Context) {
                     hour.time
                 }
             }
-            hour.copy(time = label)
+            val isNight = if (hour.timestampEpochMillis > 0L) {
+                com.example.utils.WeatherTimeUtils.isNightForLocation(
+                    timestampEpochMillis = hour.timestampEpochMillis,
+                    sunriseStr = details.sunrise,
+                    sunsetStr = details.sunset
+                )
+            } else {
+                hour.isNight
+            }
+            hour.copy(time = label, isNight = isNight)
         }
 
         return details.copy(hourlyForecast = reMapped)

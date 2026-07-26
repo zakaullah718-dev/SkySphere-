@@ -73,7 +73,7 @@ class OpenMeteoProvider(
             val url = "https://api.open-meteo.com/v1/forecast?" +
                     "latitude=$lat&longitude=$lon" +
                     "&current=temperature_2m,relative_humidity_2m,apparent_temperature,is_day,precipitation,weather_code,pressure_msl,wind_speed_10m,uv_index,visibility" +
-                    "&hourly=temperature_2m,weather_code,precipitation_probability" +
+                    "&hourly=temperature_2m,weather_code,precipitation_probability,is_day" +
                     "&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,precipitation_probability_max" +
                     "&timezone=auto"
 
@@ -225,7 +225,8 @@ class OpenMeteoProvider(
                 val epochMillis: Long,
                 val tempF: Int,
                 val condition: WeatherCondition,
-                val precipChance: Int
+                val precipChance: Int,
+                val isNight: Boolean
             )
             val candidates = mutableListOf<RawHourCandidate>()
             for (i in 0 until size) {
@@ -235,12 +236,24 @@ class OpenMeteoProvider(
                 val hourTempF = (hourly.temperature_2m[i] * 9 / 5 + 32).toInt()
                 val hourCondition = mapWmoCodeToCondition(hourly.weather_code[i])
                 val precipChance = hourly.precipitation_probability.getOrNull(i) ?: 0
+                val isDayVal = hourly.is_day?.getOrNull(i)
+                val candidateIsNight = if (isDayVal != null) {
+                    isDayVal == 0
+                } else {
+                    com.example.utils.WeatherTimeUtils.isNightForLocation(
+                        timestampEpochMillis = epochMillis,
+                        timeZoneId = resp.timezone,
+                        sunriseStr = sunriseStr,
+                        sunsetStr = sunsetStr
+                    )
+                }
                 candidates.add(
                     RawHourCandidate(
                         epochMillis = epochMillis,
                         tempF = hourTempF,
                         condition = hourCondition,
-                        precipChance = precipChance
+                        precipChance = precipChance,
+                        isNight = candidateIsNight
                     )
                 )
             }
@@ -256,7 +269,8 @@ class OpenMeteoProvider(
                         temperature = candidate.tempF,
                         condition = candidate.condition,
                         precipitationChance = candidate.precipChance,
-                        timestampEpochMillis = candidate.epochMillis
+                        timestampEpochMillis = candidate.epochMillis,
+                        isNight = candidate.isNight
                     )
                 )
             }
@@ -419,7 +433,8 @@ data class OpenMeteoHourly(
     val time: List<String>,
     val temperature_2m: List<Double>,
     val weather_code: List<Int>,
-    val precipitation_probability: List<Int>
+    val precipitation_probability: List<Int>,
+    val is_day: List<Int>? = null
 )
 
 data class OpenMeteoDaily(
