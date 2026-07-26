@@ -103,16 +103,21 @@ class WeatherTileSource(
                         val a = (pixel shr 24) and 0xFF
                         if (a > 0) {
                             totalColored++
-                            val r = (pixel shr 16) and 0xFF
-                            val g = (pixel shr 8) and 0xFF
-                            val b = pixel and 0xFF
+                            // Un-premultiply RGB channels because Android BitmapFactory premultiplies RGB by alpha during PNG decoding
+                            val premultR = (pixel shr 16) and 0xFF
+                            val premultG = (pixel shr 8) and 0xFF
+                            val premultB = pixel and 0xFF
+
+                            val r = ((premultR * 255) / a).coerceAtMost(255)
+                            val g = ((premultG * 255) / a).coerceAtMost(255)
+                            val b = ((premultB * 255) / a).coerceAtMost(255)
 
                             when {
-                                g > r + 25 && g > b + 10 -> greenPx++
+                                g > r + 20 && g > b + 10 -> greenPx++
                                 r > 180 && g > 140 && b < 100 -> yellowPx++
                                 (r > 180 && g < 120 && b < 120) || (r > 150 && b > 150 && g < 100) -> redPx++
                                 g > 180 && b > 180 && r < 120 -> cyanPx++
-                                b > 110 && r in 60..150 && g in 60..150 -> tracePx++
+                                b > 100 && r in 40..160 && g in 40..160 -> tracePx++
                                 else -> otherPx++
                             }
                         }
@@ -179,12 +184,12 @@ class FutureWeatherLayerManager {
 
             when (layer) {
                 MapWeatherLayer.RAIN_RADAR -> {
-                    // Boost color saturation (1.25x) and alpha channel (1.75x) so green, yellow, orange, and red rain cores render with 100% opacity and high contrast
+                    // Boost color saturation (1.35x) and alpha channel (2.8x) so green, yellow, orange, and red rain cores render with 100% opacity and high contrast
                     val rainMatrix = ColorMatrix(floatArrayOf(
-                        1.25f, 0f,    0f,    0f, 0f,
-                        0f,    1.25f, 0f,    0f, 0f,
-                        0f,    0f,    1.25f, 0f, 0f,
-                        0f,    0f,    0f,    1.75f, 0f
+                        1.35f, 0f,    0f,    0f, 0f,
+                        0f,    1.35f, 0f,    0f, 0f,
+                        0f,    0f,    1.35f, 0f, 0f,
+                        0f,    0f,    0f,    2.8f, 0f
                     ))
                     setColorFilter(ColorMatrixColorFilter(rainMatrix))
                 }
