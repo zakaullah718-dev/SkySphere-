@@ -11,7 +11,7 @@ enum class WeatherCondition(
 ) {
     SUNNY("Sunny", "WbSunny", "Clear sky conditions", Color(0xFFFFB300), Color(0xFFFF7043)),
     PARTLY_CLOUDY("Partly Cloudy", "CloudQueue", "Few passing clouds", Color(0xFF4FA7FF), Color(0xFF1E88E5)),
-    CLOUDY("Cloudy", "Cloud", "Overcast sky", Color(0xFF78909C), Color(0xFF455A64)),
+    CLOUDY("Cloudy", "Cloud", "Overcast sky", Color(0xFF455A64), Color(0xFF263238)),
     RAINY("Rainy", "WaterDrop", "Showers and drizzling", Color(0xFF4FC3F7), Color(0xFF0288D1)),
     STORM("Storm", "Thunderstorm", "Heavy storm and thunder", Color(0xFF9575CD), Color(0xFF5E35B1)),
     SNOWY("Snowy", "AcUnit", "Light snow and ice", Color(0xFF80DEEA), Color(0xFF00ACC1))

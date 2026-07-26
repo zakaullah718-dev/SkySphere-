@@ -7,15 +7,35 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
+data class RadarFrame(
+    val time: Long = 0L,
+    val path: String = "",
+    val host: String = "https://tilecache.rainviewer.com"
+) {
+    fun buildTileUrl(zoom: Int, x: Int, y: Int, palette: Int = 4): String {
+        val clampedZoom = zoom.coerceIn(0, 12)
+        val cleanHost = host.trimEnd('/')
+        val cleanPath = if (path.startsWith("/")) path else if (path.isNotBlank()) "/$path" else ""
+        return if (cleanPath.isNotBlank() && cleanPath != "/") {
+            "$cleanHost$cleanPath/256/$clampedZoom/$x/$y/$palette/1_1.png"
+        } else {
+            val fallbackTs = if (time > 0L) time else ((System.currentTimeMillis() - 600_000L) / 600_000L) * 600L
+            "$cleanHost/v2/radar/$fallbackTs/256/$clampedZoom/$x/$y/$palette/1_1.png"
+        }
+    }
+}
+
 data class TileAuditResult(
     val step1_jsonDownloaded: Boolean = false,
     val step2_latestTimestamp: Long = 0L,
+    val step2_latestPath: String = "",
     val step3_tileUrl: String = "",
     val step4_loggedUrl: String = "",
     val step5_httpResponseCode: Int = 0,
@@ -42,24 +62,27 @@ class FutureRadarRepository {
         .build()
 
     @Volatile
-    private var cachedTimestamp: Long = 0L
-
-    @Volatile
-    private var cachedHost: String = "https://tilecache.rainviewer.com"
+    private var cachedFrame: RadarFrame? = null
 
     @Volatile
     private var lastFetchTime: Long = 0L
 
-    suspend fun getLatestRadarTimestamp(): Long = withContext(Dispatchers.IO) {
+    fun invalidateCache() {
+        cachedFrame = null
+        lastFetchTime = 0L
+        Log.d("RainRadarRepo", "RainViewer radar cache invalidated.")
+    }
+
+    suspend fun getLatestRadarFrame(forceRefresh: Boolean = false): RadarFrame = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        // Cache for 3 minutes (180,000 ms)
-        if (cachedTimestamp > 0L && (now - lastFetchTime) < 180_000L) {
-            return@withContext cachedTimestamp
+        if (!forceRefresh && cachedFrame != null && (now - lastFetchTime) < 120_000L) {
+            return@withContext cachedFrame!!
         }
 
         try {
             val request = Request.Builder()
                 .url("https://api.rainviewer.com/public/weather-maps.json")
+                .header("User-Agent", "SkySphereApp/1.0")
                 .build()
 
             client.newCall(request).execute().use { response ->
@@ -67,40 +90,58 @@ class FutureRadarRepository {
                     val bodyString = response.body?.string()
                     if (!bodyString.isNullOrBlank()) {
                         val json = JSONObject(bodyString)
-                        val host = json.optString("host", "")
-                        if (host.isNotBlank()) {
-                            cachedHost = host
-                        }
+                        val host = json.optString("host", "https://tilecache.rainviewer.com")
                         val radarObj = json.optJSONObject("radar")
                         val pastArray = radarObj?.optJSONArray("past")
                         if (pastArray != null && pastArray.length() > 0) {
                             val latestItem = pastArray.getJSONObject(pastArray.length() - 1)
                             val time = latestItem.optLong("time", 0L)
-                            if (time > 0L) {
-                                cachedTimestamp = time
+                            val path = latestItem.optString("path", "")
+                            if (path.isNotBlank() || time > 0L) {
+                                val frame = RadarFrame(time = time, path = path, host = host)
+                                cachedFrame = frame
                                 lastFetchTime = now
-                                Log.d("RainRadarRepo", "Fetched latest RainViewer timestamp: $time (Host: $cachedHost)")
-                                return@withContext time
+                                Log.d("RainRadarRepo", "Fetched newest weather-maps.json -> time=$time, path=$path, host=$host")
+                                return@withContext frame
                             }
                         }
                     }
+                } else {
+                    Log.w("RainRadarRepo", "weather-maps.json returned HTTP ${response.code}")
                 }
             }
         } catch (e: Exception) {
-            Log.w("RainRadarRepo", "Error fetching RainViewer timestamp: ${e.localizedMessage}")
+            Log.w("RainRadarRepo", "Error fetching RainViewer weather-maps.json: ${e.localizedMessage}")
         }
 
-        // Fallback: 10 minutes ago timestamp (in seconds)
-        val fallbackTime = ((now - 600_000L) / 600_000L) * 600L
-        cachedTimestamp = fallbackTime
+        // Fallback frame if network/json parse fails
+        val fallbackTs = ((now - 600_000L) / 600_000L) * 600L
+        val fallbackFrame = RadarFrame(time = fallbackTs, path = "", host = "https://tilecache.rainviewer.com")
+        cachedFrame = fallbackFrame
         lastFetchTime = now
-        fallbackTime
+        fallbackFrame
+    }
+
+    fun getLatestRadarFrameSync(forceRefresh: Boolean = false): RadarFrame {
+        val now = System.currentTimeMillis()
+        if (!forceRefresh && cachedFrame != null && (now - lastFetchTime) < 120_000L) {
+            return cachedFrame!!
+        }
+        return try {
+            runBlocking(Dispatchers.IO) {
+                getLatestRadarFrame(forceRefresh)
+            }
+        } catch (e: Exception) {
+            cachedFrame ?: RadarFrame(time = ((now - 600_000L) / 600_000L) * 600L)
+        }
+    }
+
+    suspend fun getLatestRadarTimestamp(): Long {
+        return getLatestRadarFrame().time
     }
 
     fun getFallbackTimestamp(): Long {
-        val now = System.currentTimeMillis()
-        if (cachedTimestamp > 0L) return cachedTimestamp
-        return ((now - 600_000L) / 600_000L) * 600L
+        return cachedFrame?.time ?: (((System.currentTimeMillis() - 600_000L) / 600_000L) * 600L)
     }
 
     suspend fun runPipelineAudit(
@@ -112,63 +153,52 @@ class FutureRadarRepository {
 
         // Step 1: Download weather-maps.json
         Log.d("RainRadarAudit", "[Checklist Step 1] Requesting https://api.rainviewer.com/public/weather-maps.json")
-        var host = cachedHost
-        var latestTs = 0L
-        var step1Success = false
+        val frame = getLatestRadarFrame(forceRefresh = true)
+        val step1Success = frame.path.isNotBlank() || frame.time > 0L
 
-        try {
-            val request = Request.Builder()
-                .url("https://api.rainviewer.com/public/weather-maps.json")
-                .build()
-            client.newCall(request).execute().use { response ->
-                if (response.isSuccessful) {
-                    step1Success = true
-                    val bodyStr = response.body?.string()
-                    if (!bodyStr.isNullOrEmpty()) {
-                        val json = JSONObject(bodyStr)
-                        val h = json.optString("host", "")
-                        if (h.isNotBlank()) {
-                            host = h
-                            cachedHost = h
-                        }
-                        val radarObj = json.optJSONObject("radar")
-                        val pastArr = radarObj?.optJSONArray("past")
-                        if (pastArr != null && pastArr.length() > 0) {
-                            latestTs = pastArr.getJSONObject(pastArr.length() - 1).optLong("time", 0L)
-                        }
-                    }
-                }
-            }
-        } catch (e: Exception) {
-            Log.e("RainRadarAudit", "[Step 1 FAIL] Exception fetching weather-maps.json: ${e.localizedMessage}")
-        }
-
-        if (latestTs == 0L) {
-            latestTs = getLatestRadarTimestamp()
-        }
-
-        // Step 2: Verify latest radar timestamp
-        Log.d("RainRadarAudit", "[Checklist Step 2] Verified latest radar timestamp: $latestTs (Host: $host)")
+        // Step 2: Verify latest radar timestamp and path
+        Log.d("RainRadarAudit", "[Checklist Step 2] Verified latest radar timestamp: ${frame.time}, path: ${frame.path} (Host: ${frame.host})")
 
         // Step 3 & 4: Generate and log correct tile URL
-        val tileX = getTileX(lon, zoom)
-        val tileY = getTileY(lat, zoom)
-        val tileUrl = "$host/v2/radar/$latestTs/256/$zoom/$tileX/$tileY/4/1_1.png"
-        Log.d("RainRadarAudit", "[Checklist Step 3 & 4] Generated Tile URL for Lat/Lon ($lat, $lon) at Zoom $zoom: $tileUrl")
+        val clampedZoom = zoom.coerceIn(0, 12)
+        val tileX = getTileX(lon, clampedZoom)
+        val tileY = getTileY(lat, clampedZoom)
+        var tileUrl = frame.buildTileUrl(clampedZoom, tileX, tileY)
+        Log.d("RainRadarAudit", "[Checklist Step 3 & 4] Generated Tile URL for Lat/Lon ($lat, $lon) at Zoom $clampedZoom (X=$tileX, Y=$tileY): $tileUrl")
 
-        // Step 5, 6, 7: Fetch tile, HTTP response 200, Content-Type, Content-Length
+        // Step 5, 6, 7: Fetch tile, check HTTP response 200, Content-Type, Content-Length with automatic 410 retry
         var httpCode = 0
         var contentType = ""
         var contentLength = 0L
         var tileBytes: ByteArray? = null
 
         try {
-            val tileReq = Request.Builder().url(tileUrl).build()
+            val tileReq = Request.Builder()
+                .url(tileUrl)
+                .header("User-Agent", "SkySphereApp/1.0")
+                .build()
             client.newCall(tileReq).execute().use { res ->
                 httpCode = res.code
                 contentType = res.header("Content-Type", "") ?: ""
                 contentLength = res.body?.contentLength() ?: 0L
-                tileBytes = res.body?.bytes()
+
+                if (httpCode == 410) {
+                    Log.w("RainRadarAudit", "[Checklist Step 5] HTTP 410 Gone for $tileUrl. Clearing cache and retrying with fresh frame...")
+                    invalidateCache()
+                    val freshFrame = getLatestRadarFrame(forceRefresh = true)
+                    tileUrl = freshFrame.buildTileUrl(clampedZoom, tileX, tileY)
+                    Log.d("RainRadarAudit", "[Checklist Step 5 Retry] Retrying tile URL: $tileUrl")
+                    client.newCall(Request.Builder().url(tileUrl).header("User-Agent", "SkySphereApp/1.0").build()).execute().use { retryRes ->
+                        httpCode = retryRes.code
+                        contentType = retryRes.header("Content-Type", "") ?: ""
+                        contentLength = retryRes.body?.contentLength() ?: 0L
+                        if (retryRes.isSuccessful) {
+                            tileBytes = retryRes.body?.bytes()
+                        }
+                    }
+                } else if (res.isSuccessful) {
+                    tileBytes = res.body?.bytes()
+                }
                 if (contentLength <= 0L && tileBytes != null) {
                     contentLength = tileBytes!!.size.toLong()
                 }
@@ -181,11 +211,27 @@ class FutureRadarRepository {
         Log.d("RainRadarAudit", "[Checklist Step 6] Content-Type: $contentType")
         Log.d("RainRadarAudit", "[Checklist Step 7] Content-Length: $contentLength bytes")
 
+        if (contentType.contains("text/html", ignoreCase = true) || !contentType.contains("image", ignoreCase = true)) {
+            Log.e("RainRadarAudit", "[Step 6 FAIL] Invalid Content-Type '$contentType' (HTML/Non-Image). Aborting decode.")
+            return@withContext TileAuditResult(
+                step1_jsonDownloaded = step1Success,
+                step2_latestTimestamp = frame.time,
+                step2_latestPath = frame.path,
+                step3_tileUrl = tileUrl,
+                step4_loggedUrl = tileUrl,
+                step5_httpResponseCode = httpCode,
+                step6_contentType = contentType,
+                step7_contentLength = contentLength,
+                errorMessage = "HTTP $httpCode with invalid Content-Type '$contentType'"
+            )
+        }
+
         if (httpCode != 200 || tileBytes == null || tileBytes!!.isEmpty()) {
             Log.e("RainRadarAudit", "AUDIT STOPPED AT STEP 5: HTTP response $httpCode or empty tile body")
             return@withContext TileAuditResult(
                 step1_jsonDownloaded = step1Success,
-                step2_latestTimestamp = latestTs,
+                step2_latestTimestamp = frame.time,
+                step2_latestPath = frame.path,
                 step3_tileUrl = tileUrl,
                 step4_loggedUrl = tileUrl,
                 step5_httpResponseCode = httpCode,
@@ -207,7 +253,8 @@ class FutureRadarRepository {
             Log.e("RainRadarAudit", "AUDIT STOPPED AT STEP 8: Failed to decode PNG bitmap")
             return@withContext TileAuditResult(
                 step1_jsonDownloaded = step1Success,
-                step2_latestTimestamp = latestTs,
+                step2_latestTimestamp = frame.time,
+                step2_latestPath = frame.path,
                 step3_tileUrl = tileUrl,
                 step4_loggedUrl = tileUrl,
                 step5_httpResponseCode = httpCode,
@@ -274,7 +321,8 @@ class FutureRadarRepository {
 
         TileAuditResult(
             step1_jsonDownloaded = step1Success,
-            step2_latestTimestamp = latestTs,
+            step2_latestTimestamp = frame.time,
+            step2_latestPath = frame.path,
             step3_tileUrl = tileUrl,
             step4_loggedUrl = tileUrl,
             step5_httpResponseCode = httpCode,
@@ -303,4 +351,3 @@ class FutureRadarRepository {
         return Math.floor((1.0 - Math.log(Math.tan(latRad) + 1.0 / Math.cos(latRad)) / Math.PI) / 2.0 * (1 shl zoom)).toInt().coerceIn(0, (1 shl zoom) - 1)
     }
 }
-

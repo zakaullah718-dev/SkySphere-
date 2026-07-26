@@ -748,14 +748,14 @@ fun CloudDriftOverlay(infiniteTransition: InfiniteTransition, condition: Weather
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
         val width = size.width
         if (width > 0) {
-            val alpha = if (condition == WeatherCondition.CLOUDY) 0.15f else 0.08f
+            val darkCloudColor = Color(0xFF1E293B).copy(alpha = if (condition == WeatherCondition.CLOUDY) 0.38f else 0.22f)
             drawCircle(
-                color = Color.White.copy(alpha = alpha),
+                color = darkCloudColor,
                 radius = 160.dp.toPx(),
                 center = Offset(cloudOffset.dp.toPx(), 180.dp.toPx())
             )
             drawCircle(
-                color = Color.White.copy(alpha = alpha),
+                color = darkCloudColor,
                 radius = 120.dp.toPx(),
                 center = Offset((cloudOffset + 120f).dp.toPx(), 220.dp.toPx())
             )
@@ -781,24 +781,25 @@ fun DenseCloudOverlay(infiniteTransition: InfiniteTransition) {
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
         val width = size.width
         if (width > 0) {
-            val cloudColor = Color.White.copy(alpha = 0.12f)
+            val darkStormColor = Color(0xFF0F172A).copy(alpha = 0.35f)
+            val slateCloudColor = Color(0xFF334155).copy(alpha = 0.30f)
             drawCircle(
-                color = cloudColor,
+                color = darkStormColor,
                 radius = 180.dp.toPx(),
                 center = Offset(cloudOffset1.dp.toPx(), 140.dp.toPx())
             )
             drawCircle(
-                color = cloudColor,
+                color = slateCloudColor,
                 radius = 140.dp.toPx(),
                 center = Offset((cloudOffset1 + 130f).dp.toPx(), 180.dp.toPx())
             )
             drawCircle(
-                color = cloudColor,
+                color = darkStormColor,
                 radius = 200.dp.toPx(),
                 center = Offset(cloudOffset2.dp.toPx(), 220.dp.toPx())
             )
             drawCircle(
-                color = cloudColor,
+                color = slateCloudColor,
                 radius = 150.dp.toPx(),
                 center = Offset((cloudOffset2 - 120f).dp.toPx(), 200.dp.toPx())
             )

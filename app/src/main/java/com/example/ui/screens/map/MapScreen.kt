@@ -324,7 +324,7 @@ fun MapScreen(
             isAuditing = true
             val lat = mapState.centerLatitude
             val lon = mapState.centerLongitude
-            val zoom = mapState.zoomLevel.toInt().coerceIn(1, 18)
+            val zoom = mapState.zoomLevel.toInt().coerceIn(0, 12)
             val res = radarRepository.runPipelineAudit(lat, lon, zoom)
             auditResult = res
             isAuditing = false
@@ -581,7 +581,7 @@ fun MapScreen(
 
                         Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                             Text("✓ Step 1: Downloaded weather-maps.json (${if (res.step1_jsonDownloaded) "OK" else "Fallback"})", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
-                            Text("✓ Step 2: Timestamp Verified (${res.step2_latestTimestamp})", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
+                            Text("✓ Step 2: Timestamp Verified (${res.step2_latestTimestamp}, Path: ${res.step2_latestPath})", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
                             Text("✓ Step 5: HTTP Code = ${res.step5_httpResponseCode}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
                             Text("✓ Step 6: Content-Type = ${res.step6_contentType}", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))
                             Text("✓ Step 7: Content-Length = ${res.step7_contentLength} B", style = MaterialTheme.typography.labelSmall.copy(fontSize = 9.sp))

@@ -40,8 +40,8 @@ fun WeatherConditionIcon(
 
     val defaultTint = when (safeCondition) {
         WeatherCondition.SUNNY -> Color(0xFFFFD54F) // Radiant Sun Amber
-        WeatherCondition.PARTLY_CLOUDY -> Color(0xFF90CAF9) // Atmospheric soft blue
-        WeatherCondition.CLOUDY -> Color(0xFFCFD8DC) // Misty silver-grey
+        WeatherCondition.PARTLY_CLOUDY -> Color(0xFF546E7A) // Dark steel slate
+        WeatherCondition.CLOUDY -> Color(0xFF455A64) // Dark charcoal storm slate
         WeatherCondition.RAINY -> Color(0xFF4FC3F7) // Ocean rain blue
         WeatherCondition.STORM -> Color(0xFFB39DDB) // Cosmic storm lavender
         WeatherCondition.SNOWY -> Color(0xFF80DEEA) // Frozen glacial ice
