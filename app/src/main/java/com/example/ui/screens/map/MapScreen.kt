@@ -131,7 +131,13 @@ fun MapScreen(
     // Helper to trigger center & reverse geocode
     fun centerOnLocation(mapView: MapView?, lat: Double, lon: Double, zoomLevel: Double = 11.0) {
         val geoPoint = GeoPoint(lat, lon)
-        mapView?.controller?.setZoom(zoomLevel)
+        val maxRadarZoom = FutureWeatherLayerManager.PROVIDER_MAX_ZOOM.toDouble()
+        val targetZoom = if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR && zoomLevel > maxRadarZoom) {
+            maxRadarZoom
+        } else {
+            zoomLevel
+        }
+        mapView?.controller?.setZoom(targetZoom)
         mapView?.controller?.animateTo(geoPoint)
         controller.updateUserLocation(lat, lon, mapState.locationName)
 
@@ -149,12 +155,20 @@ fun MapScreen(
     fun moveToCurrentLocation(mapView: MapView?) {
         val overlay = locationOverlayRef[0]
         val myLocation = overlay?.myLocation
+        val currentZoom = mapView?.zoomLevelDouble ?: 11.0
+        val maxRadarZoom = FutureWeatherLayerManager.PROVIDER_MAX_ZOOM.toDouble()
+        val targetZoom = if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR) {
+            minOf(if (currentZoom < 8.0) 11.0 else currentZoom, maxRadarZoom)
+        } else {
+            if (currentZoom < 8.0) 11.0 else currentZoom
+        }
+
         if (myLocation != null) {
-            centerOnLocation(mapView, myLocation.latitude, myLocation.longitude, 11.0)
+            centerOnLocation(mapView, myLocation.latitude, myLocation.longitude, targetZoom)
         } else {
             val lastLocation = mapRepository.getLastKnownLocation(context)
             if (lastLocation != null) {
-                centerOnLocation(mapView, lastLocation.latitude, lastLocation.longitude, 11.0)
+                centerOnLocation(mapView, lastLocation.latitude, lastLocation.longitude, targetZoom)
             } else {
                 Toast.makeText(context, "Acquiring GPS location fix...", Toast.LENGTH_SHORT).show()
                 controller.setLocating(true)
@@ -242,6 +256,14 @@ fun MapScreen(
                 setBuiltInZoomControls(false)
                 minZoomLevel = 2.0
                 maxZoomLevel = 20.0
+
+                addMapListener(object : org.osmdroid.events.MapListener {
+                    override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean = false
+                    override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
+                        postInvalidate()
+                        return false
+                    }
+                })
 
                 val defaultCenter = mapRepository.getDefaultCenter()
                 val defaultZoom = mapRepository.getDefaultZoom()

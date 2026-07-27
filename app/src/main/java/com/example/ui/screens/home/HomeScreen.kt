@@ -804,7 +804,7 @@ fun HomeScreenContent(
                     horizontalArrangement = Arrangement.spacedBy(14.dp),
                     contentPadding = PaddingValues(horizontal = 2.dp)
                 ) {
-                    itemsIndexed(details.hourlyForecast, key = { index, hour -> "hourly_${index}_${hour.time}" }) { _, hour ->
+                    itemsIndexed(details.hourlyForecast, key = { index, _ -> "hourly_card_$index" }) { _, hour ->
                         Card(
                             colors = CardDefaults.cardColors(
                                 containerColor = Color(0xFF1E1E2E) // Solid accessible dark gray card background (as requested)
@@ -834,6 +834,7 @@ fun HomeScreenContent(
                                 )
                                 WeatherConditionIcon(
                                     condition = hour.condition,
+                                    isNight = hour.isNight,
                                     modifier = Modifier.size(24.dp)
                                 )
                                 Text(
@@ -843,18 +844,14 @@ fun HomeScreenContent(
                                         color = MaterialTheme.colorScheme.onBackground
                                     )
                                 )
-                                if (hour.precipitationChance > 0) {
-                                    Text(
-                                        text = "${hour.precipitationChance}%",
-                                        style = MaterialTheme.typography.bodySmall.copy(
-                                            color = LuxuryCyan,
-                                            fontWeight = FontWeight.Bold,
-                                            fontSize = 10.sp
-                                        )
+                                Text(
+                                    text = "${hour.precipitationChance.coerceIn(0, 100)}%",
+                                    style = MaterialTheme.typography.bodySmall.copy(
+                                        color = if (hour.precipitationChance > 0) LuxuryCyan else MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
+                                        fontWeight = FontWeight.Bold,
+                                        fontSize = 11.sp
                                     )
-                                } else {
-                                    Spacer(modifier = Modifier.height(14.dp))
-                                }
+                                )
                             }
                         }
                     }

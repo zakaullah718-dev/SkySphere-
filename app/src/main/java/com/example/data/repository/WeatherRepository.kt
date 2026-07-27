@@ -562,9 +562,24 @@ class WeatherRepository(private val context: Context) {
         try {
             val result = fetchWeatherFromApi(active.cityName, forceRefresh = true)
             result.onSuccess { fullCityWeather ->
+                val alignedDetails = alignWeatherDetailsHourly(fullCityWeather.weatherDetails)
+                val finalHourly = if (alignedDetails.hourlyForecast.isNotEmpty()) {
+                    alignedDetails.hourlyForecast
+                } else {
+                    active.weatherDetails.hourlyForecast
+                }
+                val finalDaily = if (alignedDetails.dailyForecast.isNotEmpty()) {
+                    alignedDetails.dailyForecast
+                } else {
+                    active.weatherDetails.dailyForecast
+                }
+
                 val refreshedCity = fullCityWeather.copy(
                     isFavorite = active.isFavorite,
-                    weatherDetails = fullCityWeather.weatherDetails.copy()
+                    weatherDetails = alignedDetails.copy(
+                        hourlyForecast = finalHourly,
+                        dailyForecast = finalDaily
+                    )
                 )
                 saveCityToCache(refreshedCity)
                 _selectedCity.value = refreshedCity

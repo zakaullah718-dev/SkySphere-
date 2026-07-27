@@ -28,6 +28,11 @@ class FutureWeatherLayerManager(
         const val PROVIDER_MIN_ZOOM = 1
         const val PROVIDER_MAX_ZOOM = 12
         const val OVERLAY_MAX_ZOOM = 20
+
+        val emptyTransparentTile: Drawable by lazy {
+            val bitmap = Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
+            BitmapDrawable(null, bitmap)
+        }
     }
 
     fun createTilesOverlay(
@@ -127,6 +132,9 @@ class RainRadarTileModuleProvider(
     }
 
     private fun fetchProviderTileBitmap(zoom: Int, x: Int, y: Int): Pair<Bitmap?, String> {
+        if (zoom < FutureWeatherLayerManager.PROVIDER_MIN_ZOOM || zoom > FutureWeatherLayerManager.PROVIDER_MAX_ZOOM) {
+            return Pair(null, "Unsupported provider zoom level")
+        }
         val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.PROVIDER_MAX_ZOOM)
         var frame = radarRepository.getLatestRadarFrameSync()
         val cacheKey = "${frame.time}_${clampedZoom}_${x}_${y}"
@@ -191,7 +199,12 @@ class RainRadarTileModuleProvider(
 
     private inner class RainTileLoader : MapTileModuleProviderBase.TileLoader() {
         override fun loadTile(pMapTileIndex: Long): Drawable? {
-            val mapZoom = MapTileIndex.getZoom(pMapTileIndex).coerceIn(
+            val rawZoom = MapTileIndex.getZoom(pMapTileIndex)
+            if (rawZoom < FutureWeatherLayerManager.PROVIDER_MIN_ZOOM || rawZoom > FutureWeatherLayerManager.OVERLAY_MAX_ZOOM) {
+                return FutureWeatherLayerManager.emptyTransparentTile
+            }
+
+            val mapZoom = rawZoom.coerceIn(
                 FutureWeatherLayerManager.PROVIDER_MIN_ZOOM,
                 FutureWeatherLayerManager.OVERLAY_MAX_ZOOM
             )
@@ -202,7 +215,7 @@ class RainRadarTileModuleProvider(
 
             if (mapZoom <= providerMaxZoom) {
                 val (bitmap, status) = fetchProviderTileBitmap(mapZoom, tileX, tileY)
-                return if (bitmap != null) BitmapDrawable(null, bitmap) else null
+                return if (bitmap != null) BitmapDrawable(null, bitmap) else FutureWeatherLayerManager.emptyTransparentTile
             } else {
                 val deltaZ = mapZoom - providerMaxZoom
                 val parentX = tileX shr deltaZ
@@ -210,7 +223,7 @@ class RainRadarTileModuleProvider(
 
                 val (parentBitmap, _) = fetchProviderTileBitmap(providerMaxZoom, parentX, parentY)
                 if (parentBitmap == null || parentBitmap.isRecycled) {
-                    return null
+                    return FutureWeatherLayerManager.emptyTransparentTile
                 }
 
                 return try {
@@ -222,7 +235,7 @@ class RainRadarTileModuleProvider(
                     val cropWidth = minOf(subSize, parentBitmap.width - offsetX)
                     val cropHeight = minOf(subSize, parentBitmap.height - offsetY)
 
-                    if (cropWidth <= 0 || cropHeight <= 0) return null
+                    if (cropWidth <= 0 || cropHeight <= 0) return FutureWeatherLayerManager.emptyTransparentTile
 
                     val cropped = Bitmap.createBitmap(parentBitmap, offsetX, offsetY, cropWidth, cropHeight)
                     val scaledBitmap = Bitmap.createScaledBitmap(cropped, 256, 256, true)
@@ -233,7 +246,7 @@ class RainRadarTileModuleProvider(
                     BitmapDrawable(null, scaledBitmap)
                 } catch (e: Exception) {
                     Log.e("RainRadarZoom", "Error cropping/scaling radar tile [MapZoom=$mapZoom, X=$tileX, Y=$tileY]: ${e.localizedMessage}")
-                    null
+                    FutureWeatherLayerManager.emptyTransparentTile
                 }
             }
         }
@@ -352,7 +365,7 @@ class OwmTileModuleProvider(
 
             if (mapZoom <= providerMaxZoom) {
                 val bitmap = fetchProviderTileBitmap(mapZoom, tileX, tileY)
-                return if (bitmap != null) BitmapDrawable(null, bitmap) else null
+                return if (bitmap != null) BitmapDrawable(null, bitmap) else FutureWeatherLayerManager.emptyTransparentTile
             } else {
                 val deltaZ = mapZoom - providerMaxZoom
                 val parentX = tileX shr deltaZ
@@ -360,7 +373,7 @@ class OwmTileModuleProvider(
 
                 val parentBitmap = fetchProviderTileBitmap(providerMaxZoom, parentX, parentY)
                 if (parentBitmap == null || parentBitmap.isRecycled) {
-                    return null
+                    return FutureWeatherLayerManager.emptyTransparentTile
                 }
 
                 return try {
@@ -372,7 +385,7 @@ class OwmTileModuleProvider(
                     val cropWidth = minOf(subSize, parentBitmap.width - offsetX)
                     val cropHeight = minOf(subSize, parentBitmap.height - offsetY)
 
-                    if (cropWidth <= 0 || cropHeight <= 0) return null
+                    if (cropWidth <= 0 || cropHeight <= 0) return FutureWeatherLayerManager.emptyTransparentTile
 
                     val cropped = Bitmap.createBitmap(parentBitmap, offsetX, offsetY, cropWidth, cropHeight)
                     val scaledBitmap = Bitmap.createScaledBitmap(cropped, 256, 256, true)
@@ -383,7 +396,7 @@ class OwmTileModuleProvider(
                     BitmapDrawable(null, scaledBitmap)
                 } catch (e: Exception) {
                     Log.e("OwmTileZoom", "Error cropping OWM tile: ${e.localizedMessage}")
-                    null
+                    FutureWeatherLayerManager.emptyTransparentTile
                 }
             }
         }
