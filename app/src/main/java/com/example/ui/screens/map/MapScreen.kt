@@ -50,6 +50,7 @@ import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material.icons.filled.WaterDrop
+import androidx.compose.material.icons.filled.WaterDrop
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -123,6 +124,25 @@ fun MapScreen(
 
     var showLayerSelectorSheet by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    // Time-Lapse Radar Controller & State
+    val timeLapseController = remember { RadarTimeLapseController(radarRepository) }
+    val timeLapseState by timeLapseController.state.collectAsState()
+
+    // Initialize or pause time-lapse whenever active weather layer changes
+    LaunchedEffect(mapState.selectedLayer) {
+        if (mapState.selectedLayer != MapWeatherLayer.NONE) {
+            timeLapseController.initializeForLayer(mapState.selectedLayer)
+        } else {
+            timeLapseController.pause()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            timeLapseController.destroy()
+        }
+    }
 
     // References for overlays
     val locationOverlayRef = remember { arrayOfNulls<MyLocationNewOverlay>(1) }
@@ -304,7 +324,9 @@ fun MapScreen(
     }
 
     // Dynamic Weather Overlay Manager
-    LaunchedEffect(mapState.selectedLayer, mapView) {
+    val activeFrame = timeLapseState.currentFrame
+
+    LaunchedEffect(mapState.selectedLayer, activeFrame, mapView) {
         if (mapView == null) return@LaunchedEffect
 
         // Remove previous weather layer overlay
@@ -320,14 +342,11 @@ fun MapScreen(
 
         // Attach new weather layer overlay if enabled
         if (mapState.selectedLayer != MapWeatherLayer.NONE) {
-            val radarTimestamp = if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR) {
-                radarRepository.getLatestRadarTimestamp()
-            } else 0L
-
             val newOverlay = weatherLayerManager.createTilesOverlay(
                 context = context,
                 layer = mapState.selectedLayer,
-                radarTimestamp = radarTimestamp
+                radarTimestamp = activeFrame?.timestamp ?: radarRepository.getFallbackTimestamp(),
+                customRadarFrame = activeFrame?.radarFrame
             )
             if (newOverlay != null) {
                 // Insert weather overlay underneath the location marker overlay
@@ -337,7 +356,7 @@ fun MapScreen(
             }
         }
 
-        mapView.invalidate()
+        mapView.postInvalidate()
     }
 
     // Lifecycle & battery optimization
@@ -347,7 +366,11 @@ fun MapScreen(
                 Lifecycle.Event.ON_RESUME -> {
                     mapView?.onResume()
                     if (mapState.isLocationPermissionGranted) {
-                        locationOverlayRef[0]?.enableMyLocation()
+                        try {
+                            locationOverlayRef[0]?.enableMyLocation()
+                        } catch (e: Exception) {
+                            Log.w("MapEngine", "Could not enable location overlay on resume: ${e.localizedMessage}")
+                        }
                     }
                 }
                 Lifecycle.Event.ON_PAUSE -> {
@@ -473,12 +496,49 @@ fun MapScreen(
                     }
                 }
 
-                // Control Buttons Column (Right Side - Placed safely at bottom = 104.dp above floating bottom bar)
+                // Floating Glassmorphism Radar Time-Lapse Control Panel
+                if (mapState.selectedLayer != MapWeatherLayer.NONE) {
+                    RadarTimeLapsePanel(
+                        state = timeLapseState,
+                        onTogglePlayPause = {
+                            timeLapseController.togglePlayPause { frame ->
+                                controller.setRadarTimestamp(frame.timestamp)
+                            }
+                        },
+                        onPreviousFrame = {
+                            timeLapseController.previousFrame { frame ->
+                                controller.setRadarTimestamp(frame.timestamp)
+                            }
+                        },
+                        onNextFrame = {
+                            timeLapseController.nextFrame { frame ->
+                                controller.setRadarTimestamp(frame.timestamp)
+                            }
+                        },
+                        onSeekToFrame = { index ->
+                            timeLapseController.seekToFrame(index) { frame ->
+                                controller.setRadarTimestamp(frame.timestamp)
+                            }
+                        },
+                        onCycleSpeed = {
+                            timeLapseController.cycleSpeed()
+                        },
+                        modifier = Modifier
+                            .align(Alignment.BottomCenter)
+                            .navigationBarsPadding()
+                            .padding(bottom = 12.dp)
+                    )
+                }
+
+                // Control Buttons Column (Right Side)
                 Column(
                     modifier = Modifier
                         .align(Alignment.BottomEnd)
                         .navigationBarsPadding()
-                        .padding(bottom = 104.dp, end = 20.dp),
+                        .padding(
+                            bottom = if (mapState.selectedLayer != MapWeatherLayer.NONE) 235.dp else 104.dp,
+                            end = 16.dp
+                        ),
                     verticalArrangement = Arrangement.spacedBy(14.dp)
                 ) {
                     // Weather Layers Floating Button
@@ -665,6 +725,7 @@ private fun getLayerIcon(layer: MapWeatherLayer): ImageVector {
         MapWeatherLayer.CLOUDS -> Icons.Filled.Cloud
         MapWeatherLayer.TEMPERATURE -> Icons.Filled.Thermostat
         MapWeatherLayer.WIND -> Icons.Filled.Air
+        MapWeatherLayer.HUMIDITY -> Icons.Filled.WaterDrop
         MapWeatherLayer.PRESSURE -> Icons.Filled.Compress
     }
 }
@@ -683,6 +744,10 @@ private fun LayerLegendBar(layer: MapWeatherLayer) {
         MapWeatherLayer.WIND -> Pair(
             listOf(Color(0xFFE0F7FA), Color(0xFF4DD0E1), Color(0xFF1976D2), Color(0xFF7B1FA2), Color(0xFF4A148C)),
             listOf("Calm", "Breeze", "Moderate", "Strong", "Storm")
+        )
+        MapWeatherLayer.HUMIDITY -> Pair(
+            listOf(Color(0xFFFFF9C4), Color(0xFF81D4FA), Color(0xFF29B6F6), Color(0xFF0288D1), Color(0xFF01579B)),
+            listOf("Dry (0%)", "Low", "Moderate", "High", "Saturated")
         )
         MapWeatherLayer.PRESSURE -> Pair(
             listOf(Color(0xFF512DA8), Color(0xFF0288D1), Color(0xFF009688), Color(0xFFF57C00)),

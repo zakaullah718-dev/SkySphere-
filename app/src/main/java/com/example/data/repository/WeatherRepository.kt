@@ -206,6 +206,35 @@ class WeatherRepository(private val context: Context) {
     private val _selectedCity = MutableStateFlow<CityWeather>(defaultPlaceholder)
     val selectedCity = _selectedCity.asStateFlow()
 
+    private fun saveLastSelectedLocation(
+        cityName: String,
+        isGps: Boolean,
+        lat: Double? = null,
+        lon: Double? = null,
+        region: String? = null,
+        country: String? = null
+    ) {
+        val editor = prefs.edit()
+            .putString("last_selected_city", cityName)
+            .putBoolean("last_selected_is_gps", isGps)
+        
+        if (lat != null && lon != null) {
+            editor.putFloat("last_gps_lat", lat.toFloat())
+            editor.putFloat("last_gps_lon", lon.toFloat())
+        }
+        if (!region.isNullOrBlank()) {
+            editor.putString("last_selected_region", region)
+        } else {
+            editor.remove("last_selected_region")
+        }
+        if (!country.isNullOrBlank()) {
+            editor.putString("last_selected_country", country)
+        } else {
+            editor.remove("last_selected_country")
+        }
+        editor.apply()
+    }
+
     init {
         CoroutineScope(Dispatchers.IO).launch {
             // Observe Room's cached weather records and stream to UI components reactively
@@ -234,9 +263,36 @@ class WeatherRepository(private val context: Context) {
                 } else {
                     _cities.value = mappedList
                     if (_selectedCity.value.cityName == "Loading...") {
-                        val firstFav = mappedList.find { it.isFavorite } ?: mappedList.first()
-                        _selectedCity.value = firstFav
-                        updateUnitForCountryIfNeeded(firstFav.country)
+                        val lastCityName = prefs.getString("last_selected_city", null)
+                        val lastIsGps = prefs.getBoolean("last_selected_is_gps", false)
+                        val lastLat = if (prefs.contains("last_gps_lat")) prefs.getFloat("last_gps_lat", 0f).toDouble() else null
+                        val lastLon = if (prefs.contains("last_gps_lon")) prefs.getFloat("last_gps_lon", 0f).toDouble() else null
+
+                        _isGpsActive.value = lastIsGps
+
+                        var restoredCity: CityWeather? = null
+                        if (!lastCityName.isNullOrBlank()) {
+                            restoredCity = mappedList.find { it.cityName.equals(lastCityName, ignoreCase = true) }
+                        }
+
+                        if (restoredCity != null) {
+                            _selectedCity.value = restoredCity
+                            updateUnitForCountryIfNeeded(restoredCity.country)
+                        } else if (lastIsGps && lastLat != null && lastLon != null) {
+                            val fallback = mappedList.find { it.isFavorite } ?: mappedList.first()
+                            _selectedCity.value = fallback
+                            updateUnitForCountryIfNeeded(fallback.country)
+                            selectLocationCoordinates(lastLat, lastLon)
+                        } else if (!lastCityName.isNullOrBlank()) {
+                            val fallback = mappedList.find { it.isFavorite } ?: mappedList.first()
+                            _selectedCity.value = fallback
+                            updateUnitForCountryIfNeeded(fallback.country)
+                            selectCity(lastCityName)
+                        } else {
+                            val fallback = mappedList.find { it.isFavorite } ?: mappedList.first()
+                            _selectedCity.value = fallback
+                            updateUnitForCountryIfNeeded(fallback.country)
+                        }
                     }
                 }
             }
@@ -303,6 +359,11 @@ class WeatherRepository(private val context: Context) {
         if (seeded.isNotEmpty()) {
             _cities.value = seeded
             _selectedCity.value = seeded.first()
+            saveLastSelectedLocation(
+                cityName = seeded.first().cityName,
+                isGps = false,
+                country = seeded.first().country
+            )
         }
     }
 
@@ -369,6 +430,12 @@ class WeatherRepository(private val context: Context) {
         if (existing != null && existing.weatherDetails.currentTemp != 0) {
             _selectedCity.value = existing
             updateUnitForCountryIfNeeded(existing.country)
+            saveLastSelectedLocation(
+                cityName = existing.cityName,
+                isGps = false,
+                region = existing.region,
+                country = existing.country
+            )
         }
         
         CoroutineScope(Dispatchers.IO).launch {
@@ -380,6 +447,12 @@ class WeatherRepository(private val context: Context) {
                     saveCityToCache(withFav)
                     _selectedCity.value = withFav
                     updateUnitForCountryIfNeeded(withFav.country)
+                    saveLastSelectedLocation(
+                        cityName = withFav.cityName,
+                        isGps = false,
+                        region = withFav.region,
+                        country = withFav.country
+                    )
                 }
             } finally {
                 _isUpdating.value = false
@@ -516,6 +589,14 @@ class WeatherRepository(private val context: Context) {
                     result.onSuccess { fullCityWeather ->
                         _selectedCity.value = fullCityWeather
                         updateUnitForCountryIfNeeded(fullCityWeather.country)
+                        saveLastSelectedLocation(
+                            cityName = fullCityWeather.cityName,
+                            isGps = true,
+                            lat = latitude,
+                            lon = longitude,
+                            region = fullCityWeather.region,
+                            country = fullCityWeather.country
+                        )
                     }
                     result.onFailure {
                         _repositoryError.value = "Failed to load weather for nearest city: $nearestCityName"
@@ -532,6 +613,14 @@ class WeatherRepository(private val context: Context) {
                         saveCityToCache(friendlyCity)
                         _selectedCity.value = friendlyCity
                         updateUnitForCountryIfNeeded(friendlyCity.country)
+                        saveLastSelectedLocation(
+                            cityName = friendlyCity.cityName,
+                            isGps = true,
+                            lat = latitude,
+                            lon = longitude,
+                            region = friendlyCity.region,
+                            country = friendlyCity.country
+                        )
                     }
                     result.onFailure {
                         val cityResult = fetchWeatherFromApi(resolved.city, forceRefresh = true)
@@ -543,6 +632,14 @@ class WeatherRepository(private val context: Context) {
                             saveCityToCache(friendlyCity)
                             _selectedCity.value = friendlyCity
                             updateUnitForCountryIfNeeded(friendlyCity.country)
+                            saveLastSelectedLocation(
+                                cityName = friendlyCity.cityName,
+                                isGps = true,
+                                lat = latitude,
+                                lon = longitude,
+                                region = friendlyCity.region,
+                                country = friendlyCity.country
+                            )
                         }
                         cityResult.onFailure {
                             _repositoryError.value = "Failed to fetch weather data for ${resolved.city}."

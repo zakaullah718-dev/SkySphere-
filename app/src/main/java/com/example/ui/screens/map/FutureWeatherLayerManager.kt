@@ -40,7 +40,8 @@ class FutureWeatherLayerManager(
     fun createTilesOverlay(
         context: Context,
         layer: MapWeatherLayer,
-        radarTimestamp: Long = radarRepository.getFallbackTimestamp()
+        radarTimestamp: Long = radarRepository.getFallbackTimestamp(),
+        customRadarFrame: RadarFrame? = null
     ): TilesOverlay? {
         if (layer == MapWeatherLayer.NONE) {
             return null
@@ -48,7 +49,7 @@ class FutureWeatherLayerManager(
 
         if (layer == MapWeatherLayer.RAIN_RADAR) {
             val dummyTileSource = object : OnlineTileSourceBase(
-                "RainViewer_Radar",
+                "RainViewer_Radar_${customRadarFrame?.time ?: radarTimestamp}",
                 PROVIDER_MIN_ZOOM,
                 OVERLAY_MAX_ZOOM,
                 256,
@@ -58,7 +59,7 @@ class FutureWeatherLayerManager(
                 override fun getTileURLString(pMapTileIndex: Long): String = ""
             }
 
-            val moduleProvider = RainRadarTileModuleProvider(dummyTileSource, null, radarRepository)
+            val moduleProvider = RainRadarTileModuleProvider(dummyTileSource, null, radarRepository, customRadarFrame)
             val providerArray = MapTileProviderArray(dummyTileSource, null, arrayOf(moduleProvider))
 
             return TilesOverlay(providerArray, context).apply {
@@ -78,6 +79,7 @@ class FutureWeatherLayerManager(
             MapWeatherLayer.CLOUDS -> "clouds_new"
             MapWeatherLayer.TEMPERATURE -> "temp_new"
             MapWeatherLayer.WIND -> "wind_new"
+            MapWeatherLayer.HUMIDITY -> "humidity_new"
             MapWeatherLayer.PRESSURE -> "pressure_new"
             else -> return null
         }
@@ -112,7 +114,8 @@ class FutureWeatherLayerManager(
 class RainRadarTileModuleProvider(
     pTileSource: ITileSource,
     pTileCache: IFilesystemCache?,
-    private val radarRepository: FutureRadarRepository
+    private val radarRepository: FutureRadarRepository,
+    @Volatile var customRadarFrame: RadarFrame? = null
 ) : MapTileModuleProviderBase(2, 40) {
 
     private val client = OkHttpClient.Builder()
@@ -120,7 +123,7 @@ class RainRadarTileModuleProvider(
         .readTimeout(5, TimeUnit.SECONDS)
         .build()
 
-    private val parentBitmapCache = LruCache<String, Bitmap>(80)
+    private val parentBitmapCache = LruCache<String, Bitmap>(120)
 
     override fun getUsesDataConnection(): Boolean = true
     override fun getName(): String = "RainRadarTileDownloader"
@@ -138,7 +141,7 @@ class RainRadarTileModuleProvider(
             return Pair(null, "Unsupported provider zoom level")
         }
         val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM)
-        var frame = radarRepository.getLatestRadarFrameSync()
+        var frame = customRadarFrame ?: radarRepository.getLatestRadarFrameSync()
         val cacheKey = "${frame.time}_${clampedZoom}_${x}_${y}"
 
         val cached = parentBitmapCache.get(cacheKey)

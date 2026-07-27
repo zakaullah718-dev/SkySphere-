@@ -122,6 +122,68 @@ class FutureRadarRepository {
         fallbackFrame
     }
 
+    suspend fun getAllRadarPastFrames(forceRefresh: Boolean = false): List<RadarFrame> = withContext(Dispatchers.IO) {
+        val now = System.currentTimeMillis()
+        try {
+            val request = Request.Builder()
+                .url("https://api.rainviewer.com/public/weather-maps.json")
+                .header("User-Agent", "SkySphereApp/1.0")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bodyString = response.body?.string()
+                    if (!bodyString.isNullOrBlank()) {
+                        val json = JSONObject(bodyString)
+                        val host = json.optString("host", "https://tilecache.rainviewer.com")
+                        val radarObj = json.optJSONObject("radar")
+                        val resultList = mutableListOf<RadarFrame>()
+
+                        val pastArray = radarObj?.optJSONArray("past")
+                        if (pastArray != null) {
+                            for (i in 0 until pastArray.length()) {
+                                val item = pastArray.getJSONObject(i)
+                                val time = item.optLong("time", 0L)
+                                val path = item.optString("path", "")
+                                if (time > 0L) {
+                                    resultList.add(RadarFrame(time = time, path = path, host = host))
+                                }
+                            }
+                        }
+
+                        val nowcastArray = radarObj?.optJSONArray("nowcast")
+                        if (nowcastArray != null) {
+                            for (i in 0 until nowcastArray.length()) {
+                                val item = nowcastArray.getJSONObject(i)
+                                val time = item.optLong("time", 0L)
+                                val path = item.optString("path", "")
+                                if (time > 0L) {
+                                    resultList.add(RadarFrame(time = time, path = path, host = host))
+                                }
+                            }
+                        }
+
+                        if (resultList.isNotEmpty()) {
+                            Log.d("RainRadarRepo", "Fetched ${resultList.size} time-lapse frames from RainViewer.")
+                            return@withContext resultList
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("RainRadarRepo", "Error fetching RainViewer time-lapse frames: ${e.localizedMessage}")
+        }
+
+        // Fallback frames covering past 6 hours in 30-min steps
+        val fallbackList = mutableListOf<RadarFrame>()
+        val nowSec = now / 1000L
+        val startSec = nowSec - (6 * 3600L)
+        for (ts in startSec..nowSec step 1800L) {
+            fallbackList.add(RadarFrame(time = ts, path = "", host = "https://tilecache.rainviewer.com"))
+        }
+        fallbackList
+    }
+
     fun getLatestRadarFrameSync(forceRefresh: Boolean = false): RadarFrame {
         val now = System.currentTimeMillis()
         if (!forceRefresh && cachedFrame != null && (now - lastFetchTime) < 120_000L) {
@@ -138,6 +200,106 @@ class FutureRadarRepository {
 
     suspend fun getLatestRadarTimestamp(): Long {
         return getLatestRadarFrame().time
+    }
+
+    suspend fun getTimeLapseFrames(): List<TimeLapseFrame> = withContext(Dispatchers.IO) {
+        val sdf = java.text.SimpleDateFormat("h:mm a", java.util.Locale.getDefault())
+        val nowMs = System.currentTimeMillis()
+        val nowSec = nowMs / 1000L
+
+        val rainViewerFrames = mutableListOf<RadarFrame>()
+        try {
+            val request = Request.Builder()
+                .url("https://api.rainviewer.com/public/weather-maps.json")
+                .header("User-Agent", "SkySphereApp/1.0")
+                .build()
+
+            client.newCall(request).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bodyString = response.body?.string()
+                    if (!bodyString.isNullOrBlank()) {
+                        val json = JSONObject(bodyString)
+                        val host = json.optString("host", "https://tilecache.rainviewer.com")
+                        val radarObj = json.optJSONObject("radar")
+                        val pastArray = radarObj?.optJSONArray("past")
+                        if (pastArray != null) {
+                            for (i in 0 until pastArray.length()) {
+                                val item = pastArray.getJSONObject(i)
+                                val t = item.optLong("time", 0L)
+                                val p = item.optString("path", "")
+                                if (t > 0L) {
+                                    rainViewerFrames.add(RadarFrame(time = t, path = p, host = host))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("RainRadarRepo", "Error fetching time lapse frames from RainViewer: ${e.localizedMessage}")
+        }
+
+        if (rainViewerFrames.isNotEmpty()) {
+            val totalCount = rainViewerFrames.size
+            val lastIdx = totalCount - 1
+            val latestTime = rainViewerFrames.last().time
+
+            val mapped = rainViewerFrames.mapIndexed { idx, frame ->
+                val timeMs = frame.time * 1000L
+                val timeLabel = sdf.format(java.util.Date(timeMs))
+                val diffMinutes = ((frame.time - latestTime) / 60L).toInt()
+                val isNow = idx == lastIdx
+                val relativeLabel = when {
+                    isNow -> "NOW"
+                    diffMinutes >= 0 -> "+${diffMinutes}m"
+                    else -> {
+                        val hours = Math.abs(diffMinutes) / 60
+                        val mins = Math.abs(diffMinutes) % 60
+                        if (hours > 0 && mins > 0) "-${hours}h ${mins}m"
+                        else if (hours > 0) "-${hours}h"
+                        else "-${mins}m"
+                    }
+                }
+
+                TimeLapseFrame(
+                    index = idx,
+                    timestamp = frame.time,
+                    timeLabel = timeLabel,
+                    relativeLabel = relativeLabel,
+                    isNow = isNow,
+                    isForecast = false,
+                    radarFrame = frame
+                )
+            }
+            return@withContext mapped
+        }
+
+        val stepSeconds = 1800L
+        val totalSteps = 12
+        val startSec = nowSec - (totalSteps * stepSeconds)
+
+        val framesList = mutableListOf<TimeLapseFrame>()
+        for (i in 0..totalSteps) {
+            val ts = startSec + (i * stepSeconds)
+            val timeMs = ts * 1000L
+            val timeLabel = sdf.format(java.util.Date(timeMs))
+            val isNow = (i == totalSteps)
+            val hoursAgo = (totalSteps - i) * 30 / 60
+            val relativeLabel = if (isNow) "NOW" else if (hoursAgo > 0) "-${hoursAgo}h" else "-30m"
+
+            framesList.add(
+                TimeLapseFrame(
+                    index = i,
+                    timestamp = ts,
+                    timeLabel = timeLabel,
+                    relativeLabel = relativeLabel,
+                    isNow = isNow,
+                    isForecast = false,
+                    radarFrame = RadarFrame(time = ts, path = "", host = "https://tilecache.rainviewer.com")
+                )
+            )
+        }
+        framesList
     }
 
     fun getFallbackTimestamp(): Long {

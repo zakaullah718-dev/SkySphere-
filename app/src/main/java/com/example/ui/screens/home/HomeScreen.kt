@@ -131,6 +131,30 @@ fun HomeScreen(
     val context = LocalContext.current
     val locationManager = remember { context.getSystemService(Context.LOCATION_SERVICE) as LocationManager }
 
+    LaunchedEffect(Unit) {
+        val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+        if ((fineGranted || coarseGranted) && LocationManagerCompat.isLocationEnabled(locationManager)) {
+            val isGpsEnabled = fineGranted && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
+            val isNetworkEnabled = (fineGranted || coarseGranted) && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            val provider = when {
+                isGpsEnabled -> LocationManager.GPS_PROVIDER
+                isNetworkEnabled -> LocationManager.NETWORK_PROVIDER
+                else -> null
+            }
+            if (provider != null) {
+                try {
+                    val lastKnown = locationManager.getLastKnownLocation(provider)
+                    if (lastKnown != null) {
+                        viewModel.loadWeatherForCurrentLocation(lastKnown.latitude, lastKnown.longitude)
+                    }
+                } catch (e: Exception) {
+                    // Silent catch for background location refresh
+                }
+            }
+        }
+    }
+
     DisposableEffect(isGpsActive) {
         var isRegistered = false
         var activeListener: LocationListener? = null
@@ -337,7 +361,7 @@ fun HomeScreenContent(
                 available: androidx.compose.ui.geometry.Offset,
                 source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
             ): androidx.compose.ui.geometry.Offset {
-                if (isPullRefreshing) return androidx.compose.ui.geometry.Offset.Zero
+                if (isPullRefreshing || isUpdating) return androidx.compose.ui.geometry.Offset.Zero
                 val delta = available.y
                 if (delta < 0 && pullOffset > 0f) {
                     val newOffset = (pullOffset + delta).coerceAtLeast(0f)
@@ -353,18 +377,21 @@ fun HomeScreenContent(
                 available: androidx.compose.ui.geometry.Offset,
                 source: androidx.compose.ui.input.nestedscroll.NestedScrollSource
             ): androidx.compose.ui.geometry.Offset {
-                if (isPullRefreshing) return androidx.compose.ui.geometry.Offset.Zero
-                val delta = available.y
-                if (delta > 0 && lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0) {
-                    pullOffset += delta * 0.45f
-                    return androidx.compose.ui.geometry.Offset(0f, delta)
+                if (isPullRefreshing || isUpdating) return androidx.compose.ui.geometry.Offset.Zero
+                // ONLY trigger pull-to-refresh on direct User Touch Input when scroll is at top
+                if (source == androidx.compose.ui.input.nestedscroll.NestedScrollSource.UserInput) {
+                    val delta = available.y
+                    if (delta > 0 && lazyListState.firstVisibleItemIndex == 0 && lazyListState.firstVisibleItemScrollOffset == 0) {
+                        pullOffset += delta * 0.45f
+                        return androidx.compose.ui.geometry.Offset(0f, delta)
+                    }
                 }
                 return androidx.compose.ui.geometry.Offset.Zero
             }
 
             override suspend fun onPreFling(available: androidx.compose.ui.unit.Velocity): androidx.compose.ui.unit.Velocity {
-                if (pullOffset > 0f && !isPullRefreshing) {
-                    if (pullOffset > 180f) {
+                if (pullOffset > 0f) {
+                    if (!isPullRefreshing && !isUpdating && pullOffset > 180f) {
                         isPullRefreshing = true
                         pullOffset = 120f
                         onRefresh()
@@ -374,6 +401,16 @@ fun HomeScreenContent(
                     return available
                 }
                 return androidx.compose.ui.unit.Velocity.Zero
+            }
+
+            override suspend fun onPostFling(
+                consumed: androidx.compose.ui.unit.Velocity,
+                available: androidx.compose.ui.unit.Velocity
+            ): androidx.compose.ui.unit.Velocity {
+                if (pullOffset > 0f && !isPullRefreshing) {
+                    pullOffset = 0f
+                }
+                return super.onPostFling(consumed, available)
             }
         }
     }
@@ -450,7 +487,7 @@ fun HomeScreenContent(
             ) {
             // ERROR WARNING BANNER
             if (errorState != null) {
-                item {
+                item(key = "home_error_banner") {
                     SkySphereCard(
                         modifier = Modifier
                             .fillMaxWidth()
@@ -504,7 +541,7 @@ fun HomeScreenContent(
             }
 
             // TOP HEADER
-            item {
+            item(key = "home_top_header") {
                 val locationText = buildString {
                     append(cityWeather.cityName.uppercase())
                     if (!cityWeather.region.isNullOrBlank()) {
@@ -614,7 +651,7 @@ fun HomeScreenContent(
 
 
         // 2. Large current temperature card with weather condition
-        item {
+        item(key = "home_temp_card") {
             SkySphereCard(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -710,7 +747,7 @@ fun HomeScreenContent(
         }
 
         // 3. Feels Like, Humidity, Wind Speed, Pressure, UV Index
-        item {
+        item(key = "home_metrics_card") {
             SkySphereCard(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -788,7 +825,7 @@ fun HomeScreenContent(
 
 
         // HOURLY FORECAST
-        item {
+        item(key = "home_hourly_forecast") {
             Column {
                 Text(
                     text = "HOURLY FORECAST",
@@ -860,7 +897,7 @@ fun HomeScreenContent(
         }
 
         // 10-DAY FORECAST
-        item {
+        item(key = "home_10day_forecast") {
             Column {
                 Text(
                     text = "10-DAY FORECAST",

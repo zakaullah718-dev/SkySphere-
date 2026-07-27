@@ -42,10 +42,22 @@ class MapRepository(
 
     fun getLastKnownLocation(context: Context): Location? {
         return try {
-            val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-            val gpsLocation = try { locationManager?.getLastKnownLocation(LocationManager.GPS_PROVIDER) } catch (e: SecurityException) { null }
-            val networkLocation = try { locationManager?.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) } catch (e: SecurityException) { null }
-            val passiveLocation = try { locationManager?.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER) } catch (e: SecurityException) { null }
+            val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+            val hasFine = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_FINE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
+            if (!hasFine && !hasCoarse) return null
+
+            val gpsLocation = if (hasFine && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
+                try { locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) } catch (e: Exception) { null }
+            } else null
+
+            val networkLocation = if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
+                try { locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) } catch (e: Exception) { null }
+            } else null
+
+            val passiveLocation = if (hasFine && locationManager.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)) {
+                try { locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER) } catch (e: Exception) { null }
+            } else null
 
             gpsLocation ?: networkLocation ?: passiveLocation
         } catch (e: Exception) {
