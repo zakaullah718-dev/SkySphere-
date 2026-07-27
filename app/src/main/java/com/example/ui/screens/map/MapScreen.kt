@@ -131,9 +131,9 @@ fun MapScreen(
     // Helper to trigger center & reverse geocode
     fun centerOnLocation(mapView: MapView?, lat: Double, lon: Double, zoomLevel: Double = 11.0) {
         val geoPoint = GeoPoint(lat, lon)
-        val maxRadarZoom = FutureWeatherLayerManager.PROVIDER_MAX_ZOOM.toDouble()
-        val targetZoom = if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR && zoomLevel > maxRadarZoom) {
-            maxRadarZoom
+        val maxRadarZoom = FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM.toDouble()
+        val targetZoom = if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR) {
+            minOf(zoomLevel, maxRadarZoom)
         } else {
             zoomLevel
         }
@@ -156,9 +156,9 @@ fun MapScreen(
         val overlay = locationOverlayRef[0]
         val myLocation = overlay?.myLocation
         val currentZoom = mapView?.zoomLevelDouble ?: 11.0
-        val maxRadarZoom = FutureWeatherLayerManager.PROVIDER_MAX_ZOOM.toDouble()
+        val maxRadarZoom = FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM.toDouble()
         val targetZoom = if (mapState.selectedLayer == MapWeatherLayer.RAIN_RADAR) {
-            minOf(if (currentZoom < 8.0) 11.0 else currentZoom, maxRadarZoom)
+            maxRadarZoom
         } else {
             if (currentZoom < 8.0) 11.0 else currentZoom
         }

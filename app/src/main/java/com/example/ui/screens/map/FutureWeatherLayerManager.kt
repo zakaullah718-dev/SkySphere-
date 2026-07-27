@@ -26,7 +26,9 @@ class FutureWeatherLayerManager(
 
     companion object {
         const val PROVIDER_MIN_ZOOM = 1
-        const val PROVIDER_MAX_ZOOM = 12
+        const val RAIN_RADAR_PROVIDER_MAX_ZOOM = 7
+        const val OWM_PROVIDER_MAX_ZOOM = 12
+        const val PROVIDER_MAX_ZOOM = 7
         const val OVERLAY_MAX_ZOOM = 20
 
         val emptyTransparentTile: Drawable by lazy {
@@ -132,10 +134,10 @@ class RainRadarTileModuleProvider(
     }
 
     private fun fetchProviderTileBitmap(zoom: Int, x: Int, y: Int): Pair<Bitmap?, String> {
-        if (zoom < FutureWeatherLayerManager.PROVIDER_MIN_ZOOM || zoom > FutureWeatherLayerManager.PROVIDER_MAX_ZOOM) {
+        if (zoom < FutureWeatherLayerManager.PROVIDER_MIN_ZOOM || zoom > FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM) {
             return Pair(null, "Unsupported provider zoom level")
         }
-        val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.PROVIDER_MAX_ZOOM)
+        val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM)
         var frame = radarRepository.getLatestRadarFrameSync()
         val cacheKey = "${frame.time}_${clampedZoom}_${x}_${y}"
 
@@ -211,7 +213,7 @@ class RainRadarTileModuleProvider(
             val tileX = MapTileIndex.getX(pMapTileIndex)
             val tileY = MapTileIndex.getY(pMapTileIndex)
 
-            val providerMaxZoom = FutureWeatherLayerManager.PROVIDER_MAX_ZOOM
+            val providerMaxZoom = FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
 
             if (mapZoom <= providerMaxZoom) {
                 val (bitmap, status) = fetchProviderTileBitmap(mapZoom, tileX, tileY)
@@ -280,7 +282,7 @@ class OwmTileModuleProvider(
     }
 
     private fun fetchProviderTileBitmap(zoom: Int, x: Int, y: Int): Bitmap? {
-        val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.PROVIDER_MAX_ZOOM)
+        val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM)
         val cacheKey = "${layerEndpoint}_${clampedZoom}_${x}_${y}"
 
         val cached = parentBitmapCache.get(cacheKey)
@@ -361,7 +363,7 @@ class OwmTileModuleProvider(
             val tileX = MapTileIndex.getX(pMapTileIndex)
             val tileY = MapTileIndex.getY(pMapTileIndex)
 
-            val providerMaxZoom = FutureWeatherLayerManager.PROVIDER_MAX_ZOOM
+            val providerMaxZoom = FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
 
             if (mapZoom <= providerMaxZoom) {
                 val bitmap = fetchProviderTileBitmap(mapZoom, tileX, tileY)

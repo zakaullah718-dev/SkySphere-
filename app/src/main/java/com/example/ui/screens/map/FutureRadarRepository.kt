@@ -20,7 +20,7 @@ data class RadarFrame(
     val host: String = "https://tilecache.rainviewer.com"
 ) {
     fun buildTileUrl(zoom: Int, x: Int, y: Int, palette: Int = 4): String {
-        val clampedZoom = zoom.coerceIn(1, 12)
+        val clampedZoom = zoom.coerceIn(1, 7)
         val cleanHost = host.trimEnd('/')
         val cleanPath = if (path.startsWith("/")) path else if (path.isNotBlank()) "/$path" else ""
         return if (cleanPath.isNotBlank() && cleanPath != "/") {
@@ -160,7 +160,7 @@ class FutureRadarRepository {
         Log.d("RainRadarAudit", "[Checklist Step 2] Verified latest radar timestamp: ${frame.time}, path: ${frame.path} (Host: ${frame.host})")
 
         // Step 3 & 4: Generate and log correct tile URL
-        val clampedZoom = zoom.coerceIn(0, 12)
+        val clampedZoom = zoom.coerceIn(1, 7)
         val tileX = getTileX(lon, clampedZoom)
         val tileY = getTileY(lat, clampedZoom)
         var tileUrl = frame.buildTileUrl(clampedZoom, tileX, tileY)
