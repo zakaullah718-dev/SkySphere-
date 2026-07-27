@@ -132,9 +132,19 @@ fun MapScreen(
     // Initialize or pause time-lapse whenever active weather layer changes
     LaunchedEffect(mapState.selectedLayer) {
         if (mapState.selectedLayer != MapWeatherLayer.NONE) {
-            timeLapseController.initializeForLayer(mapState.selectedLayer)
+            val centerLat = mapState.userLatitude ?: 37.7749
+            val centerLon = mapState.userLongitude ?: -122.4194
+            timeLapseController.initializeForLayer(mapState.selectedLayer, centerLat, centerLon, 5)
         } else {
             timeLapseController.pause()
+        }
+    }
+
+    LaunchedEffect(mapState.userLatitude, mapState.userLongitude) {
+        val lat = mapState.userLatitude
+        val lon = mapState.userLongitude
+        if (lat != null && lon != null) {
+            timeLapseController.onLocationChanged(lat, lon)
         }
     }
 
@@ -294,7 +304,8 @@ fun MapScreen(
                 val hasLocationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
                         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
-                val myLocationOverlay = MyLocationNewOverlay(GpsMyLocationProvider(context), this).apply {
+                val locationProvider = SafeGpsMyLocationProvider(context)
+                val myLocationOverlay = MyLocationNewOverlay(locationProvider, this).apply {
                     if (hasLocationPermission) {
                         try {
                             enableMyLocation()
@@ -526,7 +537,7 @@ fun MapScreen(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
-                            .padding(bottom = 12.dp)
+                            .padding(bottom = 96.dp)
                     )
                 }
 
@@ -536,7 +547,7 @@ fun MapScreen(
                         .align(Alignment.BottomEnd)
                         .navigationBarsPadding()
                         .padding(
-                            bottom = if (mapState.selectedLayer != MapWeatherLayer.NONE) 235.dp else 104.dp,
+                            bottom = if (mapState.selectedLayer != MapWeatherLayer.NONE) 290.dp else 100.dp,
                             end = 16.dp
                         ),
                     verticalArrangement = Arrangement.spacedBy(14.dp)

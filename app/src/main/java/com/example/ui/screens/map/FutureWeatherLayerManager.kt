@@ -142,7 +142,12 @@ class RainRadarTileModuleProvider(
         }
         val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM)
         var frame = customRadarFrame ?: radarRepository.getLatestRadarFrameSync()
-        val cacheKey = "${frame.time}_${clampedZoom}_${x}_${y}"
+        val cacheKey = "RainViewer_Radar_${frame.time}_${clampedZoom}_${x}_${y}"
+
+        val ramCached = TileRamCache.get(cacheKey)
+        if (ramCached != null) {
+            return Pair(ramCached, "Reused from preloaded RAM cache")
+        }
 
         val cached = parentBitmapCache.get(cacheKey)
         if (cached != null && !cached.isRecycled) {
@@ -192,6 +197,7 @@ class RainRadarTileModuleProvider(
             val bitmap = BitmapFactory.decodeByteArray(tileBytes, 0, tileBytes!!.size)
             if (bitmap != null) {
                 parentBitmapCache.put(cacheKey, bitmap)
+                TileRamCache.put(cacheKey, bitmap)
                 val sourceText = if (isFresh) "Freshly downloaded" else "Retrieved from cache"
                 Pair(bitmap, sourceText)
             } else {
@@ -288,6 +294,11 @@ class OwmTileModuleProvider(
         val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM)
         val cacheKey = "${layerEndpoint}_${clampedZoom}_${x}_${y}"
 
+        val ramCached = TileRamCache.get(cacheKey)
+        if (ramCached != null) {
+            return ramCached
+        }
+
         val cached = parentBitmapCache.get(cacheKey)
         if (cached != null && !cached.isRecycled) {
             return cached
@@ -321,6 +332,7 @@ class OwmTileModuleProvider(
                     bitmap = applyDarkCloudStyle(bitmap)
                 }
                 parentBitmapCache.put(cacheKey, bitmap)
+                TileRamCache.put(cacheKey, bitmap)
                 bitmap
             } else {
                 null

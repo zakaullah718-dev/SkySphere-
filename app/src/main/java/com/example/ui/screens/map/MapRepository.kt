@@ -47,19 +47,22 @@ class MapRepository(
             val hasCoarse = androidx.core.content.ContextCompat.checkSelfPermission(context, android.Manifest.permission.ACCESS_COARSE_LOCATION) == android.content.pm.PackageManager.PERMISSION_GRANTED
             if (!hasFine && !hasCoarse) return null
 
-            val gpsLocation = if (hasFine && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)) {
-                try { locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) } catch (e: Exception) { null }
+            val gpsLocation = if (hasFine && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (e: Exception) { false }) {
+                try { locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) } catch (e: SecurityException) { null } catch (e: Exception) { null }
             } else null
 
-            val networkLocation = if (locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)) {
-                try { locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) } catch (e: Exception) { null }
+            val networkLocation = if (try { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (e: Exception) { false }) {
+                try { locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) } catch (e: SecurityException) { null } catch (e: Exception) { null }
             } else null
 
-            val passiveLocation = if (hasFine && locationManager.isProviderEnabled(LocationManager.PASSIVE_PROVIDER)) {
-                try { locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER) } catch (e: Exception) { null }
+            val passiveLocation = if (hasFine && try { locationManager.isProviderEnabled(LocationManager.PASSIVE_PROVIDER) } catch (e: Exception) { false }) {
+                try { locationManager.getLastKnownLocation(LocationManager.PASSIVE_PROVIDER) } catch (e: SecurityException) { null } catch (e: Exception) { null }
             } else null
 
             gpsLocation ?: networkLocation ?: passiveLocation
+        } catch (e: SecurityException) {
+            Log.w("MapRepository", "Location permission missing or denied: ${e.localizedMessage}")
+            null
         } catch (e: Exception) {
             Log.e("MapRepository", "Error fetching last known location: ${e.localizedMessage}")
             null

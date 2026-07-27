@@ -15,19 +15,24 @@ class WeatherUpdateWorker(
 ) : CoroutineWorker(appContext, workerParams) {
 
     override suspend fun doWork(): Result = withContext(Dispatchers.IO) {
-        Log.d("WeatherUpdateWorker", "Starting periodic weather update execution...")
+        Log.d("WeatherUpdateWorker", "Starting periodic weather update execution (attempt $runAttemptCount)...")
+
+        if (runAttemptCount >= 3) {
+            Log.w("WeatherUpdateWorker", "Exceeded max retry attempts ($runAttemptCount), failing gracefully.")
+            return@withContext Result.failure()
+        }
 
         try {
             val repository = WeatherRepository(applicationContext)
 
             // Force refresh active city weather data from repository
-            val result = repository.forceRefreshActiveCity()
+            repository.forceRefreshActiveCity()
 
             val activeCity = repository.selectedCity.value
 
             if (activeCity.cityName == "Loading..." || activeCity.cityName.isBlank()) {
                 Log.w("WeatherUpdateWorker", "Active city not loaded yet.")
-                return@withContext Result.retry()
+                return@withContext Result.failure()
             }
 
             val details = activeCity.weatherDetails
@@ -65,7 +70,11 @@ class WeatherUpdateWorker(
             Result.success()
         } catch (e: Exception) {
             Log.e("WeatherUpdateWorker", "Error executing weather update worker", e)
-            Result.retry()
+            if (runAttemptCount >= 2) {
+                Result.failure()
+            } else {
+                Result.retry()
+            }
         }
     }
 

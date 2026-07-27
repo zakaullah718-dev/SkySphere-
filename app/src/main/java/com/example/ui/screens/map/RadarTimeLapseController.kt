@@ -21,19 +21,48 @@ class RadarTimeLapseController(
 ) {
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private var playbackJob: Job? = null
+    private var preloadJob: Job? = null
 
     private val _state = MutableStateFlow(TimeLapseState())
     val state: StateFlow<TimeLapseState> = _state.asStateFlow()
 
     private val timeFormat = SimpleDateFormat("hh:mm a", Locale.getDefault())
 
-    fun initializeForLayer(layer: MapWeatherLayer, onFrameChanged: ((TimeLapseFrame) -> Unit)? = null) {
-        pause()
-        _state.update { it.copy(activeLayer = layer, isLoading = true) }
+    private var currentLat: Double = 37.7749
+    private var currentLon: Double = -122.4194
+    private var currentZoom: Int = 5
 
-        scope.launch {
+    fun initializeForLayer(
+        layer: MapWeatherLayer,
+        lat: Double = currentLat,
+        lon: Double = currentLon,
+        zoom: Int = currentZoom,
+        onFrameChanged: ((TimeLapseFrame) -> Unit)? = null
+    ) {
+        pause()
+        preloadJob?.cancel()
+
+        if (_state.value.activeLayer != layer) {
+            TileRamCache.clear()
+        }
+
+        currentLat = lat
+        currentLon = lon
+        currentZoom = zoom
+
+        _state.update {
+            it.copy(
+                activeLayer = layer,
+                isLoading = true,
+                isBuffering = true,
+                bufferProgress = 0f
+            )
+        }
+
+        preloadJob = scope.launch {
             val frames = fetchOrGenerateFrames()
             val initialIndex = frames.indexOfLast { !it.isForecast }.coerceAtLeast(0)
+
             _state.update {
                 it.copy(
                     frames = frames,
@@ -41,9 +70,46 @@ class RadarTimeLapseController(
                     isLoading = false
                 )
             }
+
             val initialFrame = frames.getOrNull(initialIndex)
             if (initialFrame != null && onFrameChanged != null) {
                 onFrameChanged(initialFrame)
+            }
+
+            // Perform background buffering into temporary RAM cache
+            if (layer != MapWeatherLayer.NONE && frames.isNotEmpty()) {
+                RadarPreloader.preloadFrames(
+                    layer = layer,
+                    frames = frames,
+                    centerLat = lat,
+                    centerLon = lon,
+                    mapZoom = zoom,
+                    onProgress = { loaded, total ->
+                        val progress = if (total > 0) loaded.toFloat() / total else 1.0f
+                        _state.update { s -> s.copy(bufferProgress = progress) }
+                    }
+                )
+            }
+
+            _state.update { s -> s.copy(isBuffering = false, bufferProgress = 1.0f) }
+        }
+    }
+
+    fun onLocationChanged(
+        lat: Double,
+        lon: Double,
+        zoom: Int = currentZoom,
+        onFrameChanged: ((TimeLapseFrame) -> Unit)? = null
+    ) {
+        val distSq = (lat - currentLat) * (lat - currentLat) + (lon - currentLon) * (lon - currentLon)
+        if (distSq > 0.05) { // significant map shift
+            currentLat = lat
+            currentLon = lon
+            currentZoom = zoom
+            TileRamCache.clear()
+            val layer = _state.value.activeLayer
+            if (layer != MapWeatherLayer.NONE) {
+                initializeForLayer(layer, lat, lon, zoom, onFrameChanged)
             }
         }
     }
@@ -82,15 +148,15 @@ class RadarTimeLapseController(
         val isForecast = diffSec > 300L
 
         val displayLabel = when {
-            isNow -> "NOW"
+            isNow -> "NOW (LIVE)"
             diffSec < 0 -> {
                 val totalMins = abs(diffSec) / 60
                 val hrs = totalMins / 60
                 val mins = totalMins % 60
                 when {
-                    hrs > 0 && mins > 0 -> "-${hrs}h ${mins}m"
-                    hrs > 0 -> "-${hrs}h"
-                    else -> "-${mins}m"
+                    totalMins < 60 -> if (totalMins <= 1) "1 minute ago" else "$totalMins minutes ago"
+                    mins == 0L -> if (hrs == 1L) "1 hour ago" else "$hrs hours ago"
+                    else -> "${hrs}h ${mins}m ago"
                 }
             }
             else -> {
@@ -98,9 +164,9 @@ class RadarTimeLapseController(
                 val hrs = totalMins / 60
                 val mins = totalMins % 60
                 when {
-                    hrs > 0 && mins > 0 -> "+${hrs}h ${mins}m"
-                    hrs > 0 -> "+${hrs}h"
-                    else -> "+${mins}m"
+                    totalMins < 60 -> if (totalMins <= 1) "In 1 minute" else "In $totalMins minutes"
+                    mins == 0L -> if (hrs == 1L) "In 1 hour" else "In $hrs hours"
+                    else -> "In ${hrs}h ${mins}m"
                 }
             }
         }
@@ -111,6 +177,7 @@ class RadarTimeLapseController(
             index = index,
             timestamp = timestamp,
             displayLabel = displayLabel,
+            relativeLabel = displayLabel,
             formattedClock = clockStr,
             radarFrame = radarFrame,
             isNow = isNow,
@@ -132,6 +199,11 @@ class RadarTimeLapseController(
         _state.update { it.copy(isPlaying = true) }
 
         playbackJob = scope.launch {
+            // Wait if still buffering initial frames
+            while (_state.value.isBuffering && _state.value.frames.isEmpty()) {
+                delay(100)
+            }
+
             while (_state.value.isPlaying) {
                 val frames = _state.value.frames
                 if (frames.isEmpty()) break
@@ -187,7 +259,8 @@ class RadarTimeLapseController(
     fun cycleSpeed() {
         val nextSpeed = when (_state.value.playbackSpeed) {
             0.5f -> 1.0f
-            1.0f -> 2.0f
+            1.0f -> 1.5f
+            1.5f -> 2.0f
             else -> 0.5f
         }
         _state.update { it.copy(playbackSpeed = nextSpeed) }
@@ -195,5 +268,8 @@ class RadarTimeLapseController(
 
     fun destroy() {
         pause()
+        preloadJob?.cancel()
+        preloadJob = null
+        TileRamCache.clear()
     }
 }

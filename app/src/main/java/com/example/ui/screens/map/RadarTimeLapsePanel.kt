@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
@@ -40,6 +41,9 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
@@ -47,6 +51,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -63,6 +69,9 @@ fun RadarTimeLapsePanel(
     modifier: Modifier = Modifier
 ) {
     if (state.activeLayer == MapWeatherLayer.NONE) return
+
+    val haptic = LocalHapticFeedback.current
+    var lastHapticIndex by remember { mutableIntStateOf(state.currentFrameIndex) }
 
     val infiniteTransition = rememberInfiniteTransition(label = "pulse_radar")
     val pulseAlpha by infiniteTransition.animateFloat(
@@ -83,6 +92,7 @@ fun RadarTimeLapsePanel(
     )
 
     val currentFrame = state.currentFrame
+    val isNowFrame = currentFrame?.isNow == true
 
     Card(
         shape = RoundedCornerShape(24.dp),
@@ -90,7 +100,7 @@ fun RadarTimeLapsePanel(
         elevation = CardDefaults.cardElevation(defaultElevation = 10.dp),
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 14.dp, vertical = 8.dp)
+            .padding(horizontal = 14.dp, vertical = 4.dp)
             .shadow(12.dp, RoundedCornerShape(24.dp), clip = false)
             .background(glassBackground, RoundedCornerShape(24.dp))
             .border(
@@ -127,9 +137,9 @@ fun RadarTimeLapsePanel(
                             .size(10.dp)
                             .clip(CircleShape)
                             .background(
-                                if (state.isPlaying) Color(0xFF00E676) else Color(0xFF4FD1C5)
+                                if (isNowFrame || state.isPlaying) Color(0xFF00E676) else Color(0xFF4FD1C5)
                             )
-                            .alpha(if (state.isPlaying) pulseAlpha else 0.8f)
+                            .alpha(if (state.isPlaying || isNowFrame) pulseAlpha else 0.8f)
                     )
                     Spacer(modifier = Modifier.width(8.dp))
 
@@ -145,9 +155,9 @@ fun RadarTimeLapsePanel(
                         )
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Text(
-                                text = currentFrame?.displayLabel ?: "NOW",
+                                text = currentFrame?.displayLabel ?: "NOW (LIVE)",
                                 style = MaterialTheme.typography.titleMedium.copy(
-                                    color = Color.White,
+                                    color = if (isNowFrame) Color(0xFF00E676) else Color.White,
                                     fontWeight = FontWeight.ExtraBold,
                                     fontSize = 15.sp
                                 )
@@ -167,22 +177,62 @@ fun RadarTimeLapsePanel(
                 }
 
                 // Speed Selector Pill Button
+                val speedStr = when (state.playbackSpeed) {
+                    0.5f -> "0.5x"
+                    1.0f -> "1x"
+                    1.5f -> "1.5x"
+                    2.0f -> "2x"
+                    else -> "${state.playbackSpeed}x"
+                }
                 Surface(
                     shape = RoundedCornerShape(12.dp),
                     color = Color(0x33FFFFFF),
                     modifier = Modifier
                         .clip(RoundedCornerShape(12.dp))
-                        .clickable { onCycleSpeed() }
+                        .clickable {
+                            try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
+                            onCycleSpeed()
+                        }
                         .testTag("timelapse_speed_button")
                 ) {
                     Text(
-                        text = "${state.playbackSpeed}x",
+                        text = speedStr,
                         style = MaterialTheme.typography.labelMedium.copy(
                             color = Color(0xFF4FD1C5),
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp
                         ),
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 5.dp)
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp)
+                    )
+                }
+            }
+
+            AnimatedVisibility(
+                visible = state.isBuffering,
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(top = 6.dp)
+                        .background(Color(0x224FD1C5), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                ) {
+                    CircularProgressIndicator(
+                        color = Color(0xFF4FD1C5),
+                        strokeWidth = 2.dp,
+                        modifier = Modifier.size(14.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = "Loading radar frames... ${(state.bufferProgress * 100).toInt()}%",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = Color(0xFF4FD1C5),
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium
+                        )
                     )
                 }
             }
@@ -192,35 +242,52 @@ fun RadarTimeLapsePanel(
             // 2. TIMELINE SLIDER & TRACK
             Row(
                 horizontalArrangement = Arrangement.SpaceBetween,
-                modifier = Modifier.fillMaxWidth().padding(horizontal = 2.dp)
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 2.dp)
             ) {
                 Text(
-                    text = "Past 6 Hours",
+                    text = state.availableHistoryLabel,
                     style = MaterialTheme.typography.labelSmall.copy(
-                        color = Color(0x99FFFFFF),
-                        fontSize = 10.sp
+                        color = Color(0xB3FFFFFF),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium
                     )
                 )
-                Text(
-                    text = if (currentFrame?.isNow == true) "NOW (LIVE)" else if (currentFrame?.isForecast == true) "Forecast" else "Live Radar",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = if (currentFrame?.isNow == true) Color(0xFF00E676) else Color(0x99FFFFFF),
-                        fontSize = 10.sp,
-                        fontWeight = if (currentFrame?.isNow == true) FontWeight.Bold else FontWeight.Normal
+
+                Surface(
+                    shape = RoundedCornerShape(8.dp),
+                    color = if (isNowFrame) Color(0x3300E676) else Color(0x1AFFFFFF),
+                    modifier = Modifier.clip(RoundedCornerShape(8.dp))
+                ) {
+                    Text(
+                        text = if (isNowFrame) "NOW (LIVE)" else if (currentFrame?.isForecast == true) "Forecast" else "Historical Radar",
+                        style = MaterialTheme.typography.labelSmall.copy(
+                            color = if (isNowFrame) Color(0xFF00E676) else Color(0xCCFFFFFF),
+                            fontSize = 10.sp,
+                            fontWeight = if (isNowFrame) FontWeight.Bold else FontWeight.Medium
+                        ),
+                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
                     )
-                )
+                }
             }
 
             val maxIndex = (state.frames.size - 1).coerceAtLeast(1)
             Slider(
                 value = state.currentFrameIndex.toFloat().coerceIn(0f, maxIndex.toFloat()),
                 onValueChange = { newValue ->
-                    onSeekToFrame(newValue.toInt())
+                    val newIndex = newValue.toInt()
+                    if (newIndex != lastHapticIndex) {
+                        lastHapticIndex = newIndex
+                        try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
+                    }
+                    onSeekToFrame(newIndex)
                 },
                 valueRange = 0f..maxIndex.toFloat(),
                 steps = (state.frames.size - 2).coerceAtLeast(0),
                 colors = SliderDefaults.colors(
-                    thumbColor = Color(0xFF4FD1C5),
+                    thumbColor = if (isNowFrame) Color(0xFF00E676) else Color(0xFF4FD1C5),
                     activeTrackColor = Color(0xFF319795),
                     inactiveTrackColor = Color(0x33FFFFFF),
                     activeTickColor = Color.Transparent,
@@ -228,7 +295,7 @@ fun RadarTimeLapsePanel(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(28.dp)
+                    .height(30.dp)
                     .testTag("timelapse_slider")
             )
 
@@ -238,18 +305,24 @@ fun RadarTimeLapsePanel(
                 horizontalArrangement = Arrangement.SpaceEvenly,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 2.dp)
+                    .padding(top = 4.dp, bottom = 2.dp)
             ) {
                 // Previous Frame Button
                 IconButton(
-                    onClick = onPreviousFrame,
-                    modifier = Modifier.size(40.dp).testTag("timelapse_prev_button")
+                    onClick = {
+                        try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
+                        onPreviousFrame()
+                    },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(Color(0x1AFFFFFF), CircleShape)
+                        .testTag("timelapse_prev_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.SkipPrevious,
                         contentDescription = "Previous Frame",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
 
@@ -257,29 +330,32 @@ fun RadarTimeLapsePanel(
                 Surface(
                     shape = CircleShape,
                     color = Color(0xFF319795),
-                    shadowElevation = 6.dp,
+                    shadowElevation = 8.dp,
                     modifier = Modifier
-                        .size(48.dp)
+                        .size(56.dp)
                         .clip(CircleShape)
-                        .clickable { onTogglePlayPause() }
+                        .clickable {
+                            try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
+                            onTogglePlayPause()
+                        }
                         .testTag("timelapse_play_pause_button")
                 ) {
                     Box(
                         contentAlignment = Alignment.Center,
-                        modifier = Modifier.padding(8.dp)
+                        modifier = Modifier.fillMaxSize()
                     ) {
                         if (state.isLoading) {
                             CircularProgressIndicator(
                                 color = Color.White,
-                                strokeWidth = 2.dp,
-                                modifier = Modifier.size(22.dp)
+                                strokeWidth = 2.5.dp,
+                                modifier = Modifier.size(24.dp)
                             )
                         } else {
                             Icon(
                                 imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                 contentDescription = if (state.isPlaying) "Pause" else "Play",
                                 tint = Color.White,
-                                modifier = Modifier.size(28.dp)
+                                modifier = Modifier.size(32.dp)
                             )
                         }
                     }
@@ -287,14 +363,20 @@ fun RadarTimeLapsePanel(
 
                 // Next Frame Button
                 IconButton(
-                    onClick = onNextFrame,
-                    modifier = Modifier.size(40.dp).testTag("timelapse_next_button")
+                    onClick = {
+                        try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
+                        onNextFrame()
+                    },
+                    modifier = Modifier
+                        .size(48.dp)
+                        .background(Color(0x1AFFFFFF), CircleShape)
+                        .testTag("timelapse_next_button")
                 ) {
                     Icon(
                         imageVector = Icons.Default.SkipNext,
                         contentDescription = "Next Frame",
                         tint = Color.White,
-                        modifier = Modifier.size(24.dp)
+                        modifier = Modifier.size(26.dp)
                     )
                 }
             }
