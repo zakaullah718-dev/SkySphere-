@@ -339,7 +339,7 @@ fun SearchCityCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     WeatherConditionIcon(
-                        condition = details.condition,
+                        cityWeather = city,
                         modifier = Modifier.size(38.dp)
                     )
                     Spacer(modifier = Modifier.width(16.dp))

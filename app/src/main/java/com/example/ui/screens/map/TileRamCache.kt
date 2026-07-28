@@ -10,7 +10,7 @@ import android.util.LruCache
  * Automatically cleared on layer change, location change, or screen exit.
  */
 object TileRamCache {
-    private const val MAX_TILES = 600 // ~150MB max RAM footprint
+    private const val MAX_TILES = 1200 // ~300MB max RAM footprint for seamless time-lapse
 
     private val cache = object : LruCache<String, Bitmap>(MAX_TILES) {
         override fun sizeOf(key: String, bitmap: Bitmap): Int = 1

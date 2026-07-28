@@ -87,11 +87,22 @@ class RadarTimeLapseController(
                     onProgress = { loaded, total ->
                         val progress = if (total > 0) loaded.toFloat() / total else 1.0f
                         _state.update { s -> s.copy(bufferProgress = progress) }
+                    },
+                    onFrameReady = { fIdx ->
+                        _state.update { s ->
+                            val updatedFrames = s.frames.map { f ->
+                                if (f.index == fIdx) f.copy(isReady = true) else f
+                            }
+                            s.copy(frames = updatedFrames)
+                        }
                     }
                 )
             }
 
-            _state.update { s -> s.copy(isBuffering = false, bufferProgress = 1.0f) }
+            _state.update { s ->
+                val allReadyFrames = s.frames.map { f -> f.copy(isReady = true) }
+                s.copy(frames = allReadyFrames, isBuffering = false, bufferProgress = 1.0f)
+            }
         }
     }
 
@@ -200,7 +211,7 @@ class RadarTimeLapseController(
 
         playbackJob = scope.launch {
             // Wait if still buffering initial frames
-            while (_state.value.isBuffering && _state.value.frames.isEmpty()) {
+            while (_state.value.isBuffering) {
                 delay(100)
             }
 

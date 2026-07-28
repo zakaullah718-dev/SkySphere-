@@ -386,6 +386,15 @@ class WeatherRepository(private val context: Context) {
         weatherDao.insertCachedWeather(entity)
     }
 
+    suspend fun getCityByNameFromFavoritesOrApi(cityName: String): CityWeather? {
+        val existing = _cities.value.find { it.cityName.equals(cityName, ignoreCase = true) }
+        if (existing != null && existing.weatherDetails.currentTemp != 0) {
+            return existing
+        }
+        val result = fetchWeatherFromApi(cityName, forceRefresh = false)
+        return result.getOrNull()
+    }
+
     fun getCitiesFlow(): Flow<List<CityWeather>> = _cities.asStateFlow()
 
     fun getFavoritesFlow(): Flow<List<CityWeather>> = _cities.map { list ->

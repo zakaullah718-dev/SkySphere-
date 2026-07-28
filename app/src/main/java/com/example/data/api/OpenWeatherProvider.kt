@@ -251,6 +251,9 @@ class OpenWeatherProvider(
             country = city.country ?: "Unknown",
             isFavorite = false,
             localTime = localTimeStr,
+            latitude = city.coord?.lat,
+            longitude = city.coord?.lon,
+            timeZoneId = targetTz.id,
             weatherDetails = WeatherDetails(
                 currentTemp = currentTemp,
                 feelsLike = feelsLike,
@@ -267,7 +270,8 @@ class OpenWeatherProvider(
                 airQuality = AirQuality(2, "Moderate", "Normal urban atmospheric particulate concentration.", "PM10"),
                 hourlyForecast = hourlyForecast,
                 dailyForecast = dailyForecast,
-                aiSummary = "An elegant ${condition.displayName.lowercase()} day. Air currents flow at ${String.format(Locale.US, "%.1f", firstForecast.wind.speed * 1.60934)} km/h. Local barometric pressure is stable at ${firstForecast.main.pressure} hPa."
+                aiSummary = "An elegant ${condition.displayName.lowercase()} day. Air currents flow at ${String.format(Locale.US, "%.1f", firstForecast.wind.speed * 1.60934)} km/h. Local barometric pressure is stable at ${firstForecast.main.pressure} hPa.",
+                timeZoneId = targetTz.id
             )
         )
     }
@@ -276,10 +280,11 @@ class OpenWeatherProvider(
         return when {
             icon.startsWith("01") -> WeatherCondition.SUNNY
             icon.startsWith("02") -> WeatherCondition.PARTLY_CLOUDY
-            icon.startsWith("03") || icon.startsWith("04") || icon.startsWith("50") -> WeatherCondition.CLOUDY
+            icon.startsWith("03") || icon.startsWith("04") -> WeatherCondition.CLOUDY
             icon.startsWith("09") || icon.startsWith("10") -> WeatherCondition.RAINY
             icon.startsWith("11") -> WeatherCondition.STORM
             icon.startsWith("13") -> WeatherCondition.SNOWY
+            icon.startsWith("50") -> WeatherCondition.FOGGY
             else -> WeatherCondition.PARTLY_CLOUDY
         }
     }
@@ -296,7 +301,13 @@ data class OpenWeatherCity(
     val country: String?,
     val sunrise: Long?,
     val sunset: Long?,
-    val timezone: Int?
+    val timezone: Int?,
+    val coord: OpenWeatherCoord? = null
+)
+
+data class OpenWeatherCoord(
+    val lat: Double,
+    val lon: Double
 )
 
 data class OpenWeatherForecastItem(

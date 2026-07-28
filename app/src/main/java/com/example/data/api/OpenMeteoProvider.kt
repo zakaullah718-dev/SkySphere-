@@ -318,6 +318,7 @@ class OpenMeteoProvider(
             country = country,
             isFavorite = false,
             localTime = localTimeStr,
+            timeZoneId = resp.timezone,
             weatherDetails = WeatherDetails(
                 currentTemp = tempF,
                 feelsLike = feelsLikeF,
@@ -334,7 +335,8 @@ class OpenMeteoProvider(
                 airQuality = AirQuality(1, "Excellent", "Pristine standard green clean index.", "PM2.5"),
                 hourlyForecast = hourlyForecast,
                 dailyForecast = dailyForecast,
-                aiSummary = "An elegant, stable ${condition.displayName.lowercase()} atmosphere. Local barometric trends indicate a level pressure of ${current.pressure_msl.toInt()} hPa, with wind currents at ${current.wind_speed_10m} km/h."
+                aiSummary = "An elegant, stable ${condition.displayName.lowercase()} atmosphere. Local barometric trends indicate a level pressure of ${current.pressure_msl.toInt()} hPa, with wind currents at ${current.wind_speed_10m} km/h.",
+                timeZoneId = resp.timezone
             ),
             region = region
         )
@@ -344,7 +346,8 @@ class OpenMeteoProvider(
         return when (code) {
             0 -> WeatherCondition.SUNNY
             1, 2 -> WeatherCondition.PARTLY_CLOUDY
-            3, 45, 48 -> WeatherCondition.CLOUDY
+            3 -> WeatherCondition.CLOUDY
+            45, 48 -> WeatherCondition.FOGGY
             51, 53, 55, 61, 63, 65, 80, 81, 82 -> WeatherCondition.RAINY
             71, 73, 75, 77, 85, 86 -> WeatherCondition.SNOWY
             95, 96, 99 -> WeatherCondition.STORM

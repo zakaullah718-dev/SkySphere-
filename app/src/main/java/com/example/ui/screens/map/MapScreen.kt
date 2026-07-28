@@ -537,7 +537,7 @@ fun MapScreen(
                         modifier = Modifier
                             .align(Alignment.BottomCenter)
                             .navigationBarsPadding()
-                            .padding(bottom = 96.dp)
+                            .padding(bottom = 76.dp)
                     )
                 }
 
@@ -547,7 +547,7 @@ fun MapScreen(
                         .align(Alignment.BottomEnd)
                         .navigationBarsPadding()
                         .padding(
-                            bottom = if (mapState.selectedLayer != MapWeatherLayer.NONE) 290.dp else 100.dp,
+                            bottom = if (mapState.selectedLayer != MapWeatherLayer.NONE) 180.dp else 92.dp,
                             end = 16.dp
                         ),
                     verticalArrangement = Arrangement.spacedBy(14.dp)

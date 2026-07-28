@@ -31,7 +31,68 @@
 
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.VIEW" />
+                <category android:name="android.intent.category.DEFAULT" />
+            </intent-filter>
         </activity>
+
+        <activity
+            android:name="com.example.widget.SkySphereWidgetConfigActivity"
+            android:exported="true"
+            android:theme="@style/Theme.MyApplication">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+
+        <receiver
+            android:name="com.example.widget.SkySphereWidget1x1Provider"
+            android:exported="true"
+            android:label="SkySphere 1x1 Compact">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_1x1_info" />
+        </receiver>
+
+        <receiver
+            android:name="com.example.widget.SkySphereWidget2x2Provider"
+            android:exported="true"
+            android:label="SkySphere 2x2 Summary">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_2x2_info" />
+        </receiver>
+
+        <receiver
+            android:name="com.example.widget.SkySphereWidget4x2Provider"
+            android:exported="true"
+            android:label="SkySphere 4x2 Dashboard">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_4x2_info" />
+        </receiver>
+
+        <receiver
+            android:name="com.example.widget.SkySphereWidget4x4Provider"
+            android:exported="true"
+            android:label="SkySphere 4x4 Flagship">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/widget_4x4_info" />
+        </receiver>
     </application>
 
 </manifest>

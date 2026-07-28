@@ -39,7 +39,8 @@ object RadarPreloader {
         centerLat: Double = 37.7749,
         centerLon: Double = -122.4194,
         mapZoom: Int = 5,
-        onProgress: (loaded: Int, total: Int) -> Unit
+        onProgress: (loaded: Int, total: Int) -> Unit,
+        onFrameReady: ((frameIndex: Int) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
         if (layer == MapWeatherLayer.NONE || frames.isEmpty()) return@withContext
 
@@ -56,7 +57,7 @@ object RadarPreloader {
         val rad = Math.toRadians(centerLat)
         val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-        val tileXs = (centerX - 2..centerX + 2).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+        val tileXs = (centerX - 2..centerX + 2).map { (it + numTilesDimension) % numTilesDimension }.distinct()
         val tileYs = (centerY - 2..centerY + 2).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
 
         val tileCoords = mutableListOf<Pair<Int, Int>>()
@@ -72,7 +73,6 @@ object RadarPreloader {
         var loadedCount = 0
 
         coroutineScope {
-            // Process frames concurrently with a max concurrency cap
             val jobs = frames.map { frame ->
                 async(Dispatchers.IO) {
                     for ((x, y) in tileCoords) {
@@ -86,6 +86,7 @@ object RadarPreloader {
                             onProgress(loadedCount, totalTasks)
                         }
                     }
+                    onFrameReady?.invoke(frame.index)
                 }
             }
             jobs.awaitAll()

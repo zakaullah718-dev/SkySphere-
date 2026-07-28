@@ -9,7 +9,8 @@ data class TimeLapseFrame(
     val formattedClock: String = timeLabel,
     val radarFrame: RadarFrame? = null,
     val isNow: Boolean = false,
-    val isForecast: Boolean = false
+    val isForecast: Boolean = false,
+    val isReady: Boolean = false
 )
 
 data class TimeLapseState(

@@ -52,6 +52,20 @@ class MainActivity : ComponentActivity() {
         // Single global repository source
         val repository = WeatherRepository(applicationContext)
 
+        val navigateTo = intent?.getStringExtra("navigate_to")
+        val selectedCityParam = intent?.getStringExtra("selected_city")
+
+        if (!selectedCityParam.isNullOrBlank()) {
+            repository.selectCity(selectedCityParam)
+        }
+
+        val initialRoute = when (navigateTo) {
+            "map" -> com.example.ui.navigation.Screen.Map.route
+            "favorites" -> com.example.ui.navigation.Screen.Favorites.route
+            "search" -> com.example.ui.navigation.Screen.Search.route
+            else -> null
+        }
+
         setContent {
             // State-driven theme configuration managed from settings
             val currentAppTheme by repository.appTheme.collectAsState()
@@ -62,10 +76,16 @@ class MainActivity : ComponentActivity() {
                     repository = repository,
                     darkTheme = darkTheme,
                     onThemeToggle = { darkTheme = it },
+                    initialRoute = initialRoute,
                     modifier = Modifier.fillMaxSize()
                 )
             }
         }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        com.example.widget.SkySphereWidgetManager.updateAllWidgets(applicationContext)
     }
 }
 

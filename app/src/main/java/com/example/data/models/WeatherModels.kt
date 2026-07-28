@@ -14,7 +14,8 @@ enum class WeatherCondition(
     CLOUDY("Cloudy", "Cloud", "Overcast sky", Color(0xFF455A64), Color(0xFF263238)),
     RAINY("Rainy", "WaterDrop", "Showers and drizzling", Color(0xFF4FC3F7), Color(0xFF0288D1)),
     STORM("Storm", "Thunderstorm", "Heavy storm and thunder", Color(0xFF9575CD), Color(0xFF5E35B1)),
-    SNOWY("Snowy", "AcUnit", "Light snow and ice", Color(0xFF80DEEA), Color(0xFF00ACC1))
+    SNOWY("Snowy", "AcUnit", "Light snow and ice", Color(0xFF80DEEA), Color(0xFF00ACC1)),
+    FOGGY("Mist / Fog", "Grain", "Reduced atmospheric visibility", Color(0xFF78909C), Color(0xFF37474F))
 }
 
 data class ForecastHour(
@@ -59,8 +60,17 @@ data class WeatherDetails(
     val dailyForecast: List<ForecastDay>,
     val aiSummary: String, // Elegant AI summary feature (ready for Milestone 2 API)
     val cloudCoverage: Int = 0,
-    val windDirection: String = "N"
-)
+    val windDirection: String = "N",
+    val timeZoneId: String? = null
+) {
+    val isNight: Boolean
+        get() = com.example.utils.WeatherTimeUtils.isNightForLocation(
+            timestampEpochMillis = System.currentTimeMillis(),
+            timeZoneId = timeZoneId,
+            sunriseStr = sunrise,
+            sunsetStr = sunset
+        )
+}
 
 data class CityWeather(
     val cityName: String,
@@ -70,5 +80,17 @@ data class CityWeather(
     val localTime: String? = null,
     val region: String? = null,
     val latitude: Double? = null,
-    val longitude: Double? = null
-)
+    val longitude: Double? = null,
+    val timeZoneId: String? = null
+) {
+    val isNight: Boolean
+        get() = com.example.utils.WeatherTimeUtils.isNightForLocation(
+            timestampEpochMillis = System.currentTimeMillis(),
+            timeZoneId = timeZoneId ?: weatherDetails.timeZoneId,
+            sunriseStr = weatherDetails.sunrise,
+            sunsetStr = weatherDetails.sunset,
+            localTimeStr = localTime,
+            latitude = latitude,
+            longitude = longitude
+        )
+}

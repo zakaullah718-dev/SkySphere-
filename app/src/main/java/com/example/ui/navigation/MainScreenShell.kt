@@ -62,6 +62,7 @@ fun MainScreenShell(
     repository: WeatherRepository,
     darkTheme: Boolean,
     onThemeToggle: (Boolean) -> Unit,
+    initialRoute: String? = null,
     modifier: Modifier = Modifier
 ) {
     val navController = rememberNavController()
@@ -101,7 +102,8 @@ fun MainScreenShell(
                 ) {
                     SplashScreen(
                         onNavigateToHome = {
-                            navController.navigate(Screen.Home.route) {
+                            val target = initialRoute ?: Screen.Home.route
+                            navController.navigate(target) {
                                 popUpTo(Screen.Splash.route) { inclusive = true }
                             }
                         }

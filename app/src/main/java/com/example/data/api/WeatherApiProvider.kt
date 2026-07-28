@@ -268,6 +268,7 @@ class WeatherApiProvider(
             country = location.country,
             isFavorite = false,
             localTime = formattedLocalTime,
+            timeZoneId = tzId,
             weatherDetails = WeatherDetails(
                 currentTemp = current.tempF.toInt(),
                 feelsLike = current.feelslikeF.toInt(),
@@ -291,7 +292,8 @@ class WeatherApiProvider(
                 dailyForecast = dailyList,
                 aiSummary = "An elegant ${conditionEnum.displayName.lowercase()} day. Wind speeds average ${current.windKph} km/h with a humidity level of ${current.humidity}%. Perfect for responsive monitoring.",
                 cloudCoverage = current.cloud,
-                windDirection = current.windDir ?: "N"
+                windDirection = current.windDir ?: "N",
+                timeZoneId = tzId
             ),
             region = location.region
         )
@@ -301,7 +303,8 @@ class WeatherApiProvider(
         return when (code) {
             1000 -> WeatherCondition.SUNNY
             1003 -> WeatherCondition.PARTLY_CLOUDY
-            1006, 1009, 1030, 1135, 1147 -> WeatherCondition.CLOUDY
+            1006, 1009 -> WeatherCondition.CLOUDY
+            1030, 1135, 1147 -> WeatherCondition.FOGGY
             1063, 1150, 1153, 1180, 1183, 1186, 1189, 1192, 1195, 1240, 1243 -> WeatherCondition.RAINY
             1087, 1273, 1276, 1279, 1282 -> WeatherCondition.STORM
             1066, 1114, 1117, 1210, 1213, 1216, 1219, 1222, 1225, 1255, 1258 -> WeatherCondition.SNOWY

@@ -25,31 +25,29 @@ object WeatherTimeUtils {
 
     /**
      * Determines whether a given timestamp (or location current time if 0) is nighttime
-     * based on the target location's timezone and local sunrise/sunset times, NOT the device clock.
+     * based on the target location's timezone and local sunrise/sunset times, NOT relying solely on the device clock.
      */
     fun isNightForLocation(
         timestampEpochMillis: Long = 0L,
         timeZoneId: String? = null,
         sunriseStr: String = "06:00 AM",
-        sunsetStr: String = "07:00 PM"
+        sunsetStr: String = "07:00 PM",
+        localTimeStr: String? = null,
+        latitude: Double? = null,
+        longitude: Double? = null
     ): Boolean {
-        val tz = if (!timeZoneId.isNullOrBlank()) {
-            try {
-                TimeZone.getTimeZone(timeZoneId)
-            } catch (e: Exception) {
-                TimeZone.getDefault()
-            }
-        } else {
-            TimeZone.getDefault()
-        }
-
-        val cal = Calendar.getInstance(tz).apply {
-            timeInMillis = if (timestampEpochMillis > 0L) timestampEpochMillis else System.currentTimeMillis()
-        }
-
-        val currentMinutes = cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
         val sunriseMin = parseTimeToMinutes(sunriseStr).coerceIn(0, 1439)
         val sunsetMin = parseTimeToMinutes(sunsetStr).coerceIn(0, 1439)
+
+        val currentMinutes = if (!localTimeStr.isNullOrBlank() && timestampEpochMillis == 0L) {
+            parseTimeToMinutes(localTimeStr).coerceIn(0, 1439)
+        } else {
+            val tz = resolveTimeZone(timeZoneId, longitude)
+            val cal = Calendar.getInstance(tz).apply {
+                timeInMillis = if (timestampEpochMillis > 0L) timestampEpochMillis else System.currentTimeMillis()
+            }
+            cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        }
 
         return if (sunsetMin >= sunriseMin) {
             currentMinutes < sunriseMin || currentMinutes >= sunsetMin
@@ -59,6 +57,23 @@ object WeatherTimeUtils {
         }
     }
 
+    private fun resolveTimeZone(timeZoneId: String?, longitude: Double?): TimeZone {
+        if (!timeZoneId.isNullOrBlank()) {
+            try {
+                val tz = TimeZone.getTimeZone(timeZoneId)
+                if (tz.id != "GMT" || timeZoneId.equals("GMT", ignoreCase = true) || timeZoneId.startsWith("GMT")) {
+                    return tz
+                }
+            } catch (_: Exception) {}
+        }
+        if (longitude != null) {
+            val offsetHours = Math.round(longitude / 15.0).toInt()
+            val customGmt = "GMT${if (offsetHours >= 0) "+" else ""}$offsetHours"
+            return TimeZone.getTimeZone(customGmt)
+        }
+        return TimeZone.getDefault()
+    }
+
     /**
      * Helper to check if it is daytime at location.
      */
@@ -66,8 +81,19 @@ object WeatherTimeUtils {
         timestampEpochMillis: Long = 0L,
         timeZoneId: String? = null,
         sunriseStr: String = "06:00 AM",
-        sunsetStr: String = "07:00 PM"
+        sunsetStr: String = "07:00 PM",
+        localTimeStr: String? = null,
+        latitude: Double? = null,
+        longitude: Double? = null
     ): Boolean {
-        return !isNightForLocation(timestampEpochMillis, timeZoneId, sunriseStr, sunsetStr)
+        return !isNightForLocation(
+            timestampEpochMillis = timestampEpochMillis,
+            timeZoneId = timeZoneId,
+            sunriseStr = sunriseStr,
+            sunsetStr = sunsetStr,
+            localTimeStr = localTimeStr,
+            latitude = latitude,
+            longitude = longitude
+        )
     }
 }

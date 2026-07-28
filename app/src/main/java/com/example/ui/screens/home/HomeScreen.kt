@@ -51,8 +51,14 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.foundation.BorderStroke
+import androidx.compose.material3.Surface
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.zIndex
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -134,9 +140,9 @@ fun HomeScreen(
     LaunchedEffect(Unit) {
         val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if ((fineGranted || coarseGranted) && LocationManagerCompat.isLocationEnabled(locationManager)) {
-            val isGpsEnabled = fineGranted && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-            val isNetworkEnabled = (fineGranted || coarseGranted) && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+        if ((fineGranted || coarseGranted) && try { LocationManagerCompat.isLocationEnabled(locationManager) } catch (t: Throwable) { false }) {
+            val isGpsEnabled = fineGranted && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { false }
+            val isNetworkEnabled = (fineGranted || coarseGranted) && try { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (t: Throwable) { false }
             val provider = when {
                 isGpsEnabled -> LocationManager.GPS_PROVIDER
                 isNetworkEnabled -> LocationManager.NETWORK_PROVIDER
@@ -148,7 +154,7 @@ fun HomeScreen(
                     if (lastKnown != null) {
                         viewModel.loadWeatherForCurrentLocation(lastKnown.latitude, lastKnown.longitude)
                     }
-                } catch (e: Exception) {
+                } catch (t: Throwable) {
                     // Silent catch for background location refresh
                 }
             }
@@ -161,9 +167,9 @@ fun HomeScreen(
         if (isGpsActive) {
             val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
             val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-            if ((hasFine || hasCoarse) && LocationManagerCompat.isLocationEnabled(locationManager)) {
-                val isGpsEnabled = hasFine && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
-                val isNetworkEnabled = (hasFine || hasCoarse) && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
+            if ((hasFine || hasCoarse) && try { LocationManagerCompat.isLocationEnabled(locationManager) } catch (t: Throwable) { false }) {
+                val isGpsEnabled = hasFine && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { false }
+                val isNetworkEnabled = (hasFine || hasCoarse) && try { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (t: Throwable) { false }
                 val provider = when {
                     isGpsEnabled -> LocationManager.GPS_PROVIDER
                     isNetworkEnabled -> LocationManager.NETWORK_PROVIDER
@@ -188,7 +194,7 @@ fun HomeScreen(
                             android.os.Looper.getMainLooper()
                         )
                         isRegistered = true
-                    } catch (e: SecurityException) {
+                    } catch (t: Throwable) {
                         // ignore
                     }
                 }
@@ -197,9 +203,9 @@ fun HomeScreen(
         onDispose {
             if (isRegistered && activeListener != null) {
                 try {
-                    locationManager.removeUpdates(activeListener)
-                } catch (e: Exception) {
-                    e.printStackTrace()
+                    locationManager.removeUpdates(activeListener!!)
+                } catch (t: Throwable) {
+                    // Silent catch for AppOps/LocationManager cleanup
                 }
             }
         }
@@ -348,6 +354,32 @@ fun HomeScreenContent(
     var pullOffset by remember { mutableFloatStateOf(0f) }
     var isPullRefreshing by remember { mutableStateOf(false) }
 
+    val locationText = remember(cityWeather.cityName, cityWeather.region, cityWeather.country) {
+        buildString {
+            append(cityWeather.cityName.uppercase())
+            if (!cityWeather.region.isNullOrBlank()) {
+                append(", ")
+                append(cityWeather.region.uppercase())
+            }
+            if (cityWeather.country.isNotBlank()) {
+                append(", ")
+                append(cityWeather.country.uppercase())
+            }
+        }
+    }
+
+    val showStickyHeader by remember {
+        derivedStateOf {
+            val firstIndex = lazyListState.firstVisibleItemIndex
+            val firstOffset = lazyListState.firstVisibleItemScrollOffset
+            if (errorState != null) {
+                firstIndex > 1 || (firstIndex == 1 && firstOffset > 60)
+            } else {
+                firstIndex > 0 || (firstIndex == 0 && firstOffset > 60)
+            }
+        }
+    }
+
     LaunchedEffect(isUpdating) {
         if (!isUpdating) {
             isPullRefreshing = false
@@ -476,6 +508,56 @@ fun HomeScreenContent(
                 }
             }
 
+            // STICKY LOCATION HEADER (Appears smoothly when scrolling down)
+            AnimatedVisibility(
+                visible = showStickyHeader,
+                enter = fadeIn(animationSpec = tween(280)) + slideInVertically(
+                    initialOffsetY = { -it },
+                    animationSpec = tween(280)
+                ),
+                exit = fadeOut(animationSpec = tween(220)) + slideOutVertically(
+                    targetOffsetY = { -it },
+                    animationSpec = tween(220)
+                ),
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .fillMaxWidth()
+                    .zIndex(100f)
+            ) {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .testTag("home_sticky_location_header"),
+                    color = Color(0xFF0F172A).copy(alpha = 0.95f),
+                    shadowElevation = 8.dp,
+                    border = BorderStroke(
+                        width = 1.dp,
+                        color = Color(0xFF1E293B)
+                    )
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 20.dp, vertical = 12.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Text(
+                            text = locationText,
+                            style = MaterialTheme.typography.titleMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.8.sp,
+                                color = MaterialTheme.colorScheme.onBackground,
+                                fontSize = 14.sp
+                            ),
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = TextAlign.Center,
+                            modifier = Modifier.testTag("home_sticky_location_text")
+                        )
+                    }
+                }
+            }
+
             LazyColumn(
                 state = lazyListState,
                 modifier = Modifier
@@ -542,18 +624,6 @@ fun HomeScreenContent(
 
             // TOP HEADER
             item(key = "home_top_header") {
-                val locationText = buildString {
-                    append(cityWeather.cityName.uppercase())
-                    if (!cityWeather.region.isNullOrBlank()) {
-                        append(", ")
-                        append(cityWeather.region.uppercase())
-                    }
-                    if (cityWeather.country.isNotBlank()) {
-                        append(", ")
-                        append(cityWeather.country.uppercase())
-                    }
-                }
-                
                 Row(
                     modifier = Modifier.fillMaxWidth(),
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -729,15 +799,15 @@ fun HomeScreenContent(
                         contentAlignment = Alignment.Center
                     ) {
                         AnimatedContent(
-                            targetState = details.condition,
+                            targetState = details,
                             transitionSpec = {
                                 scaleIn(animationSpec = tween(500)) + fadeIn(animationSpec = tween(500)) togetherWith
                                         scaleOut(animationSpec = tween(500)) + fadeOut(animationSpec = tween(500))
                             },
                             label = "IconAnimation"
-                        ) { targetCondition ->
+                        ) { targetDetails ->
                             WeatherConditionIcon(
-                                condition = targetCondition,
+                                weatherDetails = targetDetails,
                                 modifier = Modifier.size(100.dp)
                             )
                         }

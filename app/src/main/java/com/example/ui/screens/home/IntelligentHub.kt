@@ -1016,7 +1016,7 @@ fun IntelligentHub(
                                             )
                                             Spacer(modifier = Modifier.height(4.dp))
                                             WeatherConditionIcon(
-                                                condition = details.condition,
+                                                weatherDetails = details,
                                                 modifier = Modifier.size(32.dp)
                                             )
                                             Text(
@@ -1096,7 +1096,7 @@ fun IntelligentHub(
                                                 )
                                                 Spacer(modifier = Modifier.height(4.dp))
                                                 WeatherConditionIcon(
-                                                    condition = cDetails.condition,
+                                                    cityWeather = cCity,
                                                     modifier = Modifier.size(32.dp)
                                                 )
                                                 Text(

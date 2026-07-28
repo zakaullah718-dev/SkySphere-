@@ -149,7 +149,7 @@ fun FavoriteCityCard(
                     modifier = Modifier.weight(1f)
                 ) {
                     WeatherConditionIcon(
-                        condition = condition,
+                        cityWeather = city,
                         modifier = Modifier.size(44.dp)
                     )
                     Spacer(modifier = Modifier.width(16.dp))
