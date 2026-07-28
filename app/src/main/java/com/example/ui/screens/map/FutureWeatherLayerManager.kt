@@ -12,6 +12,7 @@ import com.example.BuildConfig
 import okhttp3.OkHttpClient
 import okhttp3.Request
 import org.osmdroid.tileprovider.MapTileProviderArray
+import org.osmdroid.tileprovider.MapTileProviderBase
 import org.osmdroid.tileprovider.modules.IFilesystemCache
 import org.osmdroid.tileprovider.modules.MapTileModuleProviderBase
 import org.osmdroid.tileprovider.tilesource.ITileSource
@@ -19,6 +20,20 @@ import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.overlay.TilesOverlay
 import java.util.concurrent.TimeUnit
+
+class WeatherTilesOverlay(
+    val pTileProvider: MapTileProviderBase,
+    pContext: Context,
+    val moduleProvider: MapTileModuleProviderBase?
+) : TilesOverlay(pTileProvider, pContext) {
+
+    fun updateFrame(frame: TimeLapseFrame?) {
+        if (moduleProvider is RainRadarTileModuleProvider) {
+            moduleProvider.customRadarFrame = frame?.radarFrame
+        }
+        pTileProvider.clearTileCache()
+    }
+}
 
 class FutureWeatherLayerManager(
     private val radarRepository: FutureRadarRepository = FutureRadarRepository()
@@ -42,7 +57,7 @@ class FutureWeatherLayerManager(
         layer: MapWeatherLayer,
         radarTimestamp: Long = radarRepository.getFallbackTimestamp(),
         customRadarFrame: RadarFrame? = null
-    ): TilesOverlay? {
+    ): WeatherTilesOverlay? {
         if (layer == MapWeatherLayer.NONE) {
             return null
         }
@@ -62,7 +77,7 @@ class FutureWeatherLayerManager(
             val moduleProvider = RainRadarTileModuleProvider(dummyTileSource, null, radarRepository, customRadarFrame)
             val providerArray = MapTileProviderArray(dummyTileSource, null, arrayOf(moduleProvider))
 
-            return TilesOverlay(providerArray, context).apply {
+            return WeatherTilesOverlay(providerArray, context, moduleProvider).apply {
                 loadingBackgroundColor = Color.TRANSPARENT
                 loadingLineColor = Color.TRANSPARENT
             }
@@ -104,7 +119,7 @@ class FutureWeatherLayerManager(
         )
         val providerArray = MapTileProviderArray(dummyTileSource, null, arrayOf(moduleProvider))
 
-        return TilesOverlay(providerArray, context).apply {
+        return WeatherTilesOverlay(providerArray, context, moduleProvider).apply {
             loadingBackgroundColor = Color.TRANSPARENT
             loadingLineColor = Color.TRANSPARENT
         }
@@ -116,7 +131,7 @@ class RainRadarTileModuleProvider(
     pTileCache: IFilesystemCache?,
     private val radarRepository: FutureRadarRepository,
     @Volatile var customRadarFrame: RadarFrame? = null
-) : MapTileModuleProviderBase(2, 40) {
+) : MapTileModuleProviderBase(8, 200) {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -270,7 +285,7 @@ class OwmTileModuleProvider(
     private val layerEndpoint: String,
     private val owmApiKey: String,
     private val isCloudsDark: Boolean = false
-) : MapTileModuleProviderBase(2, 40) {
+) : MapTileModuleProviderBase(8, 200) {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)

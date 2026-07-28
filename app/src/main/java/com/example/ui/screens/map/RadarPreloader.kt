@@ -33,6 +33,59 @@ object RadarPreloader {
         }
     }
 
+    fun getRequiredTileKeys(
+        layer: MapWeatherLayer,
+        frames: List<TimeLapseFrame>,
+        centerLat: Double,
+        centerLon: Double,
+        mapZoom: Int
+    ): Set<String> {
+        if (layer == MapWeatherLayer.NONE || frames.isEmpty()) return emptySet()
+
+        val providerMaxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) {
+            FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
+        } else {
+            FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
+        }
+
+        val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
+        val numTilesDimension = 1 shl pZoom
+
+        val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+        val rad = Math.toRadians(centerLat)
+        val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+
+        val tileXs = (centerX - 1..centerX + 1).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+        val tileYs = (centerY - 1..centerY + 1).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+
+        val keys = mutableSetOf<String>()
+        if (layer == MapWeatherLayer.RAIN_RADAR) {
+            for (frame in frames) {
+                val timestamp = frame.radarFrame?.time ?: frame.timestamp
+                for (x in tileXs) {
+                    for (y in tileYs) {
+                        keys.add("RainViewer_Radar_${timestamp}_${pZoom}_${x}_${y}")
+                    }
+                }
+            }
+        } else {
+            val layerEndpoint = when (layer) {
+                MapWeatherLayer.CLOUDS -> "clouds_new"
+                MapWeatherLayer.TEMPERATURE -> "temp_new"
+                MapWeatherLayer.WIND -> "wind_new"
+                MapWeatherLayer.HUMIDITY -> "humidity_new"
+                MapWeatherLayer.PRESSURE -> "pressure_new"
+                else -> return emptySet()
+            }
+            for (x in tileXs) {
+                for (y in tileYs) {
+                    keys.add("${layerEndpoint}_${pZoom}_${x}_${y}")
+                }
+            }
+        }
+        return keys
+    }
+
     suspend fun preloadFrames(
         layer: MapWeatherLayer,
         frames: List<TimeLapseFrame>,
@@ -57,8 +110,8 @@ object RadarPreloader {
         val rad = Math.toRadians(centerLat)
         val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-        val tileXs = (centerX - 2..centerX + 2).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-        val tileYs = (centerY - 2..centerY + 2).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+        val tileXs = (centerX - 1..centerX + 1).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+        val tileYs = (centerY - 1..centerY + 1).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
 
         val tileCoords = mutableListOf<Pair<Int, Int>>()
         for (x in tileXs) {
@@ -91,6 +144,36 @@ object RadarPreloader {
             }
             jobs.awaitAll()
         }
+
+        // Clean up any stale RAM tiles not in current frame set
+        val activeKeys = getRequiredTileKeys(layer, frames, centerLat, centerLon, mapZoom)
+        TileRamCache.retainOnly(activeKeys)
+    }
+
+    fun isFrameCached(
+        layer: MapWeatherLayer,
+        frame: TimeLapseFrame,
+        centerLat: Double,
+        centerLon: Double,
+        mapZoom: Int
+    ): Boolean {
+        if (layer == MapWeatherLayer.NONE) return true
+        val requiredKeys = getRequiredTileKeys(layer, listOf(frame), centerLat, centerLon, mapZoom)
+        if (requiredKeys.isEmpty()) return true
+        return requiredKeys.all { TileRamCache.contains(it) }
+    }
+
+    fun areAllFramesCached(
+        layer: MapWeatherLayer,
+        frames: List<TimeLapseFrame>,
+        centerLat: Double,
+        centerLon: Double,
+        mapZoom: Int
+    ): Boolean {
+        if (layer == MapWeatherLayer.NONE || frames.isEmpty()) return true
+        val requiredKeys = getRequiredTileKeys(layer, frames, centerLat, centerLon, mapZoom)
+        if (requiredKeys.isEmpty()) return true
+        return requiredKeys.all { TileRamCache.contains(it) }
     }
 
     private fun preloadSingleTile(

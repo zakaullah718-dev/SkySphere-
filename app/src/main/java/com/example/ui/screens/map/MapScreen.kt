@@ -156,7 +156,7 @@ fun MapScreen(
 
     // References for overlays
     val locationOverlayRef = remember { arrayOfNulls<MyLocationNewOverlay>(1) }
-    val weatherOverlayRef = remember { arrayOfNulls<TilesOverlay>(1) }
+    val weatherOverlayRef = remember { arrayOfNulls<WeatherTilesOverlay>(1) }
 
     // Helper to trigger center & reverse geocode
     fun centerOnLocation(mapView: MapView?, lat: Double, lon: Double, zoomLevel: Double = 11.0) {
@@ -337,7 +337,7 @@ fun MapScreen(
     // Dynamic Weather Overlay Manager
     val activeFrame = timeLapseState.currentFrame
 
-    LaunchedEffect(mapState.selectedLayer, activeFrame, mapView) {
+    LaunchedEffect(mapState.selectedLayer, mapView) {
         if (mapView == null) return@LaunchedEffect
 
         // Remove previous weather layer overlay
@@ -368,6 +368,14 @@ fun MapScreen(
         }
 
         mapView.postInvalidate()
+    }
+
+    LaunchedEffect(activeFrame) {
+        val overlay = weatherOverlayRef[0]
+        if (overlay != null && activeFrame != null) {
+            overlay.updateFrame(activeFrame)
+            mapView?.postInvalidate()
+        }
     }
 
     // Lifecycle & battery optimization
@@ -547,7 +555,7 @@ fun MapScreen(
                         .align(Alignment.BottomEnd)
                         .navigationBarsPadding()
                         .padding(
-                            bottom = if (mapState.selectedLayer != MapWeatherLayer.NONE) 180.dp else 92.dp,
+                            bottom = if (mapState.selectedLayer != MapWeatherLayer.NONE) 130.dp else 92.dp,
                             end = 16.dp
                         ),
                     verticalArrangement = Arrangement.spacedBy(14.dp)

@@ -95,14 +95,14 @@ fun RadarTimeLapsePanel(
     val isNowFrame = currentFrame?.isNow == true
 
     Card(
-        shape = RoundedCornerShape(20.dp),
+        shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = Color.Transparent),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp),
+        elevation = CardDefaults.cardElevation(defaultElevation = 6.dp),
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 2.dp)
-            .shadow(10.dp, RoundedCornerShape(20.dp), clip = false)
-            .background(glassBackground, RoundedCornerShape(20.dp))
+            .padding(horizontal = 10.dp, vertical = 0.dp)
+            .shadow(8.dp, RoundedCornerShape(16.dp), clip = false)
+            .background(glassBackground, RoundedCornerShape(16.dp))
             .border(
                 width = 1.dp,
                 brush = Brush.horizontalGradient(
@@ -112,14 +112,14 @@ fun RadarTimeLapsePanel(
                         Color(0x554FD1C5)
                     )
                 ),
-                shape = RoundedCornerShape(20.dp)
+                shape = RoundedCornerShape(16.dp)
             )
             .testTag("radar_timelapse_panel")
     ) {
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp, vertical = 8.dp)
+                .padding(horizontal = 12.dp, vertical = 4.dp)
         ) {
             // 1. COMPACT TOP HEADER
             Row(
@@ -134,21 +134,21 @@ fun RadarTimeLapsePanel(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(8.dp)
+                            .size(7.dp)
                             .clip(CircleShape)
                             .background(
                                 if (isNowFrame || state.isPlaying) Color(0xFF00E676) else Color(0xFF4FD1C5)
                             )
                             .alpha(if (state.isPlaying || isNowFrame) pulseAlpha else 0.8f)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(5.dp))
 
                     Text(
                         text = currentFrame?.displayLabel ?: "NOW (LIVE)",
                         style = MaterialTheme.typography.titleMedium.copy(
                             color = if (isNowFrame) Color(0xFF00E676) else Color.White,
                             fontWeight = FontWeight.Bold,
-                            fontSize = 13.sp
+                            fontSize = 12.sp
                         )
                     )
                     if (currentFrame?.formattedClock != null) {
@@ -157,7 +157,7 @@ fun RadarTimeLapsePanel(
                             style = MaterialTheme.typography.bodySmall.copy(
                                 color = Color(0xCCFFFFFF),
                                 fontWeight = FontWeight.Medium,
-                                fontSize = 11.sp
+                                fontSize = 10.sp
                             )
                         )
                     }
@@ -165,6 +165,7 @@ fun RadarTimeLapsePanel(
 
                 // Speed Selector Pill Button
                 val speedStr = when (state.playbackSpeed) {
+                    0.25f -> "0.25x"
                     0.5f -> "0.5x"
                     1.0f -> "1x"
                     1.5f -> "1.5x"
@@ -172,10 +173,10 @@ fun RadarTimeLapsePanel(
                     else -> "${state.playbackSpeed}x"
                 }
                 Surface(
-                    shape = RoundedCornerShape(10.dp),
+                    shape = RoundedCornerShape(8.dp),
                     color = Color(0x33FFFFFF),
                     modifier = Modifier
-                        .clip(RoundedCornerShape(10.dp))
+                        .clip(RoundedCornerShape(8.dp))
                         .clickable {
                             try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
                             onCycleSpeed()
@@ -187,9 +188,9 @@ fun RadarTimeLapsePanel(
                         style = MaterialTheme.typography.labelMedium.copy(
                             color = Color(0xFF4FD1C5),
                             fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
+                            fontSize = 10.sp
                         ),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             }
@@ -203,21 +204,21 @@ fun RadarTimeLapsePanel(
                     verticalAlignment = Alignment.CenterVertically,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 4.dp)
-                        .background(Color(0x224FD1C5), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 3.dp)
+                        .padding(top = 2.dp)
+                        .background(Color(0x224FD1C5), RoundedCornerShape(4.dp))
+                        .padding(horizontal = 6.dp, vertical = 2.dp)
                 ) {
                     CircularProgressIndicator(
                         color = Color(0xFF4FD1C5),
                         strokeWidth = 2.dp,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(10.dp)
                     )
-                    Spacer(modifier = Modifier.width(6.dp))
+                    Spacer(modifier = Modifier.width(4.dp))
                     Text(
                         text = "Loading radar frames... ${(state.bufferProgress * 100).toInt()}%",
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = Color(0xFF4FD1C5),
-                            fontSize = 10.sp,
+                            fontSize = 9.sp,
                             fontWeight = FontWeight.Medium
                         )
                     )
@@ -247,7 +248,7 @@ fun RadarTimeLapsePanel(
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(20.dp)
+                    .height(14.dp)
                     .testTag("timelapse_slider")
             )
 
@@ -257,14 +258,14 @@ fun RadarTimeLapsePanel(
                 horizontalArrangement = Arrangement.SpaceBetween,
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 1.dp)
+                    .padding(top = 0.dp)
             ) {
                 // Left: History Span Label
                 Text(
                     text = state.availableHistoryLabel,
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = Color(0xB3FFFFFF),
-                        fontSize = 10.sp,
+                        fontSize = 9.sp,
                         fontWeight = FontWeight.Medium
                     )
                 )
@@ -272,7 +273,7 @@ fun RadarTimeLapsePanel(
                 // Center: Compact Playback Controls
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     // Previous Frame Button
                     IconButton(
@@ -281,7 +282,7 @@ fun RadarTimeLapsePanel(
                             onPreviousFrame()
                         },
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(28.dp)
                             .background(Color(0x1AFFFFFF), CircleShape)
                             .testTag("timelapse_prev_button")
                     ) {
@@ -289,7 +290,7 @@ fun RadarTimeLapsePanel(
                             imageVector = Icons.Default.SkipPrevious,
                             contentDescription = "Previous Frame",
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
 
@@ -297,9 +298,9 @@ fun RadarTimeLapsePanel(
                     Surface(
                         shape = CircleShape,
                         color = Color(0xFF319795),
-                        shadowElevation = 4.dp,
+                        shadowElevation = 3.dp,
                         modifier = Modifier
-                            .size(42.dp)
+                            .size(36.dp)
                             .clip(CircleShape)
                             .clickable {
                                 try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
@@ -315,14 +316,14 @@ fun RadarTimeLapsePanel(
                                 CircularProgressIndicator(
                                     color = Color.White,
                                     strokeWidth = 2.dp,
-                                    modifier = Modifier.size(18.dp)
+                                    modifier = Modifier.size(16.dp)
                                 )
                             } else {
                                 Icon(
                                     imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
                                     contentDescription = if (state.isPlaying) "Pause" else "Play",
                                     tint = Color.White,
-                                    modifier = Modifier.size(24.dp)
+                                    modifier = Modifier.size(20.dp)
                                 )
                             }
                         }
@@ -335,7 +336,7 @@ fun RadarTimeLapsePanel(
                             onNextFrame()
                         },
                         modifier = Modifier
-                            .size(34.dp)
+                            .size(28.dp)
                             .background(Color(0x1AFFFFFF), CircleShape)
                             .testTag("timelapse_next_button")
                     ) {
@@ -343,25 +344,25 @@ fun RadarTimeLapsePanel(
                             imageVector = Icons.Default.SkipNext,
                             contentDescription = "Next Frame",
                             tint = Color.White,
-                            modifier = Modifier.size(20.dp)
+                            modifier = Modifier.size(16.dp)
                         )
                     }
                 }
 
                 // Right: Badge Tag
                 Surface(
-                    shape = RoundedCornerShape(6.dp),
+                    shape = RoundedCornerShape(5.dp),
                     color = if (isNowFrame) Color(0x3300E676) else Color(0x1AFFFFFF),
-                    modifier = Modifier.clip(RoundedCornerShape(6.dp))
+                    modifier = Modifier.clip(RoundedCornerShape(5.dp))
                 ) {
                     Text(
                         text = if (isNowFrame) "NOW (LIVE)" else if (currentFrame?.isForecast == true) "Forecast" else "Radar",
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = if (isNowFrame) Color(0xFF00E676) else Color(0xCCFFFFFF),
-                            fontSize = 10.sp,
+                            fontSize = 9.sp,
                             fontWeight = if (isNowFrame) FontWeight.Bold else FontWeight.Medium
                         ),
-                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
                     )
                 }
             }
