@@ -125,14 +125,11 @@ class WeatherRepository(private val context: Context) {
     }
 
     // Initialize Database
-    private val database = Room.databaseBuilder(
-        context.applicationContext,
-        AppDatabase::class.java,
-        "skysphere_weather.db"
-    ).fallbackToDestructiveMigration().build()
+    private val database = AppDatabase.getDatabase(context)
 
     private val weatherDao = database.weatherDao()
     private val recentSearchDao = database.recentSearchDao()
+    val radarMetadataDao = database.radarMetadataDao()
 
     // Setup network clients
     private val okHttpClient = OkHttpClient.Builder()
@@ -768,6 +765,27 @@ class WeatherRepository(private val context: Context) {
                 freshWeather
             }
             saveCityToCache(finalWeather)
+        }
+        result.onFailure {
+            if (cached != null) {
+                try {
+                    val details = moshi.adapter(WeatherDetails::class.java).fromJson(cached.weatherJson)
+                    if (details != null) {
+                        val alignedDetails = alignWeatherDetailsHourly(details)
+                        return Result.success(
+                            CityWeather(
+                                cityName = cached.cityName,
+                                country = cached.country,
+                                isFavorite = cached.isFavorite,
+                                weatherDetails = alignedDetails,
+                                region = cached.region
+                            )
+                        )
+                    }
+                } catch (e: Exception) {
+                    // Ignore decoding error, return original failure
+                }
+            }
         }
         return result
     }

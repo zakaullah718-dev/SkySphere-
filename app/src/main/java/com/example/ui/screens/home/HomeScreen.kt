@@ -47,6 +47,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import com.example.ui.theme.LuxurySkyBlue
 import com.example.ui.theme.LuxuryCyan
+import com.example.ui.components.WindGaugeCard
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -292,34 +293,31 @@ private fun fetchGpsLocation(context: Context, locationManager: LocationManager,
                 else -> null
             }
             if (provider != null) {
-                val lastKnown = locationManager.getLastKnownLocation(provider)
-                if (lastKnown != null) {
-                    viewModel.loadWeatherForCurrentLocation(lastKnown.latitude, lastKnown.longitude)
+                try {
+                    val lastKnown = locationManager.getLastKnownLocation(provider)
+                    if (lastKnown != null) {
+                        viewModel.loadWeatherForCurrentLocation(lastKnown.latitude, lastKnown.longitude)
+                    }
+                } catch (t: Throwable) {
+                    // Ignore lastKnown errors
                 }
-                val singleListener = object : LocationListener {
-                    private var isHandled = false
-                    override fun onLocationChanged(location: Location) {
-                        if (!isHandled) {
-                            isHandled = true
-                            try {
-                                locationManager.removeUpdates(this)
-                            } catch (t: Throwable) {
-                                // Ignore AppOps / system cleanup errors
-                            }
+
+                try {
+                    val consumer = androidx.core.util.Consumer<Location?> { location ->
+                        if (location != null) {
                             viewModel.loadWeatherForCurrentLocation(location.latitude, location.longitude)
                         }
                     }
-                    override fun onProviderEnabled(p: String) {}
-                    override fun onProviderDisabled(p: String) {}
-                    override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
+                    LocationManagerCompat.getCurrentLocation(
+                        locationManager,
+                        provider,
+                        null as android.os.CancellationSignal?,
+                        ContextCompat.getMainExecutor(context),
+                        consumer
+                    )
+                } catch (t: Throwable) {
+                    // Ignore LocationManagerCompat fallback errors
                 }
-                locationManager.requestLocationUpdates(
-                    provider,
-                    0L,
-                    0f,
-                    singleListener,
-                    android.os.Looper.getMainLooper()
-                )
             } else {
                 viewModel.setError("GPS location services are disabled on this device. Please turn them on in system settings.")
             }
@@ -1071,6 +1069,16 @@ fun HomeScreenContent(
             }
         }
 
+        // 5.5. Wind Conditions Gauge
+        item {
+            WindGaugeCard(
+                windSpeedKmH = details.windSpeed,
+                windDirection = details.windDirection,
+                windUnit = windUnit,
+                modifier = Modifier.padding(vertical = 4.dp)
+            )
+        }
+
         // 6. Weather details
         item {
             Column {
@@ -1097,10 +1105,10 @@ fun HomeScreenContent(
                             iconColor = LuxuryCyan
                         )
                         TelemetryCard(
-                            title = "WIND DETAILS",
-                            value = formatWind(details.windSpeed, windUnit),
-                            subtitle = "Direction: ${details.windDirection}",
-                            icon = Icons.Filled.Air,
+                            title = "UV INDEX",
+                            value = "${details.uvIndex}",
+                            subtitle = if (details.uvIndex <= 2) "Low exposure" else if (details.uvIndex <= 5) "Moderate exposure" else "High exposure",
+                            icon = Icons.Filled.WbSunny,
                             iconColor = LuxurySkyBlue
                         )
                         TelemetryCard(

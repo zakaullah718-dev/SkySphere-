@@ -47,6 +47,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.draw.shadow
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -57,7 +59,7 @@ import androidx.compose.ui.unit.dp
 /**
  * A highly polished, luxury card for SkySphere that displays content
  * with a premium Glassmorphism effect: semi-transparent gradients,
- * high-contrast reflective borders, and rounded corners.
+ * high-contrast reflective borders, subtle elevation shadows, and rounded corners.
  */
 @Composable
 fun SkySphereCard(
@@ -67,18 +69,24 @@ fun SkySphereCard(
     contentPadding: PaddingValues = PaddingValues(20.dp),
     content: @Composable ColumnScope.() -> Unit
 ) {
-    val isDark = true
+    val cardShape = RoundedCornerShape(24.dp)
     
-    // Premium solid high-contrast backgrounds for maximum text readability and accessibility
+    // Glassmorphism background gradient: deep slate indigo with specular top lighting
     val bgBrush = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF252538), // High-contrast solid deep gray-indigo top
-            Color(0xFF1E1E2E)  // Solid dark gray base (as requested)
+            Color(0xFF23293D), // Refined top slate
+            Color(0xFF171C2B)  // Deep luxury base
         )
     )
 
-    // High-contrast, clearly visible border stroke
-    val borderColor = Color(0xFF374151) // Highly visible border (as requested)
+    // Glass reflective specular border gradient
+    val glassBorderBrush = Brush.linearGradient(
+        colors = listOf(
+            Color(0x48FFFFFF), // Specular light highlight at top-left
+            Color(0x2038BDF8), // Subtle SkySphere cyan glow
+            Color(0x18FFFFFF)  // Faded bottom-right reflection
+        )
+    )
 
     val clickModifier = if (onClick != null) {
         Modifier.clickable(onClick = onClick)
@@ -88,9 +96,16 @@ fun SkySphereCard(
 
     Box(
         modifier = modifier
-            .clip(MaterialTheme.shapes.large)
+            .shadow(
+                elevation = 8.dp,
+                shape = cardShape,
+                clip = false,
+                ambientColor = Color(0x35000000),
+                spotColor = Color(0x50000000)
+            )
+            .clip(cardShape)
             .background(bgBrush)
-            .border(borderWidth, borderColor, MaterialTheme.shapes.large)
+            .border(borderWidth, glassBorderBrush, cardShape)
             .then(clickModifier)
             .padding(contentPadding)
     ) {

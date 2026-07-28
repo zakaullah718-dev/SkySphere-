@@ -1,16 +1,20 @@
 package com.example.ui.screens.map
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.util.Log
+import com.example.data.db.AppDatabase
+import com.example.data.db.RadarMetadataEntity
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.util.concurrent.TimeUnit
 
@@ -54,7 +58,7 @@ data class TileAuditResult(
     val errorMessage: String? = null
 )
 
-class FutureRadarRepository {
+class FutureRadarRepository(private val context: Context? = null) {
 
     private val client = OkHttpClient.Builder()
         .connectTimeout(5, TimeUnit.SECONDS)
@@ -66,6 +70,56 @@ class FutureRadarRepository {
 
     @Volatile
     private var lastFetchTime: Long = 0L
+
+    private suspend fun saveRadarMetadataToRoom(host: String, frames: List<RadarFrame>) {
+        val ctx = context ?: return
+        try {
+            val dao = AppDatabase.getDatabase(ctx).radarMetadataDao()
+            val array = JSONArray()
+            for (f in frames) {
+                val obj = JSONObject()
+                obj.put("time", f.time)
+                obj.put("path", f.path)
+                obj.put("host", f.host)
+                array.put(obj)
+            }
+            dao.insertRadarMetadata(
+                RadarMetadataEntity(
+                    key = "latest_radar_frames",
+                    host = host,
+                    framesJson = array.toString(),
+                    timestamp = System.currentTimeMillis()
+                )
+            )
+            Log.d("RainRadarRepo", "Successfully cached ${frames.size} radar frames in Room DB.")
+        } catch (e: Exception) {
+            Log.w("RainRadarRepo", "Failed to cache radar metadata in Room DB: ${e.localizedMessage}")
+        }
+    }
+
+    private suspend fun loadRadarMetadataFromRoom(): List<RadarFrame> {
+        val ctx = context ?: return emptyList()
+        return try {
+            val dao = AppDatabase.getDatabase(ctx).radarMetadataDao()
+            val cached = dao.getRadarMetadata("latest_radar_frames") ?: return emptyList()
+            val result = mutableListOf<RadarFrame>()
+            val array = JSONArray(cached.framesJson)
+            for (i in 0 until array.length()) {
+                val obj = array.getJSONObject(i)
+                val time = obj.optLong("time", 0L)
+                val path = obj.optString("path", "")
+                val host = obj.optString("host", cached.host)
+                if (time > 0L) {
+                    result.add(RadarFrame(time = time, path = path, host = host))
+                }
+            }
+            Log.d("RainRadarRepo", "Loaded ${result.size} radar frames from Room DB cache.")
+            result
+        } catch (e: Exception) {
+            Log.w("RainRadarRepo", "Error reading radar metadata from Room DB: ${e.localizedMessage}")
+            emptyList()
+        }
+    }
 
     fun invalidateCache() {
         cachedFrame = null
@@ -232,11 +286,21 @@ class FutureRadarRepository {
                                 }
                             }
                         }
+                        if (rainViewerFrames.isNotEmpty()) {
+                            saveRadarMetadataToRoom(host, rainViewerFrames)
+                        }
                     }
                 }
             }
         } catch (e: Exception) {
             Log.w("RainRadarRepo", "Error fetching time lapse frames from RainViewer: ${e.localizedMessage}")
+        }
+
+        if (rainViewerFrames.isEmpty()) {
+            val roomCached = loadRadarMetadataFromRoom()
+            if (roomCached.isNotEmpty()) {
+                rainViewerFrames.addAll(roomCached)
+            }
         }
 
         if (rainViewerFrames.isNotEmpty()) {

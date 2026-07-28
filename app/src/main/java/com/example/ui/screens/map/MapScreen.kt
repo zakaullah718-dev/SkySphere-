@@ -118,7 +118,7 @@ fun MapScreen(
 
     val mapRepository = remember { MapRepository(repository) }
     val controller = remember { MapController() }
-    val radarRepository = remember { FutureRadarRepository() }
+    val radarRepository = remember { FutureRadarRepository(context) }
     val weatherLayerManager = remember { FutureWeatherLayerManager(radarRepository) }
     val mapState by controller.mapState.collectAsState()
 

@@ -1,5 +1,6 @@
 package com.example.data.db
 
+import android.content.Context
 import androidx.room.*
 import kotlinx.coroutines.flow.Flow
 
@@ -20,13 +21,24 @@ data class RecentSearchEntity(
     val timestamp: Long
 )
 
+@Entity(tableName = "radar_metadata")
+data class RadarMetadataEntity(
+    @PrimaryKey val key: String = "latest_radar_frames",
+    val host: String,
+    val framesJson: String,
+    val timestamp: Long
+)
+
 @Dao
 interface WeatherDao {
-    @Query("SELECT * FROM cached_weather WHERE id = :id OR LOWER(cityName) = :id ORDER BY (id = :id) DESC LIMIT 1")
+    @Query("SELECT * FROM cached_weather WHERE id = :id OR LOWER(cityName) = LOWER(:id) ORDER BY (id = :id) DESC LIMIT 1")
     suspend fun getCachedWeather(id: String): CachedWeatherEntity?
 
     @Query("SELECT * FROM cached_weather ORDER BY timestamp DESC")
     fun getAllCachedWeatherFlow(): Flow<List<CachedWeatherEntity>>
+
+    @Query("SELECT * FROM cached_weather ORDER BY timestamp DESC")
+    suspend fun getAllCachedWeather(): List<CachedWeatherEntity>
 
     @Insert(onConflict = OnConflictStrategy.REPLACE)
     suspend fun insertCachedWeather(cached: CachedWeatherEntity)
@@ -53,8 +65,47 @@ interface RecentSearchDao {
     suspend fun clearAll()
 }
 
-@Database(entities = [CachedWeatherEntity::class, RecentSearchEntity::class], version = 2, exportSchema = false)
+@Dao
+interface RadarMetadataDao {
+    @Query("SELECT * FROM radar_metadata WHERE `key` = :key LIMIT 1")
+    suspend fun getRadarMetadata(key: String = "latest_radar_frames"): RadarMetadataEntity?
+
+    @Query("SELECT * FROM radar_metadata WHERE `key` = :key LIMIT 1")
+    fun getRadarMetadataFlow(key: String = "latest_radar_frames"): Flow<RadarMetadataEntity?>
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertRadarMetadata(metadata: RadarMetadataEntity)
+
+    @Query("DELETE FROM radar_metadata WHERE `key` = :key")
+    suspend fun deleteRadarMetadata(key: String = "latest_radar_frames")
+}
+
+@Database(
+    entities = [CachedWeatherEntity::class, RecentSearchEntity::class, RadarMetadataEntity::class],
+    version = 3,
+    exportSchema = false
+)
 abstract class AppDatabase : RoomDatabase() {
     abstract fun weatherDao(): WeatherDao
     abstract fun recentSearchDao(): RecentSearchDao
+    abstract fun radarMetadataDao(): RadarMetadataDao
+
+    companion object {
+        @Volatile
+        private var INSTANCE: AppDatabase? = null
+
+        fun getDatabase(context: Context): AppDatabase {
+            return INSTANCE ?: synchronized(this) {
+                val instance = Room.databaseBuilder(
+                    context.applicationContext,
+                    AppDatabase::class.java,
+                    "skysphere_weather.db"
+                )
+                    .fallbackToDestructiveMigration()
+                    .build()
+                INSTANCE = instance
+                instance
+            }
+        }
+    }
 }
