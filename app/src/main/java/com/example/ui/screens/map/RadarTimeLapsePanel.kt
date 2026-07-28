@@ -196,7 +196,7 @@ fun RadarTimeLapsePanel(
             }
 
             AnimatedVisibility(
-                visible = state.isBuffering,
+                visible = !state.isReadyToPlay || state.isLoading || state.isBuffering,
                 enter = fadeIn(),
                 exit = fadeOut()
             ) {
@@ -215,7 +215,7 @@ fun RadarTimeLapsePanel(
                     )
                     Spacer(modifier = Modifier.width(4.dp))
                     Text(
-                        text = "Loading radar frames... ${(state.bufferProgress * 100).toInt()}%",
+                        text = "Preloading radar time-lapse... ${(state.bufferProgress * 100).toInt()}%",
                         style = MaterialTheme.typography.labelSmall.copy(
                             color = Color(0xFF4FD1C5),
                             fontSize = 9.sp,
@@ -295,14 +295,15 @@ fun RadarTimeLapsePanel(
                     }
 
                     // Main Play / Pause Button
+                    val isPlayable = state.isReadyToPlay && !state.isLoading && !state.isBuffering
                     Surface(
                         shape = CircleShape,
-                        color = Color(0xFF319795),
-                        shadowElevation = 3.dp,
+                        color = if (isPlayable) Color(0xFF319795) else Color(0x66319795),
+                        shadowElevation = if (isPlayable) 3.dp else 0.dp,
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .clickable {
+                            .clickable(enabled = isPlayable) {
                                 try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
                                 onTogglePlayPause()
                             }
@@ -312,7 +313,7 @@ fun RadarTimeLapsePanel(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            if (state.isLoading) {
+                            if (!isPlayable) {
                                 CircularProgressIndicator(
                                     color = Color.White,
                                     strokeWidth = 2.dp,

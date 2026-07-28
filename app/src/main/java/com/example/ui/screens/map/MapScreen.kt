@@ -378,6 +378,10 @@ fun MapScreen(
         }
     }
 
+    LaunchedEffect(timeLapseState.isPlaying) {
+        weatherOverlayRef[0]?.setPlaybackActive(timeLapseState.isPlaying)
+    }
+
     // Lifecycle & battery optimization
     DisposableEffect(lifecycleOwner) {
         val observer = LifecycleEventObserver { _, event ->
@@ -555,7 +559,7 @@ fun MapScreen(
                         .align(Alignment.BottomEnd)
                         .navigationBarsPadding()
                         .padding(
-                            bottom = if (mapState.selectedLayer != MapWeatherLayer.NONE) 130.dp else 92.dp,
+                            bottom = if (mapState.selectedLayer != MapWeatherLayer.NONE) 220.dp else 92.dp,
                             end = 16.dp
                         ),
                     verticalArrangement = Arrangement.spacedBy(14.dp)

@@ -20,6 +20,7 @@ data class TimeLapseState(
     val playbackSpeed: Float = 1.0f, // 0.5f, 1.0f, 1.5f, 2.0f
     val isLoading: Boolean = false,
     val isBuffering: Boolean = false,
+    val isReadyToPlay: Boolean = false,
     val bufferProgress: Float = 0f, // 0.0f to 1.0f
     val activeLayer: MapWeatherLayer = MapWeatherLayer.NONE
 ) {

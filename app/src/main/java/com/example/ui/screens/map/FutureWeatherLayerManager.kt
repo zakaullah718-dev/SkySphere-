@@ -33,6 +33,14 @@ class WeatherTilesOverlay(
         }
         pTileProvider.clearTileCache()
     }
+
+    fun setPlaybackActive(active: Boolean) {
+        if (moduleProvider is RainRadarTileModuleProvider) {
+            moduleProvider.isPlaybackActive = active
+        } else if (moduleProvider is OwmTileModuleProvider) {
+            moduleProvider.isPlaybackActive = active
+        }
+    }
 }
 
 class FutureWeatherLayerManager(
@@ -130,7 +138,8 @@ class RainRadarTileModuleProvider(
     pTileSource: ITileSource,
     pTileCache: IFilesystemCache?,
     private val radarRepository: FutureRadarRepository,
-    @Volatile var customRadarFrame: RadarFrame? = null
+    @Volatile var customRadarFrame: RadarFrame? = null,
+    @Volatile var isPlaybackActive: Boolean = false
 ) : MapTileModuleProviderBase(8, 200) {
 
     private val client = OkHttpClient.Builder()
@@ -162,6 +171,11 @@ class RainRadarTileModuleProvider(
         val ramCached = TileRamCache.get(cacheKey)
         if (ramCached != null) {
             return Pair(ramCached, "Reused from preloaded RAM cache")
+        }
+
+        if (isPlaybackActive) {
+            // NEVER request network tiles while playback animation is active
+            return Pair(null, "Playback active: skipped network request")
         }
 
         val cached = parentBitmapCache.get(cacheKey)
@@ -284,7 +298,8 @@ class OwmTileModuleProvider(
     pTileCache: IFilesystemCache?,
     private val layerEndpoint: String,
     private val owmApiKey: String,
-    private val isCloudsDark: Boolean = false
+    private val isCloudsDark: Boolean = false,
+    @Volatile var isPlaybackActive: Boolean = false
 ) : MapTileModuleProviderBase(8, 200) {
 
     private val client = OkHttpClient.Builder()
@@ -312,6 +327,11 @@ class OwmTileModuleProvider(
         val ramCached = TileRamCache.get(cacheKey)
         if (ramCached != null) {
             return ramCached
+        }
+
+        if (isPlaybackActive) {
+            // NEVER request network tiles while playback animation is active
+            return null
         }
 
         val cached = parentBitmapCache.get(cacheKey)

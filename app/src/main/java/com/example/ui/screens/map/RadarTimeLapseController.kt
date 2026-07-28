@@ -32,6 +32,8 @@ class RadarTimeLapseController(
     private var currentLon: Double = -122.4194
     private var currentZoom: Int = 5
 
+    private var preloadOtherLayersJob: Job? = null
+
     fun initializeForLayer(
         layer: MapWeatherLayer,
         lat: Double = currentLat,
@@ -41,9 +43,19 @@ class RadarTimeLapseController(
     ) {
         pause()
         preloadJob?.cancel()
+        preloadOtherLayersJob?.cancel()
 
-        if (_state.value.activeLayer != layer) {
-            TileRamCache.clear()
+        if (layer == MapWeatherLayer.NONE) {
+            _state.update {
+                it.copy(
+                    activeLayer = MapWeatherLayer.NONE,
+                    isLoading = false,
+                    isBuffering = false,
+                    isReadyToPlay = false,
+                    bufferProgress = 0f
+                )
+            }
+            return
         }
 
         currentLat = lat
@@ -55,6 +67,7 @@ class RadarTimeLapseController(
                 activeLayer = layer,
                 isLoading = true,
                 isBuffering = true,
+                isReadyToPlay = false,
                 bufferProgress = 0f
             )
         }
@@ -67,7 +80,7 @@ class RadarTimeLapseController(
                 it.copy(
                     frames = frames,
                     currentFrameIndex = initialIndex,
-                    isLoading = false
+                    isLoading = true
                 )
             }
 
@@ -76,36 +89,87 @@ class RadarTimeLapseController(
                 onFrameChanged(initialFrame)
             }
 
-            // Perform background buffering into temporary RAM cache
+            // Check if current layer is already 100% pre-decoded in RAM
+            val isAlreadyCached = RadarPreloader.areAllFramesCached(layer, frames, lat, lon, zoom)
+            if (isAlreadyCached) {
+                _state.update { s ->
+                    val allReadyFrames = s.frames.map { f -> f.copy(isReady = true) }
+                    s.copy(
+                        frames = allReadyFrames,
+                        isLoading = false,
+                        isBuffering = false,
+                        isReadyToPlay = true,
+                        bufferProgress = 1.0f
+                    )
+                }
+                // Quietly background-preload other weather layers
+                startPreloadingOtherLayersQuietly(frames, lat, lon, zoom)
+                return@launch
+            }
+
+            // Preload current layer frames completely into RAM
             val orderedFrames = if (initialFrame != null) {
                 listOf(initialFrame) + frames.filter { it.index != initialIndex }
             } else frames
 
-            if (layer != MapWeatherLayer.NONE && frames.isNotEmpty()) {
-                RadarPreloader.preloadFrames(
-                    layer = layer,
-                    frames = orderedFrames,
-                    centerLat = lat,
-                    centerLon = lon,
-                    mapZoom = zoom,
-                    onProgress = { loaded, total ->
-                        val progress = if (total > 0) loaded.toFloat() / total else 1.0f
-                        _state.update { s -> s.copy(bufferProgress = progress) }
-                    },
-                    onFrameReady = { fIdx ->
-                        _state.update { s ->
-                            val updatedFrames = s.frames.map { f ->
-                                if (f.index == fIdx) f.copy(isReady = true) else f
-                            }
-                            s.copy(frames = updatedFrames)
+            RadarPreloader.preloadFrames(
+                layer = layer,
+                frames = orderedFrames,
+                centerLat = lat,
+                centerLon = lon,
+                mapZoom = zoom,
+                onProgress = { loaded, total ->
+                    val progress = if (total > 0) loaded.toFloat() / total else 1.0f
+                    _state.update { s -> s.copy(bufferProgress = progress) }
+                },
+                onFrameReady = { fIdx ->
+                    _state.update { s ->
+                        val updatedFrames = s.frames.map { f ->
+                            if (f.index == fIdx) f.copy(isReady = true) else f
                         }
+                        s.copy(frames = updatedFrames)
                     }
-                )
-            }
+                }
+            )
 
             _state.update { s ->
                 val allReadyFrames = s.frames.map { f -> f.copy(isReady = true) }
-                s.copy(frames = allReadyFrames, isBuffering = false, bufferProgress = 1.0f)
+                s.copy(
+                    frames = allReadyFrames,
+                    isLoading = false,
+                    isBuffering = false,
+                    isReadyToPlay = true,
+                    bufferProgress = 1.0f
+                )
+            }
+
+            // Quietly background-preload other weather layers for zero-wait layer switching
+            startPreloadingOtherLayersQuietly(frames, lat, lon, zoom)
+        }
+    }
+
+    private fun startPreloadingOtherLayersQuietly(
+        frames: List<TimeLapseFrame>,
+        lat: Double,
+        lon: Double,
+        zoom: Int
+    ) {
+        preloadOtherLayersJob?.cancel()
+        preloadOtherLayersJob = scope.launch(Dispatchers.IO) {
+            val currentActiveLayer = _state.value.activeLayer
+            val otherLayers = MapWeatherLayer.values().filter { it != MapWeatherLayer.NONE && it != currentActiveLayer }
+            for (otherLayer in otherLayers) {
+                if (_state.value.activeLayer != currentActiveLayer) break
+                if (!RadarPreloader.areAllFramesCached(otherLayer, frames, lat, lon, zoom)) {
+                    RadarPreloader.preloadFrames(
+                        layer = otherLayer,
+                        frames = frames,
+                        centerLat = lat,
+                        centerLon = lon,
+                        mapZoom = zoom,
+                        onProgress = { _, _ -> }
+                    )
+                }
             }
         }
     }
@@ -210,6 +274,7 @@ class RadarTimeLapseController(
     }
 
     fun play(onFrameChanged: (TimeLapseFrame) -> Unit) {
+        if (!_state.value.isReadyToPlay) return
         pause()
         _state.update { it.copy(isPlaying = true) }
 
@@ -222,23 +287,7 @@ class RadarTimeLapseController(
                 return@launch
             }
 
-            // Step 1: Do not start playback until every required frame is fully loaded and decoded in RAM
-            if (!RadarPreloader.areAllFramesCached(layer, frames, currentLat, currentLon, currentZoom)) {
-                _state.update { it.copy(isBuffering = true) }
-                var waitAttempts = 0
-                while (_state.value.isPlaying &&
-                    !RadarPreloader.areAllFramesCached(layer, _state.value.frames, currentLat, currentLon, currentZoom) &&
-                    waitAttempts < 300
-                ) {
-                    delay(100)
-                    waitAttempts++
-                }
-                _state.update { it.copy(isBuffering = false) }
-            }
-
-            if (!_state.value.isPlaying) return@launch
-
-            // Step 2: Smooth synchronized frame loop
+            // Smooth synchronized frame loop reading exclusively from preloaded RAM cache
             while (_state.value.isPlaying) {
                 val currentFrames = _state.value.frames
                 if (currentFrames.isEmpty()) break
@@ -247,23 +296,6 @@ class RadarTimeLapseController(
                 val nextIndex = (currentIndex + 1) % currentFrames.size
                 val nextFrame = currentFrames.getOrNull(nextIndex) ?: break
 
-                // Step 3: Verify next frame is pre-decoded in RAM cache; wait/pause if buffering
-                if (!RadarPreloader.isFrameCached(layer, nextFrame, currentLat, currentLon, currentZoom)) {
-                    _state.update { it.copy(isBuffering = true) }
-                    var frameWait = 0
-                    while (_state.value.isPlaying &&
-                        !RadarPreloader.isFrameCached(layer, nextFrame, currentLat, currentLon, currentZoom) &&
-                        frameWait < 100
-                    ) {
-                        delay(100)
-                        frameWait++
-                    }
-                    _state.update { it.copy(isBuffering = false) }
-                }
-
-                if (!_state.value.isPlaying) break
-
-                // Synchronize state and trigger renderer update simultaneously
                 _state.update { it.copy(currentFrameIndex = nextIndex) }
                 onFrameChanged(nextFrame)
 
@@ -272,10 +304,6 @@ class RadarTimeLapseController(
                 val delayTime = (baseDelay / speed).toLong()
                 delay(delayTime)
             }
-
-            // Step 4: Automatically release old frames when playback stops/completes
-            val activeKeys = RadarPreloader.getRequiredTileKeys(layer, _state.value.frames, currentLat, currentLon, currentZoom)
-            TileRamCache.retainOnly(activeKeys)
         }
     }
 
@@ -283,14 +311,6 @@ class RadarTimeLapseController(
         playbackJob?.cancel()
         playbackJob = null
         _state.update { it.copy(isPlaying = false, isBuffering = false) }
-
-        // Clean up and release obsolete RAM tiles
-        val layer = _state.value.activeLayer
-        val frames = _state.value.frames
-        if (layer != MapWeatherLayer.NONE && frames.isNotEmpty()) {
-            val activeKeys = RadarPreloader.getRequiredTileKeys(layer, frames, currentLat, currentLon, currentZoom)
-            TileRamCache.retainOnly(activeKeys)
-        }
     }
 
     fun nextFrame(onFrameChanged: (TimeLapseFrame) -> Unit) {
@@ -334,6 +354,8 @@ class RadarTimeLapseController(
         pause()
         preloadJob?.cancel()
         preloadJob = null
+        preloadOtherLayersJob?.cancel()
+        preloadOtherLayersJob = null
         TileRamCache.clear()
     }
 }
