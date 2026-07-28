@@ -32,8 +32,6 @@ class RadarTimeLapseController(
     private var currentLon: Double = -122.4194
     private var currentZoom: Int = 5
 
-    private var preloadOtherLayersJob: Job? = null
-
     fun initializeForLayer(
         layer: MapWeatherLayer,
         lat: Double = currentLat,
@@ -43,7 +41,6 @@ class RadarTimeLapseController(
     ) {
         pause()
         preloadJob?.cancel()
-        preloadOtherLayersJob?.cancel()
 
         if (layer == MapWeatherLayer.NONE) {
             _state.update {
@@ -102,12 +99,10 @@ class RadarTimeLapseController(
                         bufferProgress = 1.0f
                     )
                 }
-                // Quietly background-preload other weather layers
-                startPreloadingOtherLayersQuietly(frames, lat, lon, zoom)
                 return@launch
             }
 
-            // Preload current layer frames completely into RAM
+            // Preload current active layer frames completely into RAM
             val orderedFrames = if (initialFrame != null) {
                 listOf(initialFrame) + frames.filter { it.index != initialIndex }
             } else frames
@@ -141,35 +136,6 @@ class RadarTimeLapseController(
                     isReadyToPlay = true,
                     bufferProgress = 1.0f
                 )
-            }
-
-            // Quietly background-preload other weather layers for zero-wait layer switching
-            startPreloadingOtherLayersQuietly(frames, lat, lon, zoom)
-        }
-    }
-
-    private fun startPreloadingOtherLayersQuietly(
-        frames: List<TimeLapseFrame>,
-        lat: Double,
-        lon: Double,
-        zoom: Int
-    ) {
-        preloadOtherLayersJob?.cancel()
-        preloadOtherLayersJob = scope.launch(Dispatchers.IO) {
-            val currentActiveLayer = _state.value.activeLayer
-            val otherLayers = MapWeatherLayer.values().filter { it != MapWeatherLayer.NONE && it != currentActiveLayer }
-            for (otherLayer in otherLayers) {
-                if (_state.value.activeLayer != currentActiveLayer) break
-                if (!RadarPreloader.areAllFramesCached(otherLayer, frames, lat, lon, zoom)) {
-                    RadarPreloader.preloadFrames(
-                        layer = otherLayer,
-                        frames = frames,
-                        centerLat = lat,
-                        centerLon = lon,
-                        mapZoom = zoom,
-                        onProgress = { _, _ -> }
-                    )
-                }
             }
         }
     }
@@ -354,8 +320,6 @@ class RadarTimeLapseController(
         pause()
         preloadJob?.cancel()
         preloadJob = null
-        preloadOtherLayersJob?.cancel()
-        preloadOtherLayersJob = null
         TileRamCache.clear()
     }
 }
