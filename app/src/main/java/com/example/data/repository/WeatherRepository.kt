@@ -1,10 +1,15 @@
 package com.example.data.repository
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
+import android.location.LocationManager
 import android.net.ConnectivityManager
 import android.net.Network
 import android.net.NetworkCapabilities
 import android.net.NetworkRequest
+import android.util.Log
+import androidx.core.content.ContextCompat
 import androidx.room.Room
 import com.example.BuildConfig
 import com.example.data.api.OpenMeteoProvider
@@ -737,6 +742,138 @@ class WeatherRepository(private val context: Context) {
         } finally {
             _isUpdating.value = false
         }
+    }
+
+    suspend fun refreshLiveWeatherForNotification(context: Context): CityWeather? = withContext(Dispatchers.IO) {
+        // Priority 1: Current GPS location if permission granted and location available
+        val gpsCoords = getDeviceLocation(context)
+        if (gpsCoords != null) {
+            val (lat, lon) = gpsCoords
+            try {
+                val resolved = reverseGeocode(lat, lon)
+                val query = "$lat,$lon"
+                val result = fetchWeatherFromApi(query, forceRefresh = true)
+                if (result.isSuccess) {
+                    val fullCityWeather = result.getOrThrow()
+                    val finalCityName = resolved?.city ?: fullCityWeather.cityName
+                    val finalRegion = resolved?.region ?: fullCityWeather.region
+                    val finalCountry = resolved?.country ?: fullCityWeather.country
+
+                    val liveCity = fullCityWeather.copy(
+                        cityName = finalCityName,
+                        region = finalRegion,
+                        country = finalCountry,
+                        latitude = lat,
+                        longitude = lon
+                    )
+                    saveCityToCache(liveCity)
+                    _selectedCity.value = liveCity
+                    updateUnitForCountryIfNeeded(liveCity.country)
+                    saveLastSelectedLocation(
+                        cityName = liveCity.cityName,
+                        isGps = true,
+                        lat = lat,
+                        lon = lon,
+                        region = liveCity.region,
+                        country = liveCity.country
+                    )
+                    Log.d("WeatherRepository", "Notification weather updated via GPS: ${liveCity.cityName}")
+                    return@withContext liveCity
+                }
+            } catch (e: Exception) {
+                Log.w("WeatherRepository", "GPS weather refresh failed for notification: ${e.message}")
+            }
+        }
+
+        // Priority 2: Last city selected by the user
+        val lastCityName = prefs.getString("last_selected_city", null)
+        val currentSelectedName = _selectedCity.value.cityName.takeIf { it != "Loading..." && it.isNotBlank() }
+        val targetCityName = currentSelectedName ?: lastCityName
+
+        if (!targetCityName.isNullOrBlank()) {
+            try {
+                val result = fetchWeatherFromApi(targetCityName, forceRefresh = true)
+                if (result.isSuccess) {
+                    val fullCityWeather = result.getOrThrow()
+                    val alignedDetails = alignWeatherDetailsHourly(fullCityWeather.weatherDetails)
+                    val refreshedCity = fullCityWeather.copy(weatherDetails = alignedDetails)
+                    saveCityToCache(refreshedCity)
+                    _selectedCity.value = refreshedCity
+                    updateUnitForCountryIfNeeded(refreshedCity.country)
+                    Log.d("WeatherRepository", "Notification weather updated via selected city: ${refreshedCity.cityName}")
+                    return@withContext refreshedCity
+                }
+            } catch (e: Exception) {
+                Log.w("WeatherRepository", "Target city weather refresh failed for notification: ${e.message}")
+            }
+        }
+
+        // Priority 3: Cached location from Room database or active state
+        try {
+            val cachedList = weatherDao.getAllCachedWeather()
+            if (cachedList.isNotEmpty()) {
+                val mappedList = cachedList.mapNotNull { cached ->
+                    try {
+                        val details = moshi.adapter(WeatherDetails::class.java).fromJson(cached.weatherJson)
+                        if (details != null && details.currentTemp != 0) {
+                            CityWeather(
+                                cityName = cached.cityName,
+                                country = cached.country,
+                                isFavorite = cached.isFavorite,
+                                weatherDetails = alignWeatherDetailsHourly(details),
+                                region = cached.region
+                            )
+                        } else null
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+                val cachedCity = mappedList.find { it.cityName.equals(targetCityName, ignoreCase = true) }
+                    ?: mappedList.find { it.isFavorite }
+                    ?: mappedList.firstOrNull()
+
+                if (cachedCity != null) {
+                    _selectedCity.value = cachedCity
+                    Log.d("WeatherRepository", "Notification weather retrieved from cache: ${cachedCity.cityName}")
+                    return@withContext cachedCity
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("WeatherRepository", "Error loading cached weather for notification: ${e.message}")
+        }
+
+        val active = _selectedCity.value
+        if (active.cityName != "Loading..." && active.cityName.isNotBlank() && active.weatherDetails.currentTemp != 0) {
+            return@withContext active
+        }
+
+        return@withContext null
+    }
+
+    private fun getDeviceLocation(context: Context): Pair<Double, Double>? {
+        try {
+            val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if (hasFine || hasCoarse) {
+                val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+                if (locationManager != null) {
+                    val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+                    for (provider in providers) {
+                        try {
+                            val loc = locationManager.getLastKnownLocation(provider)
+                            if (loc != null && loc.latitude != 0.0 && loc.longitude != 0.0) {
+                                return Pair(loc.latitude, loc.longitude)
+                            }
+                        } catch (e: Exception) {
+                            // ignore provider error
+                        }
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("WeatherRepository", "Device location check error: ${e.message}")
+        }
+        return null
     }
 
     fun toggleFavorite(cityName: String) {

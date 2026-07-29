@@ -12,11 +12,23 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.data.models.WeatherCondition
 import com.example.data.repository.UserPreferencesRepository
 import com.example.data.repository.WeatherRepository
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Calendar
+
+val WeatherCondition.emoji: String
+    get() = when (this) {
+        WeatherCondition.SUNNY -> "☀️"
+        WeatherCondition.PARTLY_CLOUDY -> "🌤️"
+        WeatherCondition.CLOUDY -> "☁️"
+        WeatherCondition.RAINY -> "🌧️"
+        WeatherCondition.STORM -> "🌩️"
+        WeatherCondition.SNOWY -> "❄️"
+        WeatherCondition.FOGGY -> "🌫️"
+    }
 
 object WeatherNotificationManager {
 
@@ -40,6 +52,24 @@ object WeatherNotificationManager {
         }
     }
 
+    fun formatDisplayLocation(cityName: String, region: String?, country: String?): String {
+        val cleanCity = cityName.trim()
+        val cleanRegion = region?.trim()
+        val cleanCountry = country?.trim()
+
+        val parts = mutableListOf<String>()
+        if (cleanCity.isNotBlank() && cleanCity != "Loading...") {
+            parts.add(cleanCity)
+        }
+        if (!cleanRegion.isNullOrBlank() && !cleanRegion.equals(cleanCity, ignoreCase = true) && cleanRegion != "Unknown") {
+            parts.add(cleanRegion)
+        }
+        if (!cleanCountry.isNullOrBlank() && cleanCountry != "Unknown") {
+            parts.add(cleanCountry)
+        }
+        return if (parts.isNotEmpty()) parts.joinToString(", ") else cleanCity
+    }
+
     fun buildGreeting(name: String, hourOfDay: Int): String {
         val cleanName = name.trim()
         val hasName = cleanName.isNotBlank()
@@ -58,9 +88,19 @@ object WeatherNotificationManager {
         val userPrefs = UserPreferencesRepository.getInstance(context)
         val repository = WeatherRepository(context.applicationContext)
 
-        val activeCity = repository.selectedCity.value
-        val cityName = if (activeCity.cityName == "Loading..." || activeCity.cityName.isBlank()) "London" else activeCity.cityName
-        val details = activeCity.weatherDetails
+        val cityWeather = repository.refreshLiveWeatherForNotification(context)
+
+        if (cityWeather == null || cityWeather.cityName.isBlank() || cityWeather.cityName == "Loading...") {
+            Log.w("WeatherNotificationManager", "Could not fetch valid weather for notification.")
+            return@withContext
+        }
+
+        val details = cityWeather.weatherDetails
+        if (details.currentTemp == 0 && details.highTemp == 0 && details.humidity == 0) {
+            Log.w("WeatherNotificationManager", "Weather details contain invalid placeholder zeroes.")
+            return@withContext
+        }
+
         val userName = userPrefs.getUserName()
         val isCelsius = repository.isCelsius.value
 
@@ -68,8 +108,10 @@ object WeatherNotificationManager {
             return if (isCelsius) "$celsius°C" else "${(celsius * 9 / 5) + 32}°F"
         }
 
+        val displayLocation = formatDisplayLocation(cityWeather.cityName, cityWeather.region, cityWeather.country)
         val currentTempStr = formatTemp(details.currentTemp)
         val highTempStr = formatTemp(details.highTemp)
+        val lowTempStr = formatTemp(details.lowTemp)
         val condition = details.condition
         val humidity = details.humidity
         val windSpeedKmH = details.windSpeed.toInt()
@@ -78,14 +120,14 @@ object WeatherNotificationManager {
         val hourOfDay = calendar.get(Calendar.HOUR_OF_DAY)
 
         val greeting = buildGreeting(userName, hourOfDay)
-        val title = greeting
-        val subText = "Current weather in $cityName is $currentTempStr."
+        val title = "$greeting ${condition.emoji}"
+        val subText = "$displayLocation • $currentTempStr • ${condition.displayName}"
 
         val bigTextBuilder = StringBuilder()
-        bigTextBuilder.append("Current weather in $cityName is $currentTempStr.\n")
-        bigTextBuilder.append("${condition.displayName} with a high of $highTempStr today.\n")
-        bigTextBuilder.append("Humidity: $humidity% • Wind: $windSpeedKmH km/h\n")
-        bigTextBuilder.append("Personalized weather briefing delivered live.")
+        bigTextBuilder.append("Current location: $displayLocation\n")
+        bigTextBuilder.append("Weather: ${condition.displayName} ${condition.emoji}\n")
+        bigTextBuilder.append("Temperature: $currentTempStr (High: $highTempStr / Low: $lowTempStr)\n")
+        bigTextBuilder.append("Humidity: $humidity% • Wind: $windSpeedKmH km/h")
 
         sendWeatherNotification(
             context = context,

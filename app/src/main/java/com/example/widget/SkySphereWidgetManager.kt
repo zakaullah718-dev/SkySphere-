@@ -21,6 +21,51 @@ object SkySphereWidgetManager {
     private const val TAG = "SkySphereWidgetManager"
     const val ACTION_REFRESH_WIDGET = "com.example.widget.ACTION_REFRESH_WIDGET"
 
+    fun updateWidgetIdsSync(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
+        try {
+            val repository = WeatherRepository(context)
+            val isCelsius = repository.isCelsius.value
+            var activeCity = repository.selectedCity.value
+
+            if (activeCity.cityName == "Loading..." || activeCity.cityName.isBlank()) {
+                activeCity = repository.selectedCity.value
+            }
+
+            for (id in appWidgetIds) {
+                val providerName = appWidgetManager.getAppWidgetInfo(id)?.provider?.className ?: ""
+                val layoutId = when {
+                    providerName.contains("1x1") -> R.layout.widget_1x1
+                    providerName.contains("2x2") -> R.layout.widget_2x2
+                    providerName.contains("4x2") -> R.layout.widget_4x2
+                    providerName.contains("4x4") -> R.layout.widget_4x4
+                    else -> R.layout.widget_2x2
+                }
+                val sizeCategory = when {
+                    providerName.contains("1x1") -> 1
+                    providerName.contains("2x2") -> 2
+                    providerName.contains("4x2") -> 3
+                    providerName.contains("4x4") -> 4
+                    else -> 2
+                }
+
+                val remoteViews = RemoteViews(context.packageName, layoutId)
+                val bitmap = when (sizeCategory) {
+                    1 -> SkySphereWidgetPainter.drawWidget1x1(context, activeCity, isCelsius)
+                    2 -> SkySphereWidgetPainter.drawWidget2x2(context, activeCity, isCelsius)
+                    3 -> SkySphereWidgetPainter.drawWidget4x2(context, activeCity, isCelsius)
+                    4 -> SkySphereWidgetPainter.drawWidget4x4(context, activeCity, isCelsius)
+                    else -> SkySphereWidgetPainter.drawWidget2x2(context, activeCity, isCelsius)
+                }
+
+                remoteViews.setImageViewBitmap(R.id.widget_image_canvas, bitmap)
+                setupWidgetPendingIntents(context, remoteViews, sizeCategory, activeCity)
+                appWidgetManager.updateAppWidget(id, remoteViews)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error in updateWidgetIdsSync", e)
+        }
+    }
+
     fun updateAllWidgets(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
             try {

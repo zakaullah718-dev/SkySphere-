@@ -151,49 +151,27 @@ fun WindGaugeCard(
 
     val (beaufortLevel, beaufortDesc) = remember(windSpeedKmH) { getBeaufortInfo(windSpeedKmH) }
 
-    val isDark = isSystemInDarkTheme()
-    val cardBg = if (isDark) Color(0xFF1B2133) else Color(0xFFFFFFFF)
-    val glassBorderBrush = Brush.linearGradient(
-        colors = listOf(
-            Color(0x48FFFFFF),
-            Color(0x2038BDF8),
-            Color(0x18FFFFFF)
-        )
-    )
-    val cardShape = RoundedCornerShape(24.dp)
-    val textPrimary = MaterialTheme.colorScheme.onBackground
+    val textPrimary = MaterialTheme.colorScheme.onSurface
     val textSecondary = MaterialTheme.colorScheme.onSurfaceVariant
-    val trackBg = if (isDark) Color(0xFF1E2742) else Color(0xFFE2E8F0)
-    val accentCyan = LuxuryCyan
-    val accentSky = LuxurySkyBlue
+    val trackBg = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f)
+    val accentCyan = MaterialTheme.colorScheme.primary
+    val accentSky = MaterialTheme.colorScheme.secondary
 
     val textMeasurer = rememberTextMeasurer()
 
-    Card(
+    SkySphereCard(
         modifier = modifier
             .fillMaxWidth()
-            .shadow(
-                elevation = 8.dp,
-                shape = cardShape,
-                clip = false,
-                ambientColor = Color(0x35000000),
-                spotColor = Color(0x50000000)
-            )
-            .border(BorderStroke(1.dp, glassBorderBrush), shape = cardShape)
             .graphicsLayer {
                 alpha = cardAlpha
                 scaleX = cardScale
                 scaleY = cardScale
                 translationY = cardTranslationY
             },
-        shape = cardShape,
-        colors = CardDefaults.cardColors(containerColor = cardBg),
-        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+        contentPadding = PaddingValues(20.dp)
     ) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(20.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
             // Header Row

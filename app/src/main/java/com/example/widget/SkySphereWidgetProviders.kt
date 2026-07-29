@@ -10,6 +10,7 @@ open class BaseSkySphereWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         super.onUpdate(context, appWidgetManager, appWidgetIds)
         Log.d("SkySphereWidgetProvider", "onUpdate called for widget ids: ${appWidgetIds.joinToString()}")
+        SkySphereWidgetManager.updateWidgetIdsSync(context, appWidgetManager, appWidgetIds)
         SkySphereWidgetManager.updateAllWidgets(context)
     }
 

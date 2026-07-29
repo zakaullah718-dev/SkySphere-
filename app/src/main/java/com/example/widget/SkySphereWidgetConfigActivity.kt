@@ -67,9 +67,6 @@ class SkySphereWidgetConfigActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
 
-        // Set result CANCELED by default so if user backs out, widget is not added
-        setResult(Activity.RESULT_CANCELED)
-
         val intent = intent
         val extras = intent.extras
         if (extras != null) {
@@ -78,6 +75,12 @@ class SkySphereWidgetConfigActivity : ComponentActivity() {
                 AppWidgetManager.INVALID_APPWIDGET_ID
             )
         }
+
+        // Set result CANCELED by default with extra appWidgetId so if user backs out, launcher knows which widget was cancelled
+        val resultCancelIntent = Intent().apply {
+            putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+        }
+        setResult(Activity.RESULT_CANCELED, resultCancelIntent)
 
         if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) {
             finish()
@@ -99,6 +102,10 @@ class SkySphereWidgetConfigActivity : ComponentActivity() {
                             mode,
                             cityName
                         )
+                        val appWidgetManager = AppWidgetManager.getInstance(applicationContext)
+                        if (appWidgetManager != null) {
+                            SkySphereWidgetManager.updateWidgetIdsSync(applicationContext, appWidgetManager, intArrayOf(appWidgetId))
+                        }
                         SkySphereWidgetManager.updateAllWidgets(applicationContext)
 
                         val resultValue = Intent().apply {

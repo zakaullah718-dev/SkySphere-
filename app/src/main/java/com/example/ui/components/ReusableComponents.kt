@@ -71,20 +71,25 @@ fun SkySphereCard(
 ) {
     val cardShape = RoundedCornerShape(24.dp)
     
-    // Glassmorphism background gradient: deep slate indigo with specular top lighting
+    val surfaceColor = MaterialTheme.colorScheme.surface
+    val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
+    val primaryColor = MaterialTheme.colorScheme.primary
+    val onSurfaceColor = MaterialTheme.colorScheme.onSurface
+
+    // Glassmorphism background gradient based on active theme
     val bgBrush = Brush.verticalGradient(
         colors = listOf(
-            Color(0xFF23293D), // Refined top slate
-            Color(0xFF171C2B)  // Deep luxury base
+            surfaceColor,
+            surfaceVariantColor
         )
     )
 
     // Glass reflective specular border gradient
     val glassBorderBrush = Brush.linearGradient(
         colors = listOf(
-            Color(0x48FFFFFF), // Specular light highlight at top-left
-            Color(0x2038BDF8), // Subtle SkySphere cyan glow
-            Color(0x18FFFFFF)  // Faded bottom-right reflection
+            onSurfaceColor.copy(alpha = 0.25f),
+            primaryColor.copy(alpha = 0.35f),
+            onSurfaceColor.copy(alpha = 0.1f)
         )
     )
 

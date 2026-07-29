@@ -32,31 +32,25 @@ class WeatherUpdateWorker(
         try {
             val repository = WeatherRepository(applicationContext)
 
-            // Force refresh active city weather data from network/API
-            val refreshSuccess = try {
-                repository.forceRefreshActiveCity()
-                true
-            } catch (e: Exception) {
-                Log.w("WeatherUpdateWorker", "Failed to reach weather API: ${e.message}")
-                false
-            }
+            // Fetch live weather following location priority rules (GPS -> Last Selected City -> Cache)
+            val cityWeather = repository.refreshLiveWeatherForNotification(applicationContext)
 
-            // CRITICAL REQUIREMENT: If the weather API cannot be reached, skip the notification
-            // instead of sending outdated information.
-            if (!refreshSuccess) {
-                Log.w("WeatherUpdateWorker", "Weather API could not be reached. Skipping notification per policy.")
+            if (cityWeather == null || cityWeather.cityName == "Loading..." || cityWeather.cityName.isBlank()) {
+                Log.w("WeatherUpdateWorker", "Active city data is not available. Skipping notification.")
                 return@withContext Result.success()
             }
 
-            val activeCity: CityWeather = repository.selectedCity.value
-
-            if (activeCity.cityName == "Loading..." || activeCity.cityName.isBlank()) {
-                Log.w("WeatherUpdateWorker", "Active city data is not loaded yet. Skipping notification.")
+            val details: WeatherDetails = cityWeather.weatherDetails
+            if (details.currentTemp == 0 && details.highTemp == 0 && details.humidity == 0) {
+                Log.w("WeatherUpdateWorker", "Weather details contain invalid placeholder zeroes. Skipping notification.")
                 return@withContext Result.success()
             }
 
-            val details: WeatherDetails = activeCity.weatherDetails
-            val cityName = activeCity.cityName
+            val displayLocation = WeatherNotificationManager.formatDisplayLocation(
+                cityWeather.cityName,
+                cityWeather.region,
+                cityWeather.country
+            )
             val userName = userPrefs.getUserName()
             val isCelsius = repository.isCelsius.value
 
@@ -75,23 +69,23 @@ class WeatherUpdateWorker(
             val hourOfDay = calendar.get(Calendar.HOUR_OF_DAY)
 
             val greeting = WeatherNotificationManager.buildGreeting(userName, hourOfDay)
-            val title = buildNotificationTitle(greeting, condition, hourOfDay)
-            val subText = "Current weather in $cityName is $currentTempStr."
+            val title = "$greeting ${condition.emoji}"
+            val subText = "$displayLocation • $currentTempStr • ${condition.displayName}"
             val smartAdvice = buildSmartAdvice(details, hourOfDay, isCelsius)
 
             val bigTextBuilder = StringBuilder()
-            bigTextBuilder.append("Current weather in $cityName is $currentTempStr.\n")
-            bigTextBuilder.append("${condition.displayName} with a high of $highTempStr today.\n")
-            bigTextBuilder.append("Humidity: $humidity%\n")
-            bigTextBuilder.append("Wind: $windSpeedKmH km/h\n")
+            bigTextBuilder.append("Current location: $displayLocation\n")
+            bigTextBuilder.append("Weather: ${condition.displayName} ${condition.emoji}\n")
+            bigTextBuilder.append("Temperature: $currentTempStr (High: $highTempStr / Low: $lowTempStr)\n")
+            bigTextBuilder.append("Humidity: $humidity% • Wind: $windSpeedKmH km/h")
             if (smartAdvice.isNotBlank()) {
-                bigTextBuilder.append(smartAdvice)
+                bigTextBuilder.append("\n$smartAdvice")
             }
 
             val bigText = bigTextBuilder.toString().trim()
 
             // Duplicate prevention check
-            val contentHash = "$cityName-$currentTempStr-${condition.name}-$hourOfDay"
+            val contentHash = "$displayLocation-$currentTempStr-${condition.name}-$hourOfDay"
             if (userPrefs.isDuplicateNotification(contentHash)) {
                 Log.d("WeatherUpdateWorker", "Duplicate notification detected for $contentHash. Skipping.")
                 return@withContext Result.success()
@@ -108,7 +102,7 @@ class WeatherUpdateWorker(
 
             userPrefs.recordNotificationSent(contentHash)
 
-            Log.d("WeatherUpdateWorker", "Notification sent successfully for $cityName to ${userName.ifBlank { "User" }}")
+            Log.d("WeatherUpdateWorker", "Notification sent successfully for $displayLocation to ${userName.ifBlank { "User" }}")
             Result.success()
         } catch (e: Exception) {
             Log.e("WeatherUpdateWorker", "Error in WeatherUpdateWorker: ${e.message}", e)

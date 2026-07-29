@@ -298,12 +298,12 @@ object SkySphereWidgetPainter {
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textAlign = Paint.Align.LEFT
 
-        val displayLoc = if (!cityWeather.region.isNullOrBlank()) {
-            "${cityWeather.cityName.uppercase()}, ${cityWeather.region!!.uppercase()}"
-        } else if (!cityWeather.country.isNullOrBlank()) {
-            "${cityWeather.cityName.uppercase()}, ${cityWeather.country.uppercase()}"
-        } else {
-            cityWeather.cityName.uppercase()
+        val region1 = cityWeather.region
+        val country1 = cityWeather.country
+        val displayLoc = when {
+            !region1.isNullOrBlank() -> "${cityWeather.cityName.uppercase()}, ${region1.uppercase()}"
+            !country1.isNullOrBlank() -> "${cityWeather.cityName.uppercase()}, ${country1.uppercase()}"
+            else -> cityWeather.cityName.uppercase()
         }
         canvas.drawText(displayLoc, 40f, 65f, paint)
 
@@ -364,14 +364,14 @@ object SkySphereWidgetPainter {
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textAlign = Paint.Align.LEFT
 
-        val displayLoc = if (!cityWeather.region.isNullOrBlank()) {
-            "${cityWeather.cityName.uppercase()}, ${cityWeather.region!!.uppercase()}"
-        } else if (!cityWeather.country.isNullOrBlank()) {
-            "${cityWeather.cityName.uppercase()}, ${cityWeather.country.uppercase()}"
-        } else {
-            cityWeather.cityName.uppercase()
+        val region2 = cityWeather.region
+        val country2 = cityWeather.country
+        val displayLoc4x4 = when {
+            !region2.isNullOrBlank() -> "${cityWeather.cityName.uppercase()}, ${region2.uppercase()}"
+            !country2.isNullOrBlank() -> "${cityWeather.cityName.uppercase()}, ${country2.uppercase()}"
+            else -> cityWeather.cityName.uppercase()
         }
-        canvas.drawText(displayLoc, 40f, 62f, paint)
+        canvas.drawText(displayLoc4x4, 40f, 62f, paint)
 
         // Last Updated
         val timeFmt = SimpleDateFormat("hh:mm a", Locale.getDefault())
