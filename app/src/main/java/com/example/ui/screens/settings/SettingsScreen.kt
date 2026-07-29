@@ -27,6 +27,9 @@ import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.Icon
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -255,29 +258,106 @@ fun SettingsScreen(
             }
         }
 
-        // WORKMANAGER BACKGROUND TASKS & NOTIFICATIONS
+        // WORKMANAGER BACKGROUND TASKS & PERSONALIZED NOTIFICATIONS
         item {
             val context = LocalContext.current
-            var isWorkEnabled by remember { mutableStateOf(true) }
+            val userPrefs = remember { com.example.data.repository.UserPreferencesRepository.getInstance(context) }
+            val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+            
+            val savedName by userPrefs.userNameFlow.collectAsState(initial = "")
+            val isNotifEnabled by userPrefs.notificationsEnabledFlow.collectAsState(initial = true)
+            
+            var nameInput by remember(savedName) { mutableStateOf(savedName) }
+            var isEditingName by remember { mutableStateOf(false) }
 
-            SettingsSectionHeader(title = "BACKGROUND WEATHER ALERTS (WORKMANAGER)", icon = Icons.Default.NotificationsActive)
+            SettingsSectionHeader(title = "PERSONALIZED WEATHER BRIEFINGS (WORKMANAGER)", icon = Icons.Default.NotificationsActive)
             Spacer(modifier = Modifier.height(10.dp))
 
-            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                // USER DISPLAY NAME CARD
+                SkySphereCard(modifier = Modifier.fillMaxWidth()) {
+                    Column(modifier = Modifier.padding(4.dp)) {
+                        Text(
+                            text = "USER DISPLAY NAME",
+                            style = MaterialTheme.typography.labelSmall.copy(
+                                color = MaterialTheme.colorScheme.primary,
+                                fontWeight = FontWeight.Bold,
+                                letterSpacing = 1.5.sp
+                            )
+                        )
+                        Spacer(modifier = Modifier.height(6.dp))
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            androidx.compose.material3.OutlinedTextField(
+                                value = nameInput,
+                                onValueChange = { nameInput = it },
+                                label = { Text("Your Name (e.g. Paul)") },
+                                singleLine = true,
+                                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                    unfocusedBorderColor = Color(0x33FFFFFF),
+                                    focusedTextColor = Color.White,
+                                    unfocusedTextColor = Color.White
+                                ),
+                                shape = RoundedCornerShape(12.dp),
+                                modifier = Modifier
+                                    .weight(1f)
+                                    .testTag("settings_user_name_input")
+                            )
+
+                            Spacer(modifier = Modifier.width(10.dp))
+
+                            Button(
+                                onClick = {
+                                    coroutineScope.launch {
+                                        userPrefs.setUserName(nameInput.trim())
+                                    }
+                                },
+                                shape = RoundedCornerShape(12.dp),
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = MaterialTheme.colorScheme.primary
+                                ),
+                                modifier = Modifier.testTag("save_user_name_settings_button")
+                            ) {
+                                Text("SAVE", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+
+                        if (savedName.isNotBlank()) {
+                            Spacer(modifier = Modifier.height(8.dp))
+                            Text(
+                                text = "Greeting preview: \"Hi $savedName 👋\" / \"Good Morning $savedName ☀️\"",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = Color(0xFF38BDF8),
+                                    fontSize = 11.sp
+                                )
+                            )
+                        }
+                    }
+                }
+
+                // 6-HOUR PERIODIC NOTIFICATION SCHEDULE TOGGLE
                 SegmentedControl(
-                    options = listOf("PERIODIC UPDATES (ACTIVE)", "BACKGROUND DISABLED"),
-                    selectedIndex = if (isWorkEnabled) 0 else 1,
+                    options = listOf("6-HOUR BRIEFINGS (ACTIVE)", "NOTIFICATIONS OFF"),
+                    selectedIndex = if (isNotifEnabled) 0 else 1,
                     onOptionSelected = { index ->
-                        isWorkEnabled = (index == 0)
-                        if (isWorkEnabled) {
-                            WeatherWorkerScheduler.schedulePeriodicWeatherUpdates(context)
-                        } else {
-                            WeatherWorkerScheduler.cancelPeriodicWeatherUpdates(context)
+                        val enabled = (index == 0)
+                        coroutineScope.launch {
+                            userPrefs.setNotificationsEnabled(enabled)
+                            if (enabled) {
+                                WeatherWorkerScheduler.schedulePeriodicWeatherUpdates(context, intervalHours = 6)
+                            } else {
+                                WeatherWorkerScheduler.cancelPeriodicWeatherUpdates(context)
+                            }
                         }
                     },
                     modifier = Modifier.testTag("work_manager_control")
                 )
 
+                // TEST NOTIFICATION BUTTON
                 Button(
                     onClick = {
                         WeatherWorkerScheduler.triggerImmediateWeatherUpdate(context)
@@ -299,7 +379,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "TRIGGER TEST WEATHER ALERT / NOTIFICATION NOW",
+                        text = "TRIGGER TEST WEATHER NOTIFICATION NOW",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
@@ -309,82 +389,13 @@ fun SettingsScreen(
                 }
 
                 Text(
-                    text = "WorkManager fetches background weather updates every 1 hour and triggers local system notifications for severe weather alerts or daily meteorological summaries.",
+                    text = "WorkManager automatically delivers personalized weather briefings every 6 hours (6 AM, 12 PM, 6 PM, 12 AM). Notifications update using fresh weather API data and survive device reboots. If network is unavailable, notifications skip automatically to avoid stale data.",
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         fontSize = 11.sp
                     ),
                     modifier = Modifier.padding(horizontal = 4.dp)
                 )
-            }
-        }
-
-        // ABOUT & SCALABILITY METRICS CARD
-        item {
-            SettingsSectionHeader(title = "SKYSPHERE INSIGHTS", icon = Icons.Default.Info)
-            Spacer(modifier = Modifier.height(10.dp))
-
-            val luxuryGrad = Brush.verticalGradient(
-                colors = listOf(
-                    Color(0xFF2FA3FF).copy(alpha = 0.08f),
-                    Color(0xFF00E5FF).copy(alpha = 0.03f)
-                )
-            )
-
-            SkySphereCard(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .testTag("about_card")
-            ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .background(luxuryGrad)
-                ) {
-                    Column(modifier = Modifier.padding(2.dp)) {
-                        Text(
-                            text = "SKYSPHERE FOUNDATION",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                color = MaterialTheme.colorScheme.primary,
-                                fontWeight = FontWeight.Bold,
-                                letterSpacing = 2.sp
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            text = "Version 2.0.0 (Global Weather Engine)",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(14.dp))
-                        Text(
-                            text = "Architectural Upgrades (Phase 2):",
-                            style = MaterialTheme.typography.titleSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = MaterialTheme.colorScheme.onBackground
-                            )
-                        )
-                        Spacer(modifier = Modifier.height(6.dp))
-                        ArchitecturalPoint(point = "• Production-ready, zero-mock Weather Platform engine.")
-                        ArchitecturalPoint(point = "• Dynamic switching between Open-Meteo, WeatherAPI, and OpenWeather.")
-                        ArchitecturalPoint(point = "• Room-Database local persistence cache for offline metrics.")
-                        ArchitecturalPoint(point = "• 30-Minute automatic cache validation for minimized API overhead.")
-                        ArchitecturalPoint(point = "• Room-Database recent search query recorder with clear capability.")
-                        ArchitecturalPoint(point = "• Exact timezone matching and local time tracking per location.")
-                        ArchitecturalPoint(point = "• GPS telemetry with geocoding, exception handling and denied permissions routing.")
-                        
-                        Spacer(modifier = Modifier.height(16.dp))
-                        Text(
-                            text = "Developed by SkySphere Celestial Labs.",
-                            style = MaterialTheme.typography.bodySmall.copy(
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium
-                            )
-                        )
-                    }
-                }
             }
         }
     }
@@ -415,19 +426,6 @@ fun SettingsSectionHeader(
             )
         )
     }
-}
-
-@Composable
-fun ArchitecturalPoint(point: String) {
-    Text(
-        text = point,
-        style = MaterialTheme.typography.bodyMedium.copy(
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = 13.sp,
-            lineHeight = 18.sp
-        ),
-        modifier = Modifier.padding(vertical = 2.dp)
-    )
 }
 
 /**

@@ -28,6 +28,14 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.ui.platform.LocalContext
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import com.example.data.repository.UserPreferencesRepository
+import com.example.ui.components.UserNamePromptDialog
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -72,6 +80,18 @@ fun MainScreenShell(
     // Collect global unit preferences
     val isCelsius by repository.isCelsius.collectAsState()
     val windUnit by repository.windUnit.collectAsState()
+
+    val context = LocalContext.current
+    val userPrefs = remember { UserPreferencesRepository.getInstance(context) }
+    val savedUserName by userPrefs.userNameFlow.collectAsState(initial = "init_placeholder")
+    val coroutineScope = rememberCoroutineScope()
+    var showUserNameDialog by remember { mutableStateOf(false) }
+
+    LaunchedEffect(savedUserName, currentRoute) {
+        if (savedUserName.isEmpty() && currentRoute != Screen.Splash.route && savedUserName != "init_placeholder") {
+            showUserNameDialog = true
+        }
+    }
 
     // Instantiate viewmodels utilizing simple constructor injection
     val homeViewModel = remember { HomeViewModel(repository) }
@@ -246,6 +266,22 @@ fun MainScreenShell(
                 FloatingBottomBar(
                     navController = navController,
                     currentRoute = currentRoute
+                )
+            }
+
+            // USER NAME ONBOARDING DIALOG FOR PERSONALIZED WEATHER NOTIFICATIONS
+            if (showUserNameDialog) {
+                UserNamePromptDialog(
+                    initialName = "",
+                    onSaveName = { name ->
+                        coroutineScope.launch {
+                            userPrefs.setUserName(name)
+                        }
+                        showUserNameDialog = false
+                    },
+                    onDismiss = {
+                        showUserNameDialog = false
+                    }
                 )
             }
         }

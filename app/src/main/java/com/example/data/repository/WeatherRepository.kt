@@ -203,6 +203,47 @@ class WeatherRepository(private val context: Context) {
     private val _selectedCity = MutableStateFlow<CityWeather>(defaultPlaceholder)
     val selectedCity = _selectedCity.asStateFlow()
 
+    suspend fun getOrFetchActiveCity(): CityWeather = withContext(Dispatchers.IO) {
+        val current = _selectedCity.value
+        if (current.cityName != "Loading..." && current.cityName.isNotBlank()) {
+            return@withContext current
+        }
+
+        try {
+            val cachedList = weatherDao.getAllCachedWeather()
+            if (cachedList.isNotEmpty()) {
+                val mappedList = cachedList.mapNotNull { cached ->
+                    try {
+                        val details = moshi.adapter(WeatherDetails::class.java).fromJson(cached.weatherJson)
+                        if (details != null) {
+                            CityWeather(
+                                cityName = cached.cityName,
+                                country = cached.country,
+                                isFavorite = cached.isFavorite,
+                                weatherDetails = alignWeatherDetailsHourly(details),
+                                region = cached.region
+                            )
+                        } else null
+                    } catch (e: Exception) {
+                        null
+                    }
+                }
+                val restored = mappedList.find { it.isFavorite } ?: mappedList.firstOrNull()
+                if (restored != null) {
+                    _selectedCity.value = restored
+                    return@withContext restored
+                }
+            }
+        } catch (e: Exception) {
+            // fallback seed
+        }
+
+        // Seed default if empty
+        seedDefaultCities()
+        delay(200)
+        _selectedCity.value
+    }
+
     private fun saveLastSelectedLocation(
         cityName: String,
         isGps: Boolean,

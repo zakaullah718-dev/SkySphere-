@@ -19,6 +19,7 @@ import kotlinx.coroutines.withContext
 object SkySphereWidgetManager {
 
     private const val TAG = "SkySphereWidgetManager"
+    const val ACTION_REFRESH_WIDGET = "com.example.widget.ACTION_REFRESH_WIDGET"
 
     fun updateAllWidgets(context: Context) {
         CoroutineScope(Dispatchers.IO).launch {
@@ -26,7 +27,12 @@ object SkySphereWidgetManager {
                 val appWidgetManager = AppWidgetManager.getInstance(context) ?: return@launch
                 val repository = WeatherRepository(context)
                 val isCelsius = repository.isCelsius.value
-                val activeCity = repository.selectedCity.value
+                var activeCity = repository.selectedCity.value
+
+                if (activeCity.cityName == "Loading..." || activeCity.cityName.isBlank()) {
+                    // Try to restore from database or seed default
+                    activeCity = repository.getOrFetchActiveCity()
+                }
 
                 // 1x1 Widgets
                 val ids1x1 = appWidgetManager.getAppWidgetIds(ComponentName(context, SkySphereWidget1x1Provider::class.java))
@@ -76,25 +82,27 @@ object SkySphereWidgetManager {
             activeCity
         }
 
-        if (targetCity.cityName == "Loading..." || targetCity.cityName.isBlank()) {
-            return@withContext
+        val finalCity = if (targetCity.cityName == "Loading..." || targetCity.cityName.isBlank()) {
+            repository.getOrFetchActiveCity()
+        } else {
+            targetCity
         }
 
         val remoteViews = RemoteViews(context.packageName, layoutId)
 
         // Draw Bitmap image for widget background & visual content
         val bitmap = when (sizeCategory) {
-            1 -> SkySphereWidgetPainter.drawWidget1x1(context, targetCity, isCelsius)
-            2 -> SkySphereWidgetPainter.drawWidget2x2(context, targetCity, isCelsius)
-            3 -> SkySphereWidgetPainter.drawWidget4x2(context, targetCity, isCelsius)
-            4 -> SkySphereWidgetPainter.drawWidget4x4(context, targetCity, isCelsius)
-            else -> SkySphereWidgetPainter.drawWidget2x2(context, targetCity, isCelsius)
+            1 -> SkySphereWidgetPainter.drawWidget1x1(context, finalCity, isCelsius)
+            2 -> SkySphereWidgetPainter.drawWidget2x2(context, finalCity, isCelsius)
+            3 -> SkySphereWidgetPainter.drawWidget4x2(context, finalCity, isCelsius)
+            4 -> SkySphereWidgetPainter.drawWidget4x4(context, finalCity, isCelsius)
+            else -> SkySphereWidgetPainter.drawWidget2x2(context, finalCity, isCelsius)
         }
 
         remoteViews.setImageViewBitmap(R.id.widget_image_canvas, bitmap)
 
         // Set Deep Link PendingIntents
-        setupWidgetPendingIntents(context, remoteViews, sizeCategory, targetCity)
+        setupWidgetPendingIntents(context, remoteViews, sizeCategory, finalCity)
 
         appWidgetManager.updateAppWidget(appWidgetId, remoteViews)
     }
@@ -112,20 +120,29 @@ object SkySphereWidgetManager {
         if (sizeCategory >= 3) {
             // Location tap opens Favorites / City search
             val openFavIntent = createPendingIntent(context, "favorites", cityWeather.cityName, 101)
-            if (views.hasOnClickPendingIntent(R.id.widget_click_location)) {
-                views.setOnClickPendingIntent(R.id.widget_click_location, openFavIntent)
-            }
+            views.setOnClickPendingIntent(R.id.widget_click_location, openFavIntent)
 
-            // Icon tap opens Radar / Map
-            val openMapIntent = createPendingIntent(context, "map", cityWeather.cityName, 102)
-            if (views.hasOnClickPendingIntent(R.id.widget_click_icon)) {
-                views.setOnClickPendingIntent(R.id.widget_click_icon, openMapIntent)
-            }
+            // Icon tap triggers manual refresh
+            val refreshIntent = createRefreshPendingIntent(context, 102)
+            views.setOnClickPendingIntent(R.id.widget_click_icon, refreshIntent)
+        }
+
+        if (sizeCategory == 4) {
+            val openHourlyIntent = createPendingIntent(context, "details", cityWeather.cityName, 103)
+            views.setOnClickPendingIntent(R.id.widget_click_hourly, openHourlyIntent)
         }
     }
 
-    private fun RemoteViews.hasOnClickPendingIntent(viewId: Int): Boolean {
-        return viewId != 0
+    private fun createRefreshPendingIntent(context: Context, requestCode: Int): PendingIntent {
+        val intent = Intent(context, SkySphereWidget1x1Provider::class.java).apply {
+            action = ACTION_REFRESH_WIDGET
+        }
+        return PendingIntent.getBroadcast(
+            context,
+            requestCode,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
     }
 
     private fun createPendingIntent(

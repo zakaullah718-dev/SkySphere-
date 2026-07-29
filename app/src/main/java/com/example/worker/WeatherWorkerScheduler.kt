@@ -13,32 +13,32 @@ import java.util.concurrent.TimeUnit
 
 object WeatherWorkerScheduler {
 
-    const val PERIODIC_WORK_NAME = "SkySpherePeriodicWeatherWorker"
+    const val PERIODIC_WORK_NAME = "SkySpherePeriodicWeatherWorker_6H"
     const val IMMEDIATE_WORK_NAME = "SkySphereImmediateWeatherWorker"
 
-    fun schedulePeriodicWeatherUpdates(context: Context, intervalHours: Long = 1) {
+    fun schedulePeriodicWeatherUpdates(context: Context, intervalHours: Long = 6) {
         try {
             val constraints = Constraints.Builder()
                 .setRequiredNetworkType(NetworkType.CONNECTED)
                 .build()
 
-            // Minimum interval for periodic work in WorkManager is 15 minutes
-            val repeatIntervalMinutes = Math.max(15L, intervalHours * 60L)
+            // WorkManager periodic minimum is 15 minutes. Default requirement is 6 hours.
+            val intervalMinutes = Math.max(15L, intervalHours * 60L)
 
             val periodicWorkRequest = PeriodicWorkRequestBuilder<WeatherUpdateWorker>(
-                repeatIntervalMinutes,
+                intervalMinutes,
                 TimeUnit.MINUTES
             )
                 .setConstraints(constraints)
                 .build()
 
-            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+            WorkManager.getInstance(context.applicationContext).enqueueUniquePeriodicWork(
                 PERIODIC_WORK_NAME,
                 ExistingPeriodicWorkPolicy.KEEP,
                 periodicWorkRequest
             )
 
-            Log.d("WeatherWorkerScheduler", "Periodic weather update worker scheduled ($repeatIntervalMinutes mins interval)")
+            Log.d("WeatherWorkerScheduler", "Scheduled 6-hour periodic weather update worker ($intervalMinutes mins interval)")
         } catch (e: Exception) {
             Log.e("WeatherWorkerScheduler", "Failed to schedule periodic weather worker", e)
         }
@@ -54,7 +54,7 @@ object WeatherWorkerScheduler {
                 .setConstraints(constraints)
                 .build()
 
-            WorkManager.getInstance(context).enqueueUniqueWork(
+            WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
                 IMMEDIATE_WORK_NAME,
                 ExistingWorkPolicy.REPLACE,
                 immediateWorkRequest
@@ -68,7 +68,7 @@ object WeatherWorkerScheduler {
 
     fun cancelPeriodicWeatherUpdates(context: Context) {
         try {
-            WorkManager.getInstance(context).cancelUniqueWork(PERIODIC_WORK_NAME)
+            WorkManager.getInstance(context.applicationContext).cancelUniqueWork(PERIODIC_WORK_NAME)
             Log.d("WeatherWorkerScheduler", "Periodic weather update worker cancelled")
         } catch (e: Exception) {
             Log.e("WeatherWorkerScheduler", "Failed to cancel periodic weather worker", e)

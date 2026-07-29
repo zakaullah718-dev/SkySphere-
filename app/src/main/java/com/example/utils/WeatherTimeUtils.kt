@@ -57,6 +57,20 @@ object WeatherTimeUtils {
         }
     }
 
+    fun getCurrentMinutesForLocation(
+        localTimeStr: String? = null,
+        timeZoneId: String? = null,
+        longitude: Double? = null
+    ): Int {
+        return if (!localTimeStr.isNullOrBlank()) {
+            parseTimeToMinutes(localTimeStr).coerceIn(0, 1439)
+        } else {
+            val tz = resolveTimeZone(timeZoneId, longitude)
+            val cal = Calendar.getInstance(tz)
+            cal.get(Calendar.HOUR_OF_DAY) * 60 + cal.get(Calendar.MINUTE)
+        }
+    }
+
     private fun resolveTimeZone(timeZoneId: String?, longitude: Double?): TimeZone {
         if (!timeZoneId.isNullOrBlank()) {
             try {
