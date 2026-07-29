@@ -1,5 +1,11 @@
 package com.example.ui.screens.settings
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -19,23 +25,27 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
 import androidx.compose.material.icons.filled.Info
+import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Palette
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Thermostat
+import androidx.compose.material3.Button
+import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
-import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.rememberCoroutineScope
-import kotlinx.coroutines.launch
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -43,20 +53,19 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.ContextCompat
 import com.example.data.repository.WeatherRepository.ProviderType
 import com.example.ui.components.SkySphereCard
-
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
-import androidx.compose.ui.platform.LocalContext
-import com.example.worker.WeatherWorkerScheduler
-
 import com.example.ui.theme.AppThemePreset
+import com.example.worker.WeatherNotificationManager
+import com.example.worker.WeatherWorkerScheduler
+import kotlinx.coroutines.launch
 
 @Composable
 fun SettingsScreen(
@@ -262,13 +271,56 @@ fun SettingsScreen(
         item {
             val context = LocalContext.current
             val userPrefs = remember { com.example.data.repository.UserPreferencesRepository.getInstance(context) }
-            val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+            val coroutineScope = rememberCoroutineScope()
             
             val savedName by userPrefs.userNameFlow.collectAsState(initial = "")
             val isNotifEnabled by userPrefs.notificationsEnabledFlow.collectAsState(initial = true)
             
             var nameInput by remember(savedName) { mutableStateOf(savedName) }
-            var isEditingName by remember { mutableStateOf(false) }
+
+            val notifPermissionLauncher = rememberLauncherForActivityResult(
+                contract = ActivityResultContracts.RequestPermission()
+            ) { isGranted ->
+                if (isGranted) {
+                    coroutineScope.launch {
+                        WeatherNotificationManager.sendInstantTestNotification(context)
+                        Toast.makeText(context, "Test weather notification sent!", Toast.LENGTH_SHORT).show()
+                    }
+                } else {
+                    Toast.makeText(context, "Notification permission required to display weather alerts.", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            val triggerNotificationAction = {
+                coroutineScope.launch {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                        val hasPermission = ContextCompat.checkSelfPermission(
+                            context,
+                            Manifest.permission.POST_NOTIFICATIONS
+                        ) == PackageManager.PERMISSION_GRANTED
+
+                        if (!hasPermission) {
+                            notifPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                            return@launch
+                        }
+                    }
+
+                    WeatherNotificationManager.sendInstantTestNotification(context)
+                    Toast.makeText(context, "Test weather notification sent!", Toast.LENGTH_SHORT).show()
+                }
+            }
+
+            val saveUserNameAction = {
+                val nameToSave = nameInput.trim()
+                coroutineScope.launch {
+                    userPrefs.setUserName(nameToSave)
+                    Toast.makeText(
+                        context,
+                        if (nameToSave.isNotBlank()) "Saved display name: \"$nameToSave\"" else "Display name cleared",
+                        Toast.LENGTH_SHORT
+                    ).show()
+                }
+            }
 
             SettingsSectionHeader(title = "PERSONALIZED WEATHER BRIEFINGS (WORKMANAGER)", icon = Icons.Default.NotificationsActive)
             Spacer(modifier = Modifier.height(10.dp))
@@ -296,6 +348,8 @@ fun SettingsScreen(
                                 onValueChange = { nameInput = it },
                                 label = { Text("Your Name (e.g. Paul)") },
                                 singleLine = true,
+                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                keyboardActions = KeyboardActions(onDone = { saveUserNameAction() }),
                                 colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
                                     focusedBorderColor = MaterialTheme.colorScheme.primary,
                                     unfocusedBorderColor = Color(0x33FFFFFF),
@@ -311,11 +365,7 @@ fun SettingsScreen(
                             Spacer(modifier = Modifier.width(10.dp))
 
                             Button(
-                                onClick = {
-                                    coroutineScope.launch {
-                                        userPrefs.setUserName(nameInput.trim())
-                                    }
-                                },
+                                onClick = { saveUserNameAction() },
                                 shape = RoundedCornerShape(12.dp),
                                 colors = ButtonDefaults.buttonColors(
                                     containerColor = MaterialTheme.colorScheme.primary
@@ -328,8 +378,10 @@ fun SettingsScreen(
 
                         if (savedName.isNotBlank()) {
                             Spacer(modifier = Modifier.height(8.dp))
+                            val hourNow = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
+                            val currentGreetingPreview = WeatherNotificationManager.buildGreeting(savedName, hourNow)
                             Text(
-                                text = "Greeting preview: \"Hi $savedName 👋\" / \"Good Morning $savedName ☀️\"",
+                                text = "Greeting preview: \"$currentGreetingPreview\"",
                                 style = MaterialTheme.typography.labelSmall.copy(
                                     color = Color(0xFF38BDF8),
                                     fontSize = 11.sp
@@ -359,9 +411,7 @@ fun SettingsScreen(
 
                 // TEST NOTIFICATION BUTTON
                 Button(
-                    onClick = {
-                        WeatherWorkerScheduler.triggerImmediateWeatherUpdate(context)
-                    },
+                    onClick = { triggerNotificationAction() },
                     modifier = Modifier
                         .fillMaxWidth()
                         .height(44.dp)

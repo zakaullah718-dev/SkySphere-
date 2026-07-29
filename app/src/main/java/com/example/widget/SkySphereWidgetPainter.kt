@@ -300,8 +300,10 @@ object SkySphereWidgetPainter {
 
         val displayLoc = if (!cityWeather.region.isNullOrBlank()) {
             "${cityWeather.cityName.uppercase()}, ${cityWeather.region!!.uppercase()}"
-        } else {
+        } else if (!cityWeather.country.isNullOrBlank()) {
             "${cityWeather.cityName.uppercase()}, ${cityWeather.country.uppercase()}"
+        } else {
+            cityWeather.cityName.uppercase()
         }
         canvas.drawText(displayLoc, 40f, 65f, paint)
 
@@ -364,8 +366,10 @@ object SkySphereWidgetPainter {
 
         val displayLoc = if (!cityWeather.region.isNullOrBlank()) {
             "${cityWeather.cityName.uppercase()}, ${cityWeather.region!!.uppercase()}"
-        } else {
+        } else if (!cityWeather.country.isNullOrBlank()) {
             "${cityWeather.cityName.uppercase()}, ${cityWeather.country.uppercase()}"
+        } else {
+            cityWeather.cityName.uppercase()
         }
         canvas.drawText(displayLoc, 40f, 62f, paint)
 

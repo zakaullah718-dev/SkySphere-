@@ -12,6 +12,11 @@ import androidx.core.app.NotificationCompat
 import androidx.core.app.NotificationManagerCompat
 import com.example.MainActivity
 import com.example.R
+import com.example.data.repository.UserPreferencesRepository
+import com.example.data.repository.WeatherRepository
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import java.util.Calendar
 
 object WeatherNotificationManager {
 
@@ -35,12 +40,70 @@ object WeatherNotificationManager {
         }
     }
 
+    fun buildGreeting(name: String, hourOfDay: Int): String {
+        val cleanName = name.trim()
+        val hasName = cleanName.isNotBlank()
+
+        return when (hourOfDay) {
+            in 5..11 -> if (hasName) "Good Morning $cleanName ☀️" else "Good Morning ☀️"
+            in 12..16 -> if (hasName) "Hi $cleanName 👋" else "Hello 👋"
+            in 17..20 -> if (hasName) "Good Evening $cleanName 🌙" else "Good Evening 🌙"
+            else -> if (hasName) "Good Evening $cleanName 🌙" else "Good Evening 🌙"
+        }
+    }
+
+    suspend fun sendInstantTestNotification(context: Context) = withContext(Dispatchers.IO) {
+        createNotificationChannel(context)
+
+        val userPrefs = UserPreferencesRepository.getInstance(context)
+        val repository = WeatherRepository(context.applicationContext)
+
+        val activeCity = repository.selectedCity.value
+        val cityName = if (activeCity.cityName == "Loading..." || activeCity.cityName.isBlank()) "London" else activeCity.cityName
+        val details = activeCity.weatherDetails
+        val userName = userPrefs.getUserName()
+        val isCelsius = repository.isCelsius.value
+
+        fun formatTemp(celsius: Int): String {
+            return if (isCelsius) "$celsius°C" else "${(celsius * 9 / 5) + 32}°F"
+        }
+
+        val currentTempStr = formatTemp(details.currentTemp)
+        val highTempStr = formatTemp(details.highTemp)
+        val condition = details.condition
+        val humidity = details.humidity
+        val windSpeedKmH = details.windSpeed.toInt()
+
+        val calendar = Calendar.getInstance()
+        val hourOfDay = calendar.get(Calendar.HOUR_OF_DAY)
+
+        val greeting = buildGreeting(userName, hourOfDay)
+        val title = greeting
+        val subText = "Current weather in $cityName is $currentTempStr."
+
+        val bigTextBuilder = StringBuilder()
+        bigTextBuilder.append("Current weather in $cityName is $currentTempStr.\n")
+        bigTextBuilder.append("${condition.displayName} with a high of $highTempStr today.\n")
+        bigTextBuilder.append("Humidity: $humidity% • Wind: $windSpeedKmH km/h\n")
+        bigTextBuilder.append("Personalized weather briefing delivered live.")
+
+        sendWeatherNotification(
+            context = context,
+            title = title,
+            subText = subText,
+            bigText = bigTextBuilder.toString().trim(),
+            isAlert = false,
+            notificationId = (System.currentTimeMillis() % 10000).toInt() + 2000
+        )
+    }
+
     fun sendWeatherNotification(
         context: Context,
         title: String,
         subText: String,
         bigText: String,
-        isAlert: Boolean = false
+        isAlert: Boolean = false,
+        notificationId: Int = NOTIFICATION_ID
     ) {
         createNotificationChannel(context)
 
@@ -51,7 +114,7 @@ object WeatherNotificationManager {
 
         val pendingIntent: PendingIntent = PendingIntent.getActivity(
             context,
-            NOTIFICATION_ID,
+            notificationId,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or (if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) PendingIntent.FLAG_IMMUTABLE else 0)
         )
@@ -78,8 +141,8 @@ object WeatherNotificationManager {
         try {
             val notificationManager = NotificationManagerCompat.from(context)
             if (notificationManager.areNotificationsEnabled()) {
-                notificationManager.notify(NOTIFICATION_ID, builder.build())
-                Log.d("WeatherNotificationManager", "Posted notification: $title")
+                notificationManager.notify(notificationId, builder.build())
+                Log.d("WeatherNotificationManager", "Posted notification ($notificationId): $title")
             } else {
                 Log.w("WeatherNotificationManager", "Notifications disabled for app")
             }

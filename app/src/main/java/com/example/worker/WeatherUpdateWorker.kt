@@ -74,7 +74,7 @@ class WeatherUpdateWorker(
             val calendar = Calendar.getInstance()
             val hourOfDay = calendar.get(Calendar.HOUR_OF_DAY)
 
-            val greeting = buildGreeting(userName, hourOfDay)
+            val greeting = WeatherNotificationManager.buildGreeting(userName, hourOfDay)
             val title = buildNotificationTitle(greeting, condition, hourOfDay)
             val subText = "Current weather in $cityName is $currentTempStr."
             val smartAdvice = buildSmartAdvice(details, hourOfDay, isCelsius)
