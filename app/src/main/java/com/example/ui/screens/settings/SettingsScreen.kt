@@ -22,6 +22,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -30,15 +31,18 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Cloud
+import androidx.compose.material.icons.filled.Edit
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.NotificationsActive
 import androidx.compose.material.icons.filled.Palette
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.Speed
 import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
@@ -277,6 +281,7 @@ fun SettingsScreen(
             val isNotifEnabled by userPrefs.notificationsEnabledFlow.collectAsState(initial = true)
             
             var nameInput by remember(savedName) { mutableStateOf(savedName) }
+            var isEditingName by remember(savedName) { mutableStateOf(savedName.isBlank()) }
 
             val notifPermissionLauncher = rememberLauncherForActivityResult(
                 contract = ActivityResultContracts.RequestPermission()
@@ -314,6 +319,7 @@ fun SettingsScreen(
                 val nameToSave = nameInput.trim()
                 coroutineScope.launch {
                     userPrefs.setUserName(nameToSave)
+                    isEditingName = false
                     Toast.makeText(
                         context,
                         if (nameToSave.isNotBlank()) "Saved display name: \"$nameToSave\"" else "Display name cleared",
@@ -322,7 +328,7 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsSectionHeader(title = "PERSONALIZED WEATHER BRIEFINGS (WORKMANAGER)", icon = Icons.Default.NotificationsActive)
+            SettingsSectionHeader(title = "WEATHER NOTIFICATIONS", icon = Icons.Default.NotificationsActive)
             Spacer(modifier = Modifier.height(10.dp))
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -339,61 +345,96 @@ fun SettingsScreen(
                         )
                         Spacer(modifier = Modifier.height(6.dp))
 
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            androidx.compose.material3.OutlinedTextField(
-                                value = nameInput,
-                                onValueChange = { nameInput = it },
-                                label = { Text("Your Name (e.g. Paul)") },
-                                singleLine = true,
-                                keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
-                                keyboardActions = KeyboardActions(onDone = { saveUserNameAction() }),
-                                colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                                    focusedBorderColor = MaterialTheme.colorScheme.primary,
-                                    unfocusedBorderColor = Color(0x33FFFFFF),
-                                    focusedTextColor = Color.White,
-                                    unfocusedTextColor = Color.White
-                                ),
-                                shape = RoundedCornerShape(12.dp),
+                        if (savedName.isNotBlank() && !isEditingName) {
+                            Row(
                                 modifier = Modifier
-                                    .weight(1f)
-                                    .testTag("settings_user_name_input")
-                            )
-
-                            Spacer(modifier = Modifier.width(10.dp))
-
-                            Button(
-                                onClick = { saveUserNameAction() },
-                                shape = RoundedCornerShape(12.dp),
-                                colors = ButtonDefaults.buttonColors(
-                                    containerColor = MaterialTheme.colorScheme.primary
-                                ),
-                                modifier = Modifier.testTag("save_user_name_settings_button")
+                                    .fillMaxWidth()
+                                    .padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.SpaceBetween
                             ) {
-                                Text("SAVE", fontWeight = FontWeight.Bold, fontSize = 12.sp)
-                            }
-                        }
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.weight(1f)
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Person,
+                                        contentDescription = null,
+                                        tint = MaterialTheme.colorScheme.primary,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "Display Name: $savedName",
+                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = Color.White
+                                        )
+                                    )
+                                }
 
-                        if (savedName.isNotBlank()) {
-                            Spacer(modifier = Modifier.height(8.dp))
-                            val hourNow = java.util.Calendar.getInstance().get(java.util.Calendar.HOUR_OF_DAY)
-                            val currentGreetingPreview = WeatherNotificationManager.buildGreeting(savedName, hourNow)
-                            Text(
-                                text = "Greeting preview: \"$currentGreetingPreview\"",
-                                style = MaterialTheme.typography.labelSmall.copy(
-                                    color = Color(0xFF38BDF8),
-                                    fontSize = 11.sp
+                                OutlinedButton(
+                                    onClick = { isEditingName = true },
+                                    shape = RoundedCornerShape(12.dp),
+                                    border = BorderStroke(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.5f)),
+                                    colors = ButtonDefaults.outlinedButtonColors(
+                                        contentColor = MaterialTheme.colorScheme.primary
+                                    ),
+                                    modifier = Modifier.testTag("edit_user_name_button")
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Edit,
+                                        contentDescription = null,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(4.dp))
+                                    Text("Edit", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
+                        } else {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                androidx.compose.material3.OutlinedTextField(
+                                    value = nameInput,
+                                    onValueChange = { nameInput = it },
+                                    label = { Text("Your Name (e.g. Paul)") },
+                                    singleLine = true,
+                                    keyboardOptions = KeyboardOptions(imeAction = ImeAction.Done),
+                                    keyboardActions = KeyboardActions(onDone = { saveUserNameAction() }),
+                                    colors = androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                                        focusedBorderColor = MaterialTheme.colorScheme.primary,
+                                        unfocusedBorderColor = Color(0x33FFFFFF),
+                                        focusedTextColor = Color.White,
+                                        unfocusedTextColor = Color.White
+                                    ),
+                                    shape = RoundedCornerShape(12.dp),
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .testTag("settings_user_name_input")
                                 )
-                            )
+
+                                Spacer(modifier = Modifier.width(10.dp))
+
+                                Button(
+                                    onClick = { saveUserNameAction() },
+                                    shape = RoundedCornerShape(12.dp),
+                                    colors = ButtonDefaults.buttonColors(
+                                        containerColor = MaterialTheme.colorScheme.primary
+                                    ),
+                                    modifier = Modifier.testTag("save_user_name_settings_button")
+                                ) {
+                                    Text("SAVE", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                                }
+                            }
                         }
                     }
                 }
 
                 // 6-HOUR PERIODIC NOTIFICATION SCHEDULE TOGGLE
                 SegmentedControl(
-                    options = listOf("6-HOUR BRIEFINGS (ACTIVE)", "NOTIFICATIONS OFF"),
+                    options = listOf("6-HOUR BRIEFINGS", "NOTIFICATIONS OFF"),
                     selectedIndex = if (isNotifEnabled) 0 else 1,
                     onOptionSelected = { index ->
                         val enabled = (index == 0)
@@ -429,7 +470,7 @@ fun SettingsScreen(
                     )
                     Spacer(modifier = Modifier.width(8.dp))
                     Text(
-                        text = "TRIGGER TEST WEATHER NOTIFICATION NOW",
+                        text = "TEST WEATHER NOTIFICATION",
                         style = MaterialTheme.typography.labelSmall.copy(
                             fontWeight = FontWeight.Bold,
                             fontSize = 11.sp,
@@ -439,7 +480,7 @@ fun SettingsScreen(
                 }
 
                 Text(
-                    text = "WorkManager automatically delivers personalized weather briefings every 6 hours (6 AM, 12 PM, 6 PM, 12 AM). Notifications update using fresh weather API data and survive device reboots. If network is unavailable, notifications skip automatically to avoid stale data.",
+                    text = "Personalized weather briefings are delivered automatically every 6 hours (6 AM, 12 PM, 6 PM, 12 AM). Notifications update using fresh weather data and survive device reboots.",
                     style = MaterialTheme.typography.bodySmall.copy(
                         color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.7f),
                         fontSize = 11.sp

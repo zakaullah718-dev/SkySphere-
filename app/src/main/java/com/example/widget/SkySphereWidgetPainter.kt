@@ -160,8 +160,8 @@ object SkySphereWidgetPainter {
         }
     }
 
-    private fun formatTemp(temp: Int, isCelsius: Boolean): String {
-        val t = if (isCelsius) temp else (temp * 9 / 5) + 32
+    private fun formatTemp(tempF: Int, isCelsius: Boolean): String {
+        val t = if (isCelsius) (tempF - 32) * 5 / 9 else tempF
         return "$t°"
     }
 
@@ -221,13 +221,13 @@ object SkySphereWidgetPainter {
 
     // --- DRAW WIDGET 2x2 (MEDIUM SUMMARY) ---
     fun drawWidget2x2(context: Context, cityWeather: CityWeather, isCelsius: Boolean): Bitmap {
-        val width = 360
-        val height = 360
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val targetWidth = 360
+        val targetHeight = 360
+        val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
         val theme = getThemeForWeather(cityWeather)
-        drawBackgroundCard(canvas, width.toFloat(), height.toFloat(), theme)
+        drawBackgroundCard(canvas, targetWidth.toFloat(), targetHeight.toFloat(), theme)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -282,13 +282,17 @@ object SkySphereWidgetPainter {
 
     // --- DRAW WIDGET 4x2 (WIDE DASHBOARD) ---
     fun drawWidget4x2(context: Context, cityWeather: CityWeather, isCelsius: Boolean): Bitmap {
-        val width = 720
-        val height = 360
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val targetWidth = 480
+        val targetHeight = 240
+        val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
+        canvas.scale(480f / 720f, 240f / 360f)
+
+        val width = 720f
+        val height = 360f
 
         val theme = getThemeForWeather(cityWeather)
-        drawBackgroundCard(canvas, width.toFloat(), height.toFloat(), theme)
+        drawBackgroundCard(canvas, width, height, theme)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
@@ -348,13 +352,17 @@ object SkySphereWidgetPainter {
 
     // --- DRAW WIDGET 4x4 (FLAGSHIP WIDGET) ---
     fun drawWidget4x4(context: Context, cityWeather: CityWeather, isCelsius: Boolean): Bitmap {
-        val width = 720
-        val height = 720
-        val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+        val targetWidth = 420
+        val targetHeight = 420
+        val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
+        canvas.scale(420f / 720f, 420f / 720f)
+
+        val width = 720f
+        val height = 720f
 
         val theme = getThemeForWeather(cityWeather)
-        drawBackgroundCard(canvas, width.toFloat(), height.toFloat(), theme)
+        drawBackgroundCard(canvas, width, height, theme)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 

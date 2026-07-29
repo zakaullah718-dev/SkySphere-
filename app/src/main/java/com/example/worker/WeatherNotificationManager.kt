@@ -19,16 +19,22 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 
-val WeatherCondition.emoji: String
-    get() = when (this) {
-        WeatherCondition.SUNNY -> "☀️"
-        WeatherCondition.PARTLY_CLOUDY -> "🌤️"
+import com.example.utils.WeatherTimeUtils
+
+fun WeatherCondition.getSingleEmoji(isNight: Boolean): String {
+    return when (this) {
+        WeatherCondition.SUNNY -> if (isNight) "🌙" else "☀️"
+        WeatherCondition.PARTLY_CLOUDY -> if (isNight) "🌥" else "🌤"
         WeatherCondition.CLOUDY -> "☁️"
-        WeatherCondition.RAINY -> "🌧️"
-        WeatherCondition.STORM -> "🌩️"
+        WeatherCondition.RAINY -> "🌧"
+        WeatherCondition.STORM -> "⛈"
         WeatherCondition.SNOWY -> "❄️"
-        WeatherCondition.FOGGY -> "🌫️"
+        WeatherCondition.FOGGY -> "🌫"
     }
+}
+
+val WeatherCondition.emoji: String
+    get() = getSingleEmoji(false)
 
 object WeatherNotificationManager {
 
@@ -75,10 +81,19 @@ object WeatherNotificationManager {
         val hasName = cleanName.isNotBlank()
 
         return when (hourOfDay) {
-            in 5..11 -> if (hasName) "Good Morning $cleanName ☀️" else "Good Morning ☀️"
-            in 12..16 -> if (hasName) "Hi $cleanName 👋" else "Hello 👋"
-            in 17..20 -> if (hasName) "Good Evening $cleanName 🌙" else "Good Evening 🌙"
-            else -> if (hasName) "Good Evening $cleanName 🌙" else "Good Evening 🌙"
+            in 5..11 -> if (hasName) "Good Morning, $cleanName" else "Good Morning"
+            in 12..16 -> if (hasName) "Hi, $cleanName" else "Hello"
+            in 17..20 -> if (hasName) "Good Evening, $cleanName" else "Good Evening"
+            else -> if (hasName) "Good Evening, $cleanName" else "Good Evening"
+        }
+    }
+
+    fun formatNotificationTemp(tempF: Int, isCelsius: Boolean): String {
+        return if (isCelsius) {
+            val tempC = (tempF - 32) * 5 / 9
+            "$tempC°C"
+        } else {
+            "$tempF°F"
         }
     }
 
@@ -104,28 +119,32 @@ object WeatherNotificationManager {
         val userName = userPrefs.getUserName()
         val isCelsius = repository.isCelsius.value
 
-        fun formatTemp(celsius: Int): String {
-            return if (isCelsius) "$celsius°C" else "${(celsius * 9 / 5) + 32}°F"
-        }
-
         val displayLocation = formatDisplayLocation(cityWeather.cityName, cityWeather.region, cityWeather.country)
-        val currentTempStr = formatTemp(details.currentTemp)
-        val highTempStr = formatTemp(details.highTemp)
-        val lowTempStr = formatTemp(details.lowTemp)
+        val currentTempStr = formatNotificationTemp(details.currentTemp, isCelsius)
+        val highTempStr = formatNotificationTemp(details.highTemp, isCelsius)
+        val lowTempStr = formatNotificationTemp(details.lowTemp, isCelsius)
         val condition = details.condition
         val humidity = details.humidity
         val windSpeedKmH = details.windSpeed.toInt()
+
+        val isNight = WeatherTimeUtils.isNightForLocation(
+            timeZoneId = cityWeather.timeZoneId,
+            sunriseStr = details.sunrise,
+            sunsetStr = details.sunset,
+            localTimeStr = cityWeather.localTime
+        )
+        val weatherIcon = condition.getSingleEmoji(isNight)
 
         val calendar = Calendar.getInstance()
         val hourOfDay = calendar.get(Calendar.HOUR_OF_DAY)
 
         val greeting = buildGreeting(userName, hourOfDay)
-        val title = "$greeting ${condition.emoji}"
+        val title = "$greeting $weatherIcon"
         val subText = "$displayLocation • $currentTempStr • ${condition.displayName}"
 
         val bigTextBuilder = StringBuilder()
         bigTextBuilder.append("Current location: $displayLocation\n")
-        bigTextBuilder.append("Weather: ${condition.displayName} ${condition.emoji}\n")
+        bigTextBuilder.append("Weather: ${condition.displayName} $weatherIcon\n")
         bigTextBuilder.append("Temperature: $currentTempStr (High: $highTempStr / Low: $lowTempStr)\n")
         bigTextBuilder.append("Humidity: $humidity% • Wind: $windSpeedKmH km/h")
 

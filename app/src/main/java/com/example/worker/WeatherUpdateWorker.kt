@@ -54,28 +54,32 @@ class WeatherUpdateWorker(
             val userName = userPrefs.getUserName()
             val isCelsius = repository.isCelsius.value
 
-            fun formatTemp(celsius: Int): String {
-                return if (isCelsius) "$celsius°C" else "${(celsius * 9 / 5) + 32}°F"
-            }
-
-            val currentTempStr = formatTemp(details.currentTemp)
-            val highTempStr = formatTemp(details.highTemp)
-            val lowTempStr = formatTemp(details.lowTemp)
+            val currentTempStr = WeatherNotificationManager.formatNotificationTemp(details.currentTemp, isCelsius)
+            val highTempStr = WeatherNotificationManager.formatNotificationTemp(details.highTemp, isCelsius)
+            val lowTempStr = WeatherNotificationManager.formatNotificationTemp(details.lowTemp, isCelsius)
             val condition = details.condition
             val humidity = details.humidity
             val windSpeedKmH = details.windSpeed.toInt()
+
+            val isNight = com.example.utils.WeatherTimeUtils.isNightForLocation(
+                timeZoneId = cityWeather.timeZoneId,
+                sunriseStr = details.sunrise,
+                sunsetStr = details.sunset,
+                localTimeStr = cityWeather.localTime
+            )
+            val weatherIcon = condition.getSingleEmoji(isNight)
 
             val calendar = Calendar.getInstance()
             val hourOfDay = calendar.get(Calendar.HOUR_OF_DAY)
 
             val greeting = WeatherNotificationManager.buildGreeting(userName, hourOfDay)
-            val title = "$greeting ${condition.emoji}"
+            val title = "$greeting $weatherIcon"
             val subText = "$displayLocation • $currentTempStr • ${condition.displayName}"
             val smartAdvice = buildSmartAdvice(details, hourOfDay, isCelsius)
 
             val bigTextBuilder = StringBuilder()
             bigTextBuilder.append("Current location: $displayLocation\n")
-            bigTextBuilder.append("Weather: ${condition.displayName} ${condition.emoji}\n")
+            bigTextBuilder.append("Weather: ${condition.displayName} $weatherIcon\n")
             bigTextBuilder.append("Temperature: $currentTempStr (High: $highTempStr / Low: $lowTempStr)\n")
             bigTextBuilder.append("Humidity: $humidity% • Wind: $windSpeedKmH km/h")
             if (smartAdvice.isNotBlank()) {

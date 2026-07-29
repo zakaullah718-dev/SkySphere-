@@ -52,10 +52,12 @@ object WeatherAdviceGenerator {
         val adviceList = mutableListOf<WeatherAdvice>()
 
         // 1. THERMAL COMFORT & CLOTHING INTERPRETATION (Temperature & Feels Like)
-        val tempC = if (isCelsius) details.currentTemp else ((details.currentTemp - 32) * 5) / 9
-        val feelsLikeC = if (isCelsius) details.feelsLike else ((details.feelsLike - 32) * 5) / 9
-        val currentTempUnit = if (isCelsius) "${details.currentTemp}°C" else "${details.currentTemp}°F"
-        val feelsLikeUnit = if (isCelsius) "${details.feelsLike}°C" else "${details.feelsLike}°F"
+        val tempF = details.currentTemp
+        val tempC = ((tempF - 32) * 5) / 9
+        val feelsLikeF = details.feelsLike
+        val feelsLikeC = ((feelsLikeF - 32) * 5) / 9
+        val currentTempUnit = if (isCelsius) "${tempC}°C" else "${tempF}°F"
+        val feelsLikeUnit = if (isCelsius) "${feelsLikeC}°C" else "${feelsLikeF}°F"
 
         // Analyze wind-chill or heat-index delta
         val tempDelta = feelsLikeC - tempC

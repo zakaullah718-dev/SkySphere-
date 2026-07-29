@@ -10,6 +10,7 @@ import android.net.NetworkCapabilities
 import android.net.NetworkRequest
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
 import androidx.room.Room
 import com.example.BuildConfig
 import com.example.data.api.OpenMeteoProvider
@@ -52,13 +53,13 @@ class WeatherRepository(private val context: Context) {
     private val prefs = context.getSharedPreferences("skysphere_prefs", Context.MODE_PRIVATE)
 
     // Global settings flows (preserved from original)
-    private val _isCelsius = MutableStateFlow(true)
+    private val _isCelsius = MutableStateFlow(prefs.getBoolean("is_celsius", true))
     val isCelsius = _isCelsius.asStateFlow()
 
     private val _isUpdating = MutableStateFlow(false)
     val isUpdating = _isUpdating.asStateFlow()
 
-    private val _windUnit = MutableStateFlow("km/h")
+    private val _windUnit = MutableStateFlow(prefs.getString("wind_unit", "km/h") ?: "km/h")
     val windUnit = _windUnit.asStateFlow()
 
     private val _appTheme = MutableStateFlow(prefs.getString("app_theme", "MIDNIGHT_BLUE") ?: "MIDNIGHT_BLUE")
@@ -856,13 +857,15 @@ class WeatherRepository(private val context: Context) {
             val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
             if (hasFine || hasCoarse) {
                 val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-                if (locationManager != null) {
+                if (locationManager != null && try { LocationManagerCompat.isLocationEnabled(locationManager) } catch (e: Exception) { false }) {
                     val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
                     for (provider in providers) {
                         try {
-                            val loc = locationManager.getLastKnownLocation(provider)
-                            if (loc != null && loc.latitude != 0.0 && loc.longitude != 0.0) {
-                                return Pair(loc.latitude, loc.longitude)
+                            if (try { locationManager.isProviderEnabled(provider) } catch (e: Exception) { false }) {
+                                val loc = locationManager.getLastKnownLocation(provider)
+                                if (loc != null && loc.latitude != 0.0 && loc.longitude != 0.0) {
+                                    return Pair(loc.latitude, loc.longitude)
+                                }
                             }
                         } catch (e: Exception) {
                             // ignore provider error
