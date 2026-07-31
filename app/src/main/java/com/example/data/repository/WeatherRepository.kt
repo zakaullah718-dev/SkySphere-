@@ -497,6 +497,10 @@ class WeatherRepository(private val context: Context) {
         weatherDao.insertCachedWeather(entity)
     }
 
+    fun getCityByNameCached(cityName: String): CityWeather? {
+        return _cities.value.find { it.cityName.equals(cityName, ignoreCase = true) }
+    }
+
     suspend fun getCityByNameFromFavoritesOrApi(cityName: String): CityWeather? {
         val existing = _cities.value.find { it.cityName.equals(cityName, ignoreCase = true) }
         if (existing != null && existing.weatherDetails.currentTemp != 0) {

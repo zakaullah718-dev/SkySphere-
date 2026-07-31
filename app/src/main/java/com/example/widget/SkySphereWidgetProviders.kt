@@ -14,6 +14,18 @@ open class BaseSkySphereWidgetProvider : AppWidgetProvider() {
         SkySphereWidgetManager.updateAllWidgets(context)
     }
 
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        appWidgetManager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: android.os.Bundle
+    ) {
+        super.onAppWidgetOptionsChanged(context, appWidgetManager, appWidgetId, newOptions)
+        Log.d("SkySphereWidgetProvider", "onAppWidgetOptionsChanged for widget id: $appWidgetId")
+        SkySphereWidgetManager.updateWidgetIdsSync(context, appWidgetManager, intArrayOf(appWidgetId))
+        SkySphereWidgetManager.updateAllWidgets(context)
+    }
+
     override fun onReceive(context: Context, intent: Intent) {
         super.onReceive(context, intent)
         val action = intent.action

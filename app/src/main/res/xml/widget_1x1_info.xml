@@ -10,6 +10,7 @@
     android:initialLayout="@layout/widget_1x1"
     android:previewLayout="@layout/widget_1x1"
     android:configure="com.example.widget.SkySphereWidgetConfigActivity"
+    android:widgetFeatures="reconfigurable|configuration_optional"
     android:description="@string/widget_1x1_description"
     android:widgetCategory="home_screen"
     android:resizeMode="horizontal|vertical" />

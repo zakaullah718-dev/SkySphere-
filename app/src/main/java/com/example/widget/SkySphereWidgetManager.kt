@@ -50,18 +50,26 @@ object SkySphereWidgetManager {
                     else -> 2
                 }
 
+                val mode = SkySphereWidgetPreferences.getWidgetMode(context, id)
+                val fixedCityName = SkySphereWidgetPreferences.getWidgetCity(context, id)
+                val targetCity = if (mode == SkySphereWidgetPreferences.MODE_FIXED_CITY && !fixedCityName.isNullOrBlank()) {
+                    repository.getCityByNameCached(fixedCityName) ?: activeCity
+                } else {
+                    activeCity
+                }
+
                 val remoteViews = RemoteViews(context.packageName, layoutId)
                 val bitmap = when (sizeCategory) {
-                    1 -> SkySphereWidgetPainter.drawWidget1x1(context, activeCity, isCelsius)
-                    2 -> SkySphereWidgetPainter.drawWidget2x2(context, activeCity, isCelsius)
-                    3 -> SkySphereWidgetPainter.drawWidget4x2(context, activeCity, isCelsius)
-                    4 -> SkySphereWidgetPainter.drawWidget4x3(context, activeCity, isCelsius)
-                    5 -> SkySphereWidgetPainter.drawWidget4x4(context, activeCity, isCelsius)
-                    else -> SkySphereWidgetPainter.drawWidget2x2(context, activeCity, isCelsius)
+                    1 -> SkySphereWidgetPainter.drawWidget1x1(context, targetCity, isCelsius)
+                    2 -> SkySphereWidgetPainter.drawWidget2x2(context, targetCity, isCelsius)
+                    3 -> SkySphereWidgetPainter.drawWidget4x2(context, targetCity, isCelsius)
+                    4 -> SkySphereWidgetPainter.drawWidget4x3(context, targetCity, isCelsius)
+                    5 -> SkySphereWidgetPainter.drawWidget4x4(context, targetCity, isCelsius)
+                    else -> SkySphereWidgetPainter.drawWidget2x2(context, targetCity, isCelsius)
                 }
 
                 remoteViews.setImageViewBitmap(R.id.widget_image_canvas, bitmap)
-                setupWidgetPendingIntents(context, remoteViews, sizeCategory, activeCity)
+                setupWidgetPendingIntents(context, remoteViews, sizeCategory, targetCity)
                 appWidgetManager.updateAppWidget(id, remoteViews)
             }
         } catch (e: Exception) {
@@ -174,20 +182,33 @@ object SkySphereWidgetManager {
         val openHomeIntent = createPendingIntent(context, "home", cityName, 100)
         views.setOnClickPendingIntent(R.id.widget_image_canvas, openHomeIntent)
 
-        // Temperature tap -> Open Home
-        views.setOnClickPendingIntent(R.id.widget_click_temp, createPendingIntent(context, "home", cityName, 101))
-
-        // Weather Icon tap -> Open Radar screen
-        views.setOnClickPendingIntent(R.id.widget_click_icon, createPendingIntent(context, "radar", cityName, 102))
-
-        // City name / Location tap -> Open Search / Location selector
-        views.setOnClickPendingIntent(R.id.widget_click_location, createPendingIntent(context, "search", cityName, 103))
-
-        // Refresh area tap -> Trigger manual refresh broadcast
-        views.setOnClickPendingIntent(R.id.widget_click_refresh, createRefreshPendingIntent(context, 104))
-
-        // Hourly forecast tap -> Open Home
-        views.setOnClickPendingIntent(R.id.widget_click_hourly, createPendingIntent(context, "home", cityName, 105))
+        when (sizeCategory) {
+            1 -> {
+                // 1x1 Compact Badge - full image canvas tap handles home open
+            }
+            2, 3 -> {
+                // 2x2 & 4x2 Dashboard - location, temp, icon, refresh
+                views.setOnClickPendingIntent(R.id.widget_click_location, createPendingIntent(context, "search", cityName, 103))
+                views.setOnClickPendingIntent(R.id.widget_click_temp, createPendingIntent(context, "home", cityName, 101))
+                views.setOnClickPendingIntent(R.id.widget_click_icon, createPendingIntent(context, "radar", cityName, 102))
+                views.setOnClickPendingIntent(R.id.widget_click_refresh, createRefreshPendingIntent(context, 104))
+            }
+            4 -> {
+                // 4x3 Detailed - location, temp, icon, hourly forecast
+                views.setOnClickPendingIntent(R.id.widget_click_location, createPendingIntent(context, "search", cityName, 103))
+                views.setOnClickPendingIntent(R.id.widget_click_temp, createPendingIntent(context, "home", cityName, 101))
+                views.setOnClickPendingIntent(R.id.widget_click_icon, createPendingIntent(context, "radar", cityName, 102))
+                views.setOnClickPendingIntent(R.id.widget_click_hourly, createPendingIntent(context, "home", cityName, 105))
+            }
+            5 -> {
+                // 4x4 Flagship - all interactive zones
+                views.setOnClickPendingIntent(R.id.widget_click_location, createPendingIntent(context, "search", cityName, 103))
+                views.setOnClickPendingIntent(R.id.widget_click_temp, createPendingIntent(context, "home", cityName, 101))
+                views.setOnClickPendingIntent(R.id.widget_click_icon, createPendingIntent(context, "radar", cityName, 102))
+                views.setOnClickPendingIntent(R.id.widget_click_refresh, createRefreshPendingIntent(context, 104))
+                views.setOnClickPendingIntent(R.id.widget_click_hourly, createPendingIntent(context, "home", cityName, 105))
+            }
+        }
     }
 
     private fun createRefreshPendingIntent(context: Context, requestCode: Int): PendingIntent {
