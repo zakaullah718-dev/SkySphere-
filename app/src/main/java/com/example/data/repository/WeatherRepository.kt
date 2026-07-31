@@ -50,6 +50,17 @@ import java.util.concurrent.TimeUnit
 
 class WeatherRepository(private val context: Context) {
 
+    companion object {
+        @Volatile
+        private var INSTANCE: WeatherRepository? = null
+
+        fun getInstance(context: Context): WeatherRepository {
+            return INSTANCE ?: synchronized(this) {
+                INSTANCE ?: WeatherRepository(context.applicationContext).also { INSTANCE = it }
+            }
+        }
+    }
+
     private val prefs = context.getSharedPreferences("skysphere_prefs", Context.MODE_PRIVATE)
 
     // Global settings flows (preserved from original)
@@ -120,11 +131,14 @@ class WeatherRepository(private val context: Context) {
         OPEN_WEATHER
     }
 
-    private val _selectedProvider = MutableStateFlow(ProviderType.OPEN_METEO)
+    private val initialProviderName = prefs.getString("selected_provider", ProviderType.OPEN_METEO.name) ?: ProviderType.OPEN_METEO.name
+    private val initialProvider = try { ProviderType.valueOf(initialProviderName) } catch (e: Exception) { ProviderType.OPEN_METEO }
+    private val _selectedProvider = MutableStateFlow(initialProvider)
     val selectedProvider = _selectedProvider.asStateFlow()
 
     fun setProvider(provider: ProviderType) {
         _selectedProvider.value = provider
+        prefs.edit().putString("selected_provider", provider.name).apply()
         CoroutineScope(Dispatchers.IO).launch {
             forceRefreshActiveCity()
         }
@@ -209,6 +223,58 @@ class WeatherRepository(private val context: Context) {
     private val _selectedCity = MutableStateFlow<CityWeather>(defaultPlaceholder)
     val selectedCity = _selectedCity.asStateFlow()
 
+    private fun updateSelectedCity(city: CityWeather, source: String) {
+        _selectedCity.value = city
+        logWeatherSync(
+            source = source,
+            cityName = city.cityName,
+            country = city.country,
+            provider = _selectedProvider.value,
+            condition = city.weatherDetails.condition,
+            currentTemp = city.weatherDetails.currentTemp,
+            feelsLike = city.weatherDetails.feelsLike,
+            humidity = city.weatherDetails.humidity,
+            windSpeed = city.weatherDetails.windSpeed,
+            pressure = city.weatherDetails.pressureHpa
+        )
+        try {
+            com.example.widget.SkySphereWidgetManager.updateAllWidgets(context)
+        } catch (e: Exception) {
+            Log.w("WeatherRepository", "Widget update trigger failed: ${e.message}")
+        }
+    }
+
+    private fun logWeatherSync(
+        source: String,
+        cityName: String,
+        country: String,
+        provider: ProviderType,
+        condition: WeatherCondition,
+        currentTemp: Int,
+        feelsLike: Int,
+        humidity: Int,
+        windSpeed: Double,
+        pressure: Int
+    ) {
+        Log.d(
+            "SkySphereWeatherSync",
+            """
+            ====================================================
+            [SkySphere Single Source of Truth Sync Log]
+            Source/Caller  : $source
+            Provider Used  : $provider
+            Location       : $cityName, $country
+            Condition      : $condition
+            Current Temp   : ${currentTemp}°F (${feelsLike}°F feels like)
+            Humidity       : ${humidity}%
+            Wind Speed     : $windSpeed
+            Pressure       : $pressure hPa
+            Timestamp      : ${System.currentTimeMillis()}
+            ====================================================
+            """.trimIndent()
+        )
+    }
+
     suspend fun getOrFetchActiveCity(): CityWeather = withContext(Dispatchers.IO) {
         val current = _selectedCity.value
         if (current.cityName != "Loading..." && current.cityName.isNotBlank()) {
@@ -236,7 +302,7 @@ class WeatherRepository(private val context: Context) {
                 }
                 val restored = mappedList.find { it.isFavorite } ?: mappedList.firstOrNull()
                 if (restored != null) {
-                    _selectedCity.value = restored
+                    updateSelectedCity(restored, "RestoredFromCache")
                     return@withContext restored
                 }
             }
@@ -320,21 +386,21 @@ class WeatherRepository(private val context: Context) {
                         }
 
                         if (restoredCity != null) {
-                            _selectedCity.value = restoredCity
+                            updateSelectedCity(restoredCity, "RoomCacheInit")
                             updateUnitForCountryIfNeeded(restoredCity.country)
                         } else if (lastIsGps && lastLat != null && lastLon != null) {
                             val fallback = mappedList.find { it.isFavorite } ?: mappedList.first()
-                            _selectedCity.value = fallback
+                            updateSelectedCity(fallback, "RoomCacheFallbackGps")
                             updateUnitForCountryIfNeeded(fallback.country)
                             selectLocationCoordinates(lastLat, lastLon)
                         } else if (!lastCityName.isNullOrBlank()) {
                             val fallback = mappedList.find { it.isFavorite } ?: mappedList.first()
-                            _selectedCity.value = fallback
+                            updateSelectedCity(fallback, "RoomCacheFallbackCity")
                             updateUnitForCountryIfNeeded(fallback.country)
                             selectCity(lastCityName)
                         } else {
                             val fallback = mappedList.find { it.isFavorite } ?: mappedList.first()
-                            _selectedCity.value = fallback
+                            updateSelectedCity(fallback, "RoomCacheFallbackDefault")
                             updateUnitForCountryIfNeeded(fallback.country)
                         }
                     }
@@ -402,7 +468,7 @@ class WeatherRepository(private val context: Context) {
         }
         if (seeded.isNotEmpty()) {
             _cities.value = seeded
-            _selectedCity.value = seeded.first()
+            updateSelectedCity(seeded.first(), "SeedDefaultCities")
             saveLastSelectedLocation(
                 cityName = seeded.first().cityName,
                 isGps = false,
@@ -481,7 +547,7 @@ class WeatherRepository(private val context: Context) {
         }
         val existing = _cities.value.find { it.cityName.equals(lookupName, ignoreCase = true) }
         if (existing != null && existing.weatherDetails.currentTemp != 0) {
-            _selectedCity.value = existing
+            updateSelectedCity(existing, "SelectCityMemory")
             updateUnitForCountryIfNeeded(existing.country)
             saveLastSelectedLocation(
                 cityName = existing.cityName,
@@ -498,7 +564,7 @@ class WeatherRepository(private val context: Context) {
                 result.onSuccess { fullCityWeather ->
                     val withFav = fullCityWeather.copy(isFavorite = existing?.isFavorite ?: false)
                     saveCityToCache(withFav)
-                    _selectedCity.value = withFav
+                    updateSelectedCity(withFav, "SelectCityApi")
                     updateUnitForCountryIfNeeded(withFav.country)
                     saveLastSelectedLocation(
                         cityName = withFav.cityName,
@@ -640,7 +706,7 @@ class WeatherRepository(private val context: Context) {
                     _repositoryError.value = "GPS could not determine city name. Showing nearest city: $nearestCityName"
                     val result = fetchWeatherFromApi(nearestCityName, forceRefresh = true)
                     result.onSuccess { fullCityWeather ->
-                        _selectedCity.value = fullCityWeather
+                        updateSelectedCity(fullCityWeather, "GPSNearestCityApi")
                         updateUnitForCountryIfNeeded(fullCityWeather.country)
                         saveLastSelectedLocation(
                             cityName = fullCityWeather.cityName,
@@ -664,7 +730,7 @@ class WeatherRepository(private val context: Context) {
                             country = resolved.country
                         )
                         saveCityToCache(friendlyCity)
-                        _selectedCity.value = friendlyCity
+                        updateSelectedCity(friendlyCity, "GPSReverseGeocodeApi")
                         updateUnitForCountryIfNeeded(friendlyCity.country)
                         saveLastSelectedLocation(
                             cityName = friendlyCity.cityName,
@@ -683,7 +749,7 @@ class WeatherRepository(private val context: Context) {
                                 country = resolved.country
                             )
                             saveCityToCache(friendlyCity)
-                            _selectedCity.value = friendlyCity
+                            updateSelectedCity(friendlyCity, "GPSCityFallbackApi")
                             updateUnitForCountryIfNeeded(friendlyCity.country)
                             saveLastSelectedLocation(
                                 cityName = friendlyCity.cityName,
@@ -732,7 +798,7 @@ class WeatherRepository(private val context: Context) {
                     )
                 )
                 saveCityToCache(refreshedCity)
-                _selectedCity.value = refreshedCity
+                updateSelectedCity(refreshedCity, "ForceRefreshActiveCity")
                 updateUnitForCountryIfNeeded(refreshedCity.country)
             }
             result.onFailure { error ->
@@ -746,43 +812,47 @@ class WeatherRepository(private val context: Context) {
     }
 
     suspend fun refreshLiveWeatherForNotification(context: Context): CityWeather? = withContext(Dispatchers.IO) {
-        // Priority 1: Current GPS location if permission granted and location available
-        val gpsCoords = getDeviceLocation(context)
-        if (gpsCoords != null) {
-            val (lat, lon) = gpsCoords
-            try {
-                val resolved = reverseGeocode(lat, lon)
-                val query = "$lat,$lon"
-                val result = fetchWeatherFromApi(query, forceRefresh = true)
-                if (result.isSuccess) {
-                    val fullCityWeather = result.getOrThrow()
-                    val finalCityName = resolved?.city ?: fullCityWeather.cityName
-                    val finalRegion = resolved?.region ?: fullCityWeather.region
-                    val finalCountry = resolved?.country ?: fullCityWeather.country
+        val isGpsActiveMode = _isGpsActive.value || prefs.getBoolean("last_selected_is_gps", false)
+        
+        // Priority 1: Current GPS location ONLY if GPS mode is active
+        if (isGpsActiveMode) {
+            val gpsCoords = getDeviceLocation(context)
+            if (gpsCoords != null) {
+                val (lat, lon) = gpsCoords
+                try {
+                    val resolved = reverseGeocode(lat, lon)
+                    val query = "$lat,$lon"
+                    val result = fetchWeatherFromApi(query, forceRefresh = true)
+                    if (result.isSuccess) {
+                        val fullCityWeather = result.getOrThrow()
+                        val finalCityName = resolved?.city ?: fullCityWeather.cityName
+                        val finalRegion = resolved?.region ?: fullCityWeather.region
+                        val finalCountry = resolved?.country ?: fullCityWeather.country
 
-                    val liveCity = fullCityWeather.copy(
-                        cityName = finalCityName,
-                        region = finalRegion,
-                        country = finalCountry,
-                        latitude = lat,
-                        longitude = lon
-                    )
-                    saveCityToCache(liveCity)
-                    _selectedCity.value = liveCity
-                    updateUnitForCountryIfNeeded(liveCity.country)
-                    saveLastSelectedLocation(
-                        cityName = liveCity.cityName,
-                        isGps = true,
-                        lat = lat,
-                        lon = lon,
-                        region = liveCity.region,
-                        country = liveCity.country
-                    )
-                    Log.d("WeatherRepository", "Notification weather updated via GPS: ${liveCity.cityName}")
-                    return@withContext liveCity
+                        val liveCity = fullCityWeather.copy(
+                            cityName = finalCityName,
+                            region = finalRegion,
+                            country = finalCountry,
+                            latitude = lat,
+                            longitude = lon
+                        )
+                        saveCityToCache(liveCity)
+                        updateSelectedCity(liveCity, "NotificationGPSRefresh")
+                        updateUnitForCountryIfNeeded(liveCity.country)
+                        saveLastSelectedLocation(
+                            cityName = liveCity.cityName,
+                            isGps = true,
+                            lat = lat,
+                            lon = lon,
+                            region = liveCity.region,
+                            country = liveCity.country
+                        )
+                        Log.d("WeatherRepository", "Notification weather updated via GPS: ${liveCity.cityName}")
+                        return@withContext liveCity
+                    }
+                } catch (e: Exception) {
+                    Log.w("WeatherRepository", "GPS weather refresh failed for notification: ${e.message}")
                 }
-            } catch (e: Exception) {
-                Log.w("WeatherRepository", "GPS weather refresh failed for notification: ${e.message}")
             }
         }
 
@@ -799,7 +869,7 @@ class WeatherRepository(private val context: Context) {
                     val alignedDetails = alignWeatherDetailsHourly(fullCityWeather.weatherDetails)
                     val refreshedCity = fullCityWeather.copy(weatherDetails = alignedDetails)
                     saveCityToCache(refreshedCity)
-                    _selectedCity.value = refreshedCity
+                    updateSelectedCity(refreshedCity, "NotificationTargetCityRefresh")
                     updateUnitForCountryIfNeeded(refreshedCity.country)
                     Log.d("WeatherRepository", "Notification weather updated via selected city: ${refreshedCity.cityName}")
                     return@withContext refreshedCity
@@ -834,7 +904,7 @@ class WeatherRepository(private val context: Context) {
                     ?: mappedList.firstOrNull()
 
                 if (cachedCity != null) {
-                    _selectedCity.value = cachedCity
+                    updateSelectedCity(cachedCity, "NotificationCachedCity")
                     Log.d("WeatherRepository", "Notification weather retrieved from cache: ${cachedCity.cityName}")
                     return@withContext cachedCity
                 }
@@ -857,24 +927,24 @@ class WeatherRepository(private val context: Context) {
             val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
             if (hasFine || hasCoarse) {
                 val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
-                if (locationManager != null && try { LocationManagerCompat.isLocationEnabled(locationManager) } catch (e: Exception) { false }) {
+                if (locationManager != null && try { LocationManagerCompat.isLocationEnabled(locationManager) } catch (t: Throwable) { false }) {
                     val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
                     for (provider in providers) {
                         try {
-                            if (try { locationManager.isProviderEnabled(provider) } catch (e: Exception) { false }) {
+                            if (try { locationManager.isProviderEnabled(provider) } catch (t: Throwable) { false }) {
                                 val loc = locationManager.getLastKnownLocation(provider)
                                 if (loc != null && loc.latitude != 0.0 && loc.longitude != 0.0) {
                                     return Pair(loc.latitude, loc.longitude)
                                 }
                             }
-                        } catch (e: Exception) {
+                        } catch (t: Throwable) {
                             // ignore provider error
                         }
                     }
                 }
             }
-        } catch (e: Exception) {
-            Log.w("WeatherRepository", "Device location check error: ${e.message}")
+        } catch (t: Throwable) {
+            Log.w("WeatherRepository", "Device location check error: ${t.message}")
         }
         return null
     }
@@ -887,7 +957,7 @@ class WeatherRepository(private val context: Context) {
                     weatherDao.updateFavorite(cityName.lowercase(), newFavState)
                     val updatedCity = it.copy(isFavorite = newFavState)
                     if (updatedCity.cityName == _selectedCity.value.cityName) {
-                        _selectedCity.value = updatedCity
+                        updateSelectedCity(updatedCity, "ToggleFavorite")
                     }
                     updatedCity
                 } else {

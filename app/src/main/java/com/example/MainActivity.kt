@@ -50,7 +50,7 @@ class MainActivity : ComponentActivity() {
         }
         
         // Single global repository source
-        val repository = WeatherRepository(applicationContext)
+        val repository = WeatherRepository.getInstance(applicationContext)
 
         val navigateTo = intent?.getStringExtra("navigate_to")
         val selectedCityParam = intent?.getStringExtra("selected_city")

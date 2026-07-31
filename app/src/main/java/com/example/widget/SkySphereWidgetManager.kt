@@ -23,7 +23,7 @@ object SkySphereWidgetManager {
 
     fun updateWidgetIdsSync(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         try {
-            val repository = WeatherRepository(context)
+            val repository = WeatherRepository.getInstance(context)
             val isCelsius = repository.isCelsius.value
             var activeCity = repository.selectedCity.value
 
@@ -70,7 +70,7 @@ object SkySphereWidgetManager {
         CoroutineScope(Dispatchers.IO).launch {
             try {
                 val appWidgetManager = AppWidgetManager.getInstance(context) ?: return@launch
-                val repository = WeatherRepository(context)
+                val repository = WeatherRepository.getInstance(context)
                 val isCelsius = repository.isCelsius.value
                 var activeCity = repository.selectedCity.value
 

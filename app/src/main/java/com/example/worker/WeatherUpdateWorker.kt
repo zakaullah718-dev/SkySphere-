@@ -30,7 +30,7 @@ class WeatherUpdateWorker(
         }
 
         try {
-            val repository = WeatherRepository(applicationContext)
+            val repository = WeatherRepository.getInstance(applicationContext)
 
             // Fetch live weather following location priority rules (GPS -> Last Selected City -> Cache)
             val cityWeather = repository.refreshLiveWeatherForNotification(applicationContext)

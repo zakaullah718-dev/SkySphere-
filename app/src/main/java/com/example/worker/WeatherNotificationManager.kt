@@ -101,7 +101,7 @@ object WeatherNotificationManager {
         createNotificationChannel(context)
 
         val userPrefs = UserPreferencesRepository.getInstance(context)
-        val repository = WeatherRepository(context.applicationContext)
+        val repository = WeatherRepository.getInstance(context.applicationContext)
 
         val cityWeather = repository.refreshLiveWeatherForNotification(context)
 

@@ -138,25 +138,27 @@ fun HomeScreen(
     val context = LocalContext.current
     val locationManager = remember { context.getSystemService(Context.LOCATION_SERVICE) as LocationManager }
 
-    LaunchedEffect(Unit) {
-        val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-        if ((fineGranted || coarseGranted) && try { LocationManagerCompat.isLocationEnabled(locationManager) } catch (t: Throwable) { false }) {
-            val isGpsEnabled = fineGranted && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { false }
-            val isNetworkEnabled = (fineGranted || coarseGranted) && try { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (t: Throwable) { false }
-            val provider = when {
-                isGpsEnabled -> LocationManager.GPS_PROVIDER
-                isNetworkEnabled -> LocationManager.NETWORK_PROVIDER
-                else -> null
-            }
-            if (provider != null) {
-                try {
-                    val lastKnown = locationManager.getLastKnownLocation(provider)
-                    if (lastKnown != null) {
-                        viewModel.loadWeatherForCurrentLocation(lastKnown.latitude, lastKnown.longitude)
+    LaunchedEffect(isGpsActive) {
+        if (isGpsActive) {
+            val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+            if ((fineGranted || coarseGranted) && try { LocationManagerCompat.isLocationEnabled(locationManager) } catch (t: Throwable) { false }) {
+                val isGpsEnabled = fineGranted && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { false }
+                val isNetworkEnabled = (fineGranted || coarseGranted) && try { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (t: Throwable) { false }
+                val provider = when {
+                    isGpsEnabled -> LocationManager.GPS_PROVIDER
+                    isNetworkEnabled -> LocationManager.NETWORK_PROVIDER
+                    else -> null
+                }
+                if (provider != null) {
+                    try {
+                        val lastKnown = locationManager.getLastKnownLocation(provider)
+                        if (lastKnown != null) {
+                            viewModel.loadWeatherForCurrentLocation(lastKnown.latitude, lastKnown.longitude)
+                        }
+                    } catch (t: Throwable) {
+                        // Silent catch for background location refresh
                     }
-                } catch (t: Throwable) {
-                    // Silent catch for background location refresh
                 }
             }
         }

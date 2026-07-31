@@ -83,13 +83,16 @@ fun MainScreenShell(
 
     val context = LocalContext.current
     val userPrefs = remember { UserPreferencesRepository.getInstance(context) }
-    val savedUserName by userPrefs.userNameFlow.collectAsState(initial = "init_placeholder")
+    val savedUserName by userPrefs.userNameFlow.collectAsState(initial = "")
+    val onboardingCompleted by userPrefs.onboardingCompletedFlow.collectAsState(initial = null)
     val coroutineScope = rememberCoroutineScope()
     var showUserNameDialog by remember { mutableStateOf(false) }
 
-    LaunchedEffect(savedUserName, currentRoute) {
-        if (savedUserName.isEmpty() && currentRoute != Screen.Splash.route && savedUserName != "init_placeholder") {
+    LaunchedEffect(onboardingCompleted, currentRoute) {
+        if (onboardingCompleted == false && currentRoute != Screen.Splash.route) {
             showUserNameDialog = true
+        } else if (onboardingCompleted == true) {
+            showUserNameDialog = false
         }
     }
 
@@ -272,14 +275,18 @@ fun MainScreenShell(
             // USER NAME ONBOARDING DIALOG FOR PERSONALIZED WEATHER NOTIFICATIONS
             if (showUserNameDialog) {
                 UserNamePromptDialog(
-                    initialName = "",
+                    initialName = savedUserName,
                     onSaveName = { name ->
                         coroutineScope.launch {
                             userPrefs.setUserName(name)
+                            userPrefs.setOnboardingCompleted(true)
                         }
                         showUserNameDialog = false
                     },
                     onDismiss = {
+                        coroutineScope.launch {
+                            userPrefs.setOnboardingCompleted(true)
+                        }
                         showUserNameDialog = false
                     }
                 )

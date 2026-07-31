@@ -19,6 +19,7 @@ class UserPreferencesRepository(private val context: Context) {
 
     companion object {
         val KEY_USER_NAME = stringPreferencesKey("user_display_name")
+        val KEY_ONBOARDING_COMPLETED = booleanPreferencesKey("onboarding_completed")
         val KEY_NOTIFICATIONS_ENABLED = booleanPreferencesKey("notifications_enabled")
         val KEY_NOTIFICATION_INTERVAL_HOURS = intPreferencesKey("notification_interval_hours")
         val KEY_LAST_NOTIFICATION_HASH = stringPreferencesKey("last_notification_hash")
@@ -38,6 +39,10 @@ class UserPreferencesRepository(private val context: Context) {
         prefs[KEY_USER_NAME] ?: ""
     }
 
+    val onboardingCompletedFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
+        prefs[KEY_ONBOARDING_COMPLETED] ?: false
+    }
+
     val notificationsEnabledFlow: Flow<Boolean> = context.dataStore.data.map { prefs ->
         prefs[KEY_NOTIFICATIONS_ENABLED] ?: true
     }
@@ -53,6 +58,13 @@ class UserPreferencesRepository(private val context: Context) {
     suspend fun setUserName(name: String) {
         context.dataStore.edit { prefs ->
             prefs[KEY_USER_NAME] = name.trim()
+            prefs[KEY_ONBOARDING_COMPLETED] = true
+        }
+    }
+
+    suspend fun setOnboardingCompleted(completed: Boolean = true) {
+        context.dataStore.edit { prefs ->
+            prefs[KEY_ONBOARDING_COMPLETED] = completed
         }
     }
 

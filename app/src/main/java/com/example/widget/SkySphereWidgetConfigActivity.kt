@@ -87,7 +87,7 @@ class SkySphereWidgetConfigActivity : ComponentActivity() {
             return
         }
 
-        val repository = WeatherRepository(applicationContext)
+        val repository = WeatherRepository.getInstance(applicationContext)
 
         setContent {
             val currentAppTheme by repository.appTheme.collectAsState()
