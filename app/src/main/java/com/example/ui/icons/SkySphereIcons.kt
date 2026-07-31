@@ -1410,4 +1410,44 @@ object SkySphereIcons {
             moveTo(16f, 6f); lineTo(18f, 6f); lineTo(18f, 18f); lineTo(16f, 18f); close()
         }.build()
     }
+
+    val Compass: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "SkySphereCompass",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).path(
+            fill = null,
+            stroke = SolidColor(Color.White),
+            strokeLineWidth = 1.8f,
+            strokeLineCap = StrokeCap.Round
+        ) {
+            moveTo(12f, 3f)
+            curveTo(7.03f, 3f, 3f, 7.03f, 3f, 12f)
+            curveTo(3f, 16.97f, 7.03f, 21f, 12f, 21f)
+            curveTo(16.97f, 21f, 21f, 16.97f, 21f, 12f)
+            curveTo(21f, 7.03f, 16.97f, 3f, 12f, 3f)
+            close()
+        }.path(
+            fill = SolidColor(Color.White),
+            stroke = null
+        ) {
+            moveTo(12f, 7f)
+            lineTo(15f, 12f)
+            lineTo(12f, 10.5f)
+            lineTo(9f, 12f)
+            close()
+        }.path(
+            fill = SolidColor(Color.White.copy(alpha = 0.5f)),
+            stroke = null
+        ) {
+            moveTo(12f, 17f)
+            lineTo(15f, 12f)
+            lineTo(12f, 13.5f)
+            lineTo(9f, 12f)
+            close()
+        }.build()
+    }
 }

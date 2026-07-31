@@ -95,32 +95,6 @@
                 android:name="android.appwidget.provider"
                 android:resource="@xml/widget_4x2_info" />
         </receiver>
-
-        <receiver
-            android:name="com.example.widget.SkySphereWidget4x3Provider"
-            android:exported="true"
-            android:label="SkySphere 4x3 Detailed">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.example.widget.ACTION_REFRESH_WIDGET" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_4x3_info" />
-        </receiver>
-
-        <receiver
-            android:name="com.example.widget.SkySphereWidget4x4Provider"
-            android:exported="true"
-            android:label="SkySphere 4x4 Flagship">
-            <intent-filter>
-                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
-                <action android:name="com.example.widget.ACTION_REFRESH_WIDGET" />
-            </intent-filter>
-            <meta-data
-                android:name="android.appwidget.provider"
-                android:resource="@xml/widget_4x4_info" />
-        </receiver>
     </application>
 
 </manifest>

@@ -20,7 +20,7 @@
         android:orientation="vertical">
 
         <!-- Header (City Name) -->
-        <View
+        <FrameLayout
             android:id="@+id/widget_click_location"
             android:layout_width="match_parent"
             android:layout_height="0dp"
@@ -35,7 +35,7 @@
             android:layout_weight="2"
             android:orientation="horizontal">
 
-            <View
+            <FrameLayout
                 android:id="@+id/widget_click_temp"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
@@ -43,7 +43,7 @@
                 android:clickable="true"
                 android:focusable="true" />
 
-            <View
+            <FrameLayout
                 android:id="@+id/widget_click_icon"
                 android:layout_width="0dp"
                 android:layout_height="match_parent"
@@ -54,7 +54,7 @@
         </LinearLayout>
 
         <!-- Bottom details / refresh -->
-        <View
+        <FrameLayout
             android:id="@+id/widget_click_refresh"
             android:layout_width="match_parent"
             android:layout_height="0dp"

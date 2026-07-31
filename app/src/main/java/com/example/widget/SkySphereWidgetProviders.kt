@@ -53,5 +53,3 @@ open class BaseSkySphereWidgetProvider : AppWidgetProvider() {
 class SkySphereWidget1x1Provider : BaseSkySphereWidgetProvider()
 class SkySphereWidget2x2Provider : BaseSkySphereWidgetProvider()
 class SkySphereWidget4x2Provider : BaseSkySphereWidgetProvider()
-class SkySphereWidget4x3Provider : BaseSkySphereWidgetProvider()
-class SkySphereWidget4x4Provider : BaseSkySphereWidgetProvider()

@@ -37,16 +37,12 @@ object SkySphereWidgetManager {
                     providerName.contains("1x1") -> R.layout.widget_1x1
                     providerName.contains("2x2") -> R.layout.widget_2x2
                     providerName.contains("4x2") -> R.layout.widget_4x2
-                    providerName.contains("4x3") -> R.layout.widget_4x3
-                    providerName.contains("4x4") -> R.layout.widget_4x4
                     else -> R.layout.widget_2x2
                 }
                 val sizeCategory = when {
                     providerName.contains("1x1") -> 1
                     providerName.contains("2x2") -> 2
                     providerName.contains("4x2") -> 3
-                    providerName.contains("4x3") -> 4
-                    providerName.contains("4x4") -> 5
                     else -> 2
                 }
 
@@ -63,8 +59,6 @@ object SkySphereWidgetManager {
                     1 -> SkySphereWidgetPainter.drawWidget1x1(context, targetCity, isCelsius)
                     2 -> SkySphereWidgetPainter.drawWidget2x2(context, targetCity, isCelsius)
                     3 -> SkySphereWidgetPainter.drawWidget4x2(context, targetCity, isCelsius)
-                    4 -> SkySphereWidgetPainter.drawWidget4x3(context, targetCity, isCelsius)
-                    5 -> SkySphereWidgetPainter.drawWidget4x4(context, targetCity, isCelsius)
                     else -> SkySphereWidgetPainter.drawWidget2x2(context, targetCity, isCelsius)
                 }
 
@@ -107,18 +101,6 @@ object SkySphereWidgetManager {
                 for (id in ids4x2) {
                     updateWidgetInstance(context, appWidgetManager, id, R.layout.widget_4x2, 3, repository, isCelsius, activeCity)
                 }
-
-                // 4x3 Widgets
-                val ids4x3 = appWidgetManager.getAppWidgetIds(ComponentName(context, SkySphereWidget4x3Provider::class.java))
-                for (id in ids4x3) {
-                    updateWidgetInstance(context, appWidgetManager, id, R.layout.widget_4x3, 4, repository, isCelsius, activeCity)
-                }
-
-                // 4x4 Widgets
-                val ids4x4 = appWidgetManager.getAppWidgetIds(ComponentName(context, SkySphereWidget4x4Provider::class.java))
-                for (id in ids4x4) {
-                    updateWidgetInstance(context, appWidgetManager, id, R.layout.widget_4x4, 5, repository, isCelsius, activeCity)
-                }
             } catch (e: Exception) {
                 Log.e(TAG, "Error updating all widgets", e)
             }
@@ -130,7 +112,7 @@ object SkySphereWidgetManager {
         appWidgetManager: AppWidgetManager,
         appWidgetId: Int,
         layoutId: Int,
-        sizeCategory: Int, // 1: 1x1, 2: 2x2, 3: 4x2, 4: 4x3, 5: 4x4
+        sizeCategory: Int, // 1: 1x1, 2: 2x2, 3: 4x2
         repository: WeatherRepository,
         isCelsius: Boolean,
         activeCity: CityWeather
@@ -157,8 +139,6 @@ object SkySphereWidgetManager {
             1 -> SkySphereWidgetPainter.drawWidget1x1(context, finalCity, isCelsius)
             2 -> SkySphereWidgetPainter.drawWidget2x2(context, finalCity, isCelsius)
             3 -> SkySphereWidgetPainter.drawWidget4x2(context, finalCity, isCelsius)
-            4 -> SkySphereWidgetPainter.drawWidget4x3(context, finalCity, isCelsius)
-            5 -> SkySphereWidgetPainter.drawWidget4x4(context, finalCity, isCelsius)
             else -> SkySphereWidgetPainter.drawWidget2x2(context, finalCity, isCelsius)
         }
 
@@ -192,21 +172,6 @@ object SkySphereWidgetManager {
                 views.setOnClickPendingIntent(R.id.widget_click_temp, createPendingIntent(context, "home", cityName, 101))
                 views.setOnClickPendingIntent(R.id.widget_click_icon, createPendingIntent(context, "radar", cityName, 102))
                 views.setOnClickPendingIntent(R.id.widget_click_refresh, createRefreshPendingIntent(context, 104))
-            }
-            4 -> {
-                // 4x3 Detailed - location, temp, icon, hourly forecast
-                views.setOnClickPendingIntent(R.id.widget_click_location, createPendingIntent(context, "search", cityName, 103))
-                views.setOnClickPendingIntent(R.id.widget_click_temp, createPendingIntent(context, "home", cityName, 101))
-                views.setOnClickPendingIntent(R.id.widget_click_icon, createPendingIntent(context, "radar", cityName, 102))
-                views.setOnClickPendingIntent(R.id.widget_click_hourly, createPendingIntent(context, "home", cityName, 105))
-            }
-            5 -> {
-                // 4x4 Flagship - all interactive zones
-                views.setOnClickPendingIntent(R.id.widget_click_location, createPendingIntent(context, "search", cityName, 103))
-                views.setOnClickPendingIntent(R.id.widget_click_temp, createPendingIntent(context, "home", cityName, 101))
-                views.setOnClickPendingIntent(R.id.widget_click_icon, createPendingIntent(context, "radar", cityName, 102))
-                views.setOnClickPendingIntent(R.id.widget_click_refresh, createRefreshPendingIntent(context, 104))
-                views.setOnClickPendingIntent(R.id.widget_click_hourly, createPendingIntent(context, "home", cityName, 105))
             }
         }
     }
