@@ -6,9 +6,18 @@ import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.InfiniteTransition
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.LinearOutSlowInEasing
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.animateIntAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.Shape
+import androidx.compose.ui.text.TextStyle
 import com.example.data.models.WeatherCondition
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -18,6 +27,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
@@ -41,6 +52,7 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -60,6 +72,7 @@ import androidx.compose.ui.unit.dp
  * A highly polished, luxury card for SkySphere that displays content
  * with a premium Glassmorphism effect: semi-transparent gradients,
  * high-contrast reflective borders, subtle elevation shadows, and rounded corners.
+ * Includes smooth 60 FPS press lift & glow micro-interactions.
  */
 @Composable
 fun SkySphereCard(
@@ -70,7 +83,30 @@ fun SkySphereCard(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val cardShape = RoundedCornerShape(24.dp)
-    
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.98f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessLow
+        ),
+        label = "CardTouchScale"
+    )
+
+    val elevation by animateDpAsState(
+        targetValue = if (isPressed) 14.dp else 8.dp,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "CardTouchElevation"
+    )
+
+    val glowAlpha by animateFloatAsState(
+        targetValue = if (isPressed) 0.5f else 0.25f,
+        animationSpec = tween(200),
+        label = "CardGlowAlpha"
+    )
+
     val surfaceColor = MaterialTheme.colorScheme.surface
     val surfaceVariantColor = MaterialTheme.colorScheme.surfaceVariant
     val primaryColor = MaterialTheme.colorScheme.primary
@@ -87,22 +123,30 @@ fun SkySphereCard(
     // Glass reflective specular border gradient
     val glassBorderBrush = Brush.linearGradient(
         colors = listOf(
-            onSurfaceColor.copy(alpha = 0.25f),
-            primaryColor.copy(alpha = 0.35f),
-            onSurfaceColor.copy(alpha = 0.1f)
+            onSurfaceColor.copy(alpha = glowAlpha),
+            primaryColor.copy(alpha = glowAlpha + 0.15f),
+            onSurfaceColor.copy(alpha = glowAlpha * 0.4f)
         )
     )
 
     val clickModifier = if (onClick != null) {
-        Modifier.clickable(onClick = onClick)
+        Modifier.clickable(
+            interactionSource = interactionSource,
+            indication = null,
+            onClick = onClick
+        )
     } else {
         Modifier
     }
 
     Box(
         modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .shadow(
-                elevation = 8.dp,
+                elevation = elevation,
                 shape = cardShape,
                 clip = false,
                 ambientColor = Color(0x35000000),
@@ -121,7 +165,7 @@ fun SkySphereCard(
 }
 
 /**
- * A premium pill-shaped gradient button.
+ * A premium pill-shaped gradient button with spring press motion.
  */
 @Composable
 fun SkySphereButton(
@@ -131,6 +175,18 @@ fun SkySphereButton(
     icon: ImageVector? = null,
     testTag: String = "skysphere_button"
 ) {
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.95f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "ButtonPressScale"
+    )
+
     val gradient = Brush.linearGradient(
         colors = listOf(
             Color(0xFF2FA3FF), // Vibrant Sky Blue
@@ -140,6 +196,7 @@ fun SkySphereButton(
 
     Button(
         onClick = onClick,
+        interactionSource = interactionSource,
         colors = ButtonDefaults.buttonColors(
             containerColor = Color.Transparent, // Managed via gradient modifier
             contentColor = Color.White
@@ -148,6 +205,10 @@ fun SkySphereButton(
         shape = CircleShape,
         modifier = modifier
             .height(54.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .testTag(testTag)
     ) {
         Box(
@@ -178,7 +239,7 @@ fun SkySphereButton(
 }
 
 /**
- * A minimalist, modern icon button with an elegant circle outline.
+ * A minimalist, modern icon button with soft scale press interaction.
  */
 @Composable
 fun SkySphereIconButton(
@@ -186,19 +247,35 @@ fun SkySphereIconButton(
     onClick: () -> Unit,
     contentDescription: String,
     modifier: Modifier = Modifier,
+    tint: Color = Color.White,
     testTag: String = "skysphere_icon_button"
 ) {
-    val isDark = true
+    val interactionSource = remember { MutableInteractionSource() }
+    val isPressed by interactionSource.collectIsPressedAsState()
+
+    val scale by animateFloatAsState(
+        targetValue = if (isPressed) 0.92f else 1f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow
+        ),
+        label = "IconButtonPressScale"
+    )
+
     val borderColor = Color(0xFF374151) // Highly visible border
-    val tint = Color(0xFFFFFFFF)       // Pure White icon tint (highly visible!)
     
     IconButton(
         onClick = onClick,
+        interactionSource = interactionSource,
         colors = IconButtonDefaults.iconButtonColors(
-            containerColor = Color(0xFF1E1E2E) // Solid accessible background (as requested)
+            containerColor = Color(0xFF1E1E2E) // Solid accessible background
         ),
         modifier = modifier
             .size(48.dp)
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
             .border(1.dp, borderColor, CircleShape)
             .testTag(testTag)
     ) {
@@ -207,6 +284,161 @@ fun SkySphereIconButton(
             contentDescription = contentDescription,
             tint = tint,
             modifier = Modifier.size(22.dp)
+        )
+    }
+}
+
+/**
+ * Shimmer gradient brush for skeleton placeholders.
+ */
+@Composable
+fun ShimmerBrush(
+    targetValue: Float = 1000f
+): Brush {
+    val shimmerColors = listOf(
+        Color.White.copy(alpha = 0.05f),
+        Color.White.copy(alpha = 0.20f),
+        Color.White.copy(alpha = 0.05f),
+    )
+
+    val transition = rememberInfiniteTransition(label = "ShimmerTransition")
+    val translateAnimation by transition.animateFloat(
+        initialValue = 0f,
+        targetValue = targetValue,
+        animationSpec = infiniteRepeatable(
+            animation = tween(durationMillis = 1200, easing = LinearEasing),
+            repeatMode = RepeatMode.Restart
+        ),
+        label = "ShimmerTranslate"
+    )
+
+    return Brush.linearGradient(
+        colors = shimmerColors,
+        start = Offset.Zero,
+        end = Offset(x = translateAnimation, y = translateAnimation)
+    )
+}
+
+/**
+ * Premium skeleton component for smooth shimmer loading states.
+ */
+@Composable
+fun SkySphereSkeleton(
+    modifier: Modifier = Modifier,
+    shape: Shape = RoundedCornerShape(12.dp)
+) {
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(Color.White.copy(alpha = 0.08f))
+            .background(ShimmerBrush())
+    )
+}
+
+/**
+ * Skeleton loader representing a weather card.
+ */
+@Composable
+fun SkySphereWeatherSkeleton(
+    modifier: Modifier = Modifier
+) {
+    SkySphereCard(
+        modifier = modifier.fillMaxWidth()
+    ) {
+        Column(modifier = Modifier.fillMaxWidth()) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Column {
+                    SkySphereSkeleton(modifier = Modifier.size(width = 140.dp, height = 24.dp))
+                    Spacer(modifier = Modifier.height(8.dp))
+                    SkySphereSkeleton(modifier = Modifier.size(width = 90.dp, height = 16.dp))
+                }
+                SkySphereSkeleton(
+                    modifier = Modifier.size(54.dp),
+                    shape = CircleShape
+                )
+            }
+            Spacer(modifier = Modifier.height(24.dp))
+            Row(
+                verticalAlignment = Alignment.Bottom
+            ) {
+                SkySphereSkeleton(modifier = Modifier.size(width = 100.dp, height = 56.dp))
+                Spacer(modifier = Modifier.width(16.dp))
+                SkySphereSkeleton(modifier = Modifier.size(width = 120.dp, height = 20.dp))
+            }
+            Spacer(modifier = Modifier.height(20.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = androidx.compose.foundation.layout.Arrangement.SpaceBetween
+            ) {
+                repeat(4) {
+                    SkySphereSkeleton(modifier = Modifier.size(width = 65.dp, height = 40.dp))
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Animated count-up temperature text composable.
+ */
+@Composable
+fun AnimatedTemperatureText(
+    temperature: Int,
+    unitSymbol: String = "°",
+    style: TextStyle = MaterialTheme.typography.displayLarge,
+    modifier: Modifier = Modifier,
+    color: Color = Color.Unspecified
+) {
+    val animatedTemp by animateIntAsState(
+        targetValue = temperature,
+        animationSpec = tween(durationMillis = 800, easing = FastOutSlowInEasing),
+        label = "TempCountUpAnimation"
+    )
+    Text(
+        text = "$animatedTemp$unitSymbol",
+        style = style,
+        color = color,
+        modifier = modifier
+    )
+}
+
+/**
+ * Satisfying animated heart favorite toggle button.
+ */
+@Composable
+fun AnimatedHeartButton(
+    isFavorite: Boolean,
+    onToggle: () -> Unit,
+    modifier: Modifier = Modifier,
+    testTag: String = "animated_heart_button"
+) {
+    val scale by animateFloatAsState(
+        targetValue = if (isFavorite) 1.25f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioHighBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
+        label = "HeartScale"
+    )
+
+    IconButton(
+        onClick = onToggle,
+        modifier = modifier
+            .graphicsLayer {
+                scaleX = scale
+                scaleY = scale
+            }
+            .testTag(testTag)
+    ) {
+        Icon(
+            imageVector = com.example.ui.icons.SkySphereIcons.Favorite,
+            contentDescription = if (isFavorite) "Remove from favorites" else "Add to favorites",
+            tint = if (isFavorite) Color(0xFFFF5252) else Color(0xFF94A3B8),
+            modifier = Modifier.size(26.dp)
         )
     }
 }
@@ -514,9 +746,15 @@ fun NightStarsOverlay(infiniteTransition: InfiniteTransition) {
     )
     val alpha2 by infiniteTransition.animateFloat(
         initialValue = 1.0f,
-        targetValue = 0.1f,
+        targetValue = 0.15f,
         animationSpec = infiniteRepeatable(tween(2500, easing = LinearEasing), RepeatMode.Reverse),
         label = "StarAlpha2"
+    )
+    val shootingStarProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(7000, easing = LinearEasing), RepeatMode.Restart),
+        label = "ShootingStar"
     )
 
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
@@ -526,12 +764,12 @@ fun NightStarsOverlay(infiniteTransition: InfiniteTransition) {
             val stars1 = listOf(
                 Pair(0.12f, 0.15f), Pair(0.35f, 0.08f), Pair(0.72f, 0.25f), 
                 Pair(0.88f, 0.12f), Pair(0.48f, 0.35f), Pair(0.62f, 0.05f),
-                Pair(0.22f, 0.45f), Pair(0.95f, 0.38f)
+                Pair(0.22f, 0.45f), Pair(0.95f, 0.38f), Pair(0.15f, 0.55f)
             )
             val stars2 = listOf(
                 Pair(0.25f, 0.28f), Pair(0.55f, 0.18f), Pair(0.82f, 0.32f), 
                 Pair(0.92f, 0.06f), Pair(0.38f, 0.48f), Pair(0.68f, 0.22f),
-                Pair(0.08f, 0.32f), Pair(0.50f, 0.02f)
+                Pair(0.08f, 0.32f), Pair(0.50f, 0.02f), Pair(0.80f, 0.48f)
             )
             stars1.forEach { (x, y) ->
                 drawCircle(
@@ -548,17 +786,35 @@ fun NightStarsOverlay(infiniteTransition: InfiniteTransition) {
                 )
             }
 
+            // Occasional shooting star streak
+            if (shootingStarProgress in 0.65f..0.82f) {
+                val t = (shootingStarProgress - 0.65f) / 0.17f
+                val startX = width * (0.85f - t * 0.45f)
+                val startY = height * (0.05f + t * 0.25f)
+                val trailLen = 80.dp.toPx()
+                drawLine(
+                    brush = Brush.linearGradient(
+                        colors = listOf(Color.White.copy(alpha = 0.9f), Color.White.copy(alpha = 0f)),
+                        start = Offset(startX, startY),
+                        end = Offset(startX + trailLen * 0.8f, startY - trailLen * 0.4f)
+                    ),
+                    start = Offset(startX, startY),
+                    end = Offset(startX + trailLen * 0.8f, startY - trailLen * 0.4f),
+                    strokeWidth = 2.dp.toPx()
+                )
+            }
+
             val moonX = width * 0.82f
-            val moonY = 150.dp.toPx()
-            val moonR = 30.dp.toPx()
+            val moonY = 140.dp.toPx()
+            val moonR = 32.dp.toPx()
 
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(Color(0xFFFFFDE7).copy(alpha = 0.25f), Color.Transparent),
+                    colors = listOf(Color(0xFFFFFDE7).copy(alpha = 0.28f), Color.Transparent),
                     center = Offset(moonX, moonY),
-                    radius = moonR * 2.2f
+                    radius = moonR * 2.5f
                 ),
-                radius = moonR * 2.2f,
+                radius = moonR * 2.5f,
                 center = Offset(moonX, moonY)
             )
 
@@ -586,24 +842,69 @@ fun NightStarsOverlay(infiniteTransition: InfiniteTransition) {
 
 @Composable
 fun SunnyRaysOverlay(infiniteTransition: InfiniteTransition) {
-    val scale by infiniteTransition.animateFloat(
-        initialValue = 0.95f,
-        targetValue = 1.1f,
-        animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing), RepeatMode.Reverse),
-        label = "SunnyRayPulse"
+    val rayRotation by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 360f,
+        animationSpec = infiniteRepeatable(tween(35000, easing = LinearEasing), RepeatMode.Restart),
+        label = "SunnyRayRotation"
     )
+    val particleYOffset by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = -300f,
+        animationSpec = infiniteRepeatable(tween(6000, easing = LinearEasing), RepeatMode.Restart),
+        label = "SunParticleY"
+    )
+
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
         val width = size.width
-        if (width > 0) {
+        val height = size.height
+        if (width > 0 && height > 0) {
+            val sunX = width * 0.85f
+            val sunY = 140.dp.toPx()
+
+            // Soft golden sunburst aura
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(Color(0xFFFFF9C4).copy(alpha = 0.35f * (2f - scale)), Color.Transparent),
-                    center = Offset(width * 0.85f, 150.dp.toPx()),
-                    radius = 220.dp.toPx() * scale
+                    colors = listOf(
+                        Color(0xFFFDE047).copy(alpha = 0.35f),
+                        Color(0xFFF59E0B).copy(alpha = 0.15f),
+                        Color.Transparent
+                    ),
+                    center = Offset(sunX, sunY),
+                    radius = 260.dp.toPx()
                 ),
-                radius = 220.dp.toPx() * scale,
-                center = Offset(width * 0.85f, 150.dp.toPx())
+                radius = 260.dp.toPx(),
+                center = Offset(sunX, sunY)
             )
+
+            // Rotating sun ray wedges
+            val numRays = 8
+            val rayRadius = 380.dp.toPx()
+            for (i in 0 until numRays) {
+                val angleDeg = (i * (360f / numRays)) + rayRotation
+                val angleRad = Math.toRadians(angleDeg.toDouble())
+                val endX = sunX + (rayRadius * Math.cos(angleRad)).toFloat()
+                val endY = sunY + (rayRadius * Math.sin(angleRad)).toFloat()
+                drawLine(
+                    color = Color(0xFFFEF08A).copy(alpha = 0.08f),
+                    start = Offset(sunX, sunY),
+                    end = Offset(endX, endY),
+                    strokeWidth = 24.dp.toPx()
+                )
+            }
+
+            // Floating golden light particles
+            for (i in 0 until 12) {
+                val baseX = (i * 73) % width.toInt()
+                val baseY = (i * 127) % (height * 0.7f).toInt()
+                val currY = (baseY + particleYOffset) % (height * 0.8f)
+                val currX = baseX + 15f * kotlin.math.sin((currY / 40f).toDouble()).toFloat()
+                drawCircle(
+                    color = Color(0xFFFEF08A).copy(alpha = 0.35f),
+                    radius = (2 + (i % 3)).dp.toPx(),
+                    center = Offset(currX, currY)
+                )
+            }
         }
     }
 }
@@ -613,23 +914,48 @@ fun RainFallOverlay(infiniteTransition: InfiniteTransition) {
     val rainYOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1000f,
-        animationSpec = infiniteRepeatable(tween(1200, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Restart),
         label = "RainYOffset"
     )
+    val rippleProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(1100, easing = LinearEasing), RepeatMode.Restart),
+        label = "RippleProgress"
+    )
+
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
         val width = size.width
         val height = size.height
         if (width > 0 && height > 0) {
-            val rainLinesCount = 35
+            val rainLinesCount = 40
             for (i in 0 until rainLinesCount) {
                 val startX = (i * 37) % width.toInt()
                 val startYBase = (i * 97) % height.toInt()
                 val currentY = (startYBase + rainYOffset) % height
                 drawLine(
-                    color = Color.White.copy(alpha = 0.25f),
+                    color = Color.White.copy(alpha = 0.28f),
                     start = Offset(startX.toFloat(), currentY),
-                    end = Offset(startX.toFloat() - 5.dp.toPx(), currentY + 15.dp.toPx()),
-                    strokeWidth = 1.2.dp.toPx()
+                    end = Offset(startX.toFloat() - 6.dp.toPx(), currentY + 16.dp.toPx()),
+                    strokeWidth = 1.4.dp.toPx()
+                )
+            }
+
+            // Ground water ripples
+            val minR = 2.dp.toPx()
+            val maxR = 16.dp.toPx()
+            val rippleRadius = minR + (maxR - minR) * rippleProgress
+            val rippleCenters = listOf(
+                Offset(width * 0.2f, height * 0.90f),
+                Offset(width * 0.5f, height * 0.93f),
+                Offset(width * 0.8f, height * 0.88f)
+            )
+            rippleCenters.forEach { center ->
+                drawOval(
+                    color = Color.White.copy(alpha = (1f - rippleProgress).coerceIn(0f, 1f) * 0.3f),
+                    topLeft = Offset(center.x - rippleRadius, center.y - rippleRadius * 0.4f),
+                    size = Size(rippleRadius * 2f, rippleRadius * 0.8f),
+                    style = Stroke(width = 1.dp.toPx())
                 )
             }
         }
@@ -640,46 +966,48 @@ fun RainFallOverlay(infiniteTransition: InfiniteTransition) {
 fun HeavyRainOverlay(infiniteTransition: InfiniteTransition) {
     val rainYOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = 1200f,
-        animationSpec = infiniteRepeatable(tween(800, easing = LinearEasing), RepeatMode.Restart),
+        targetValue = 1300f,
+        animationSpec = infiniteRepeatable(tween(750, easing = LinearEasing), RepeatMode.Restart),
         label = "HeavyRainY"
     )
-    val density = androidx.compose.ui.platform.LocalDensity.current
-    val splashRadius by infiniteTransition.animateFloat(
-        initialValue = with(density) { 2.dp.toPx() },
-        targetValue = with(density) { 12.dp.toPx() },
-        animationSpec = infiniteRepeatable(tween(800, easing = LinearEasing), RepeatMode.Restart),
-        label = "SplashRadius"
+    val splashProgress by infiniteTransition.animateFloat(
+        initialValue = 0f,
+        targetValue = 1f,
+        animationSpec = infiniteRepeatable(tween(750, easing = LinearEasing), RepeatMode.Restart),
+        label = "SplashProgress"
     )
 
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
         val width = size.width
         val height = size.height
         if (width > 0 && height > 0) {
-            val rainLinesCount = 60
+            val rainLinesCount = 65
             for (i in 0 until rainLinesCount) {
                 val startX = (i * 29) % width.toInt()
                 val startYBase = (i * 131) % height.toInt()
                 val currentY = (startYBase + rainYOffset) % height
-                val slant = 10.dp.toPx()
+                val slant = 12.dp.toPx()
                 drawLine(
-                    color = Color(0xFFA5D6A7).copy(alpha = 0.35f),
+                    color = Color(0xFFBAE6FD).copy(alpha = 0.38f),
                     start = Offset(startX.toFloat(), currentY),
-                    end = Offset(startX.toFloat() - slant, currentY + 22.dp.toPx()),
+                    end = Offset(startX.toFloat() - slant, currentY + 24.dp.toPx()),
                     strokeWidth = 2.dp.toPx()
                 )
             }
 
+            val minR = 2.dp.toPx()
+            val maxR = 16.dp.toPx()
+            val splashRadius = minR + (maxR - minR) * splashProgress
             val splashPoints = listOf(
                 Pair(0.15f, 0.92f), Pair(0.35f, 0.95f), Pair(0.55f, 0.91f), 
                 Pair(0.75f, 0.94f), Pair(0.9f, 0.93f), Pair(0.25f, 0.96f)
             )
             splashPoints.forEach { (x, y) ->
                 drawOval(
-                    color = Color.White.copy(alpha = (1f - (splashRadius / 12.dp.toPx())).coerceIn(0f, 1f) * 0.4f),
+                    color = Color.White.copy(alpha = (1f - splashProgress).coerceIn(0f, 1f) * 0.45f),
                     topLeft = Offset(x * width - splashRadius, y * height - splashRadius / 3f),
                     size = Size(splashRadius * 2f, splashRadius * 0.6f),
-                    style = Stroke(width = 1.dp.toPx())
+                    style = Stroke(width = 1.2.dp.toPx())
                 )
             }
         }
@@ -691,21 +1019,37 @@ fun StormLightningOverlay(infiniteTransition: InfiniteTransition) {
     val lightningFlash by infiniteTransition.animateFloat(
         initialValue = 0f,
         targetValue = 1f,
-        animationSpec = infiniteRepeatable(tween(6000, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(5500, easing = LinearEasing), RepeatMode.Restart),
         label = "LightningFlash"
     )
-    val flashAlpha = if (lightningFlash > 0.4f && lightningFlash < 0.42f) 0.6f 
-                     else if (lightningFlash > 0.44f && lightningFlash < 0.46f) 0.8f 
-                     else 0f
+    val isFlashActive = (lightningFlash in 0.38f..0.41f) || (lightningFlash in 0.43f..0.45f)
+    val flashAlpha = if (lightningFlash in 0.38f..0.41f) 0.75f else if (lightningFlash in 0.43f..0.45f) 0.9f else 0f
 
     Box(modifier = Modifier.fillMaxSize()) {
         HeavyRainOverlay(infiniteTransition = infiniteTransition)
-        if (flashAlpha > 0f) {
+        if (isFlashActive) {
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .background(Color.White.copy(alpha = flashAlpha))
+                    .background(Color(0xFFE0F2FE).copy(alpha = flashAlpha * 0.25f))
             )
+            androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+                val boltPath = Path().apply {
+                    moveTo(w * 0.6f, 0f)
+                    lineTo(w * 0.52f, h * 0.22f)
+                    lineTo(w * 0.58f, h * 0.25f)
+                    lineTo(w * 0.45f, h * 0.50f)
+                    lineTo(w * 0.52f, h * 0.52f)
+                    lineTo(w * 0.40f, h * 0.75f)
+                }
+                drawPath(
+                    path = boltPath,
+                    color = Color.White.copy(alpha = flashAlpha),
+                    style = Stroke(width = 3.dp.toPx())
+                )
+            }
         }
     }
 }
@@ -714,29 +1058,34 @@ fun StormLightningOverlay(infiniteTransition: InfiniteTransition) {
 fun SnowDriftOverlay(infiniteTransition: InfiniteTransition) {
     val snowYOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
-        targetValue = 600f,
-        animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing), RepeatMode.Restart),
+        targetValue = 700f,
+        animationSpec = infiniteRepeatable(tween(4500, easing = LinearEasing), RepeatMode.Restart),
         label = "SnowYOffset"
     )
     val snowXDrift by infiniteTransition.animateFloat(
-        initialValue = -30f,
-        targetValue = 30f,
-        animationSpec = infiniteRepeatable(tween(2500, easing = LinearEasing), RepeatMode.Reverse),
+        initialValue = -35f,
+        targetValue = 35f,
+        animationSpec = infiniteRepeatable(tween(2800, easing = LinearEasing), RepeatMode.Reverse),
         label = "SnowXDrift"
     )
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
         val width = size.width
         val height = size.height
         if (width > 0 && height > 0) {
-            val flakeCount = 25
+            val flakeCount = 35
             for (i in 0 until flakeCount) {
                 val startX = (i * 59) % width.toInt()
                 val startYBase = (i * 101) % height.toInt()
                 val currentY = (startYBase + snowYOffset) % height
-                val currentX = (startX + snowXDrift) % width
+                val currentX = (startX + snowXDrift + 15f * kotlin.math.sin((currentY / 60f).toDouble()).toFloat()) % width
+                val radiusDp = when (i % 3) {
+                    0 -> 2.dp
+                    1 -> 3.5.dp
+                    else -> 5.dp
+                }
                 drawCircle(
-                    color = Color.White.copy(alpha = 0.5f),
-                    radius = (2f + (i % 3)).dp.toPx(),
+                    color = Color.White.copy(alpha = 0.55f),
+                    radius = radiusDp.toPx(),
                     center = Offset(currentX, currentY)
                 )
             }
@@ -746,25 +1095,42 @@ fun SnowDriftOverlay(infiniteTransition: InfiniteTransition) {
 
 @Composable
 fun CloudDriftOverlay(infiniteTransition: InfiniteTransition, condition: WeatherCondition) {
-    val cloudOffset by infiniteTransition.animateFloat(
-        initialValue = -150f,
-        targetValue = 450f,
-        animationSpec = infiniteRepeatable(tween(25000, easing = LinearEasing), RepeatMode.Restart),
-        label = "CloudDrift"
+    val cloudOffset1 by infiniteTransition.animateFloat(
+        initialValue = -180f,
+        targetValue = 480f,
+        animationSpec = infiniteRepeatable(tween(26000, easing = LinearEasing), RepeatMode.Restart),
+        label = "CloudDrift1"
     )
+    val cloudOffset2 by infiniteTransition.animateFloat(
+        initialValue = -100f,
+        targetValue = 520f,
+        animationSpec = infiniteRepeatable(tween(18000, easing = LinearEasing), RepeatMode.Restart),
+        label = "CloudDrift2"
+    )
+
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
         val width = size.width
         if (width > 0) {
-            val darkCloudColor = Color(0xFF1E293B).copy(alpha = if (condition == WeatherCondition.CLOUDY) 0.38f else 0.22f)
+            val cloudColorBg = Color(0xFF1E293B).copy(alpha = if (condition == WeatherCondition.CLOUDY) 0.35f else 0.20f)
+            val cloudColorFg = Color(0xFF334155).copy(alpha = if (condition == WeatherCondition.CLOUDY) 0.28f else 0.16f)
+
+            // Background cloud layer
             drawCircle(
-                color = darkCloudColor,
+                color = cloudColorBg,
                 radius = 160.dp.toPx(),
-                center = Offset(cloudOffset.dp.toPx(), 180.dp.toPx())
+                center = Offset(cloudOffset1.dp.toPx(), 160.dp.toPx())
             )
             drawCircle(
-                color = darkCloudColor,
+                color = cloudColorBg,
                 radius = 120.dp.toPx(),
-                center = Offset((cloudOffset + 120f).dp.toPx(), 220.dp.toPx())
+                center = Offset((cloudOffset1 + 130f).dp.toPx(), 200.dp.toPx())
+            )
+
+            // Foreground cloud layer
+            drawCircle(
+                color = cloudColorFg,
+                radius = 140.dp.toPx(),
+                center = Offset(cloudOffset2.dp.toPx(), 220.dp.toPx())
             )
         }
     }
@@ -774,41 +1140,41 @@ fun CloudDriftOverlay(infiniteTransition: InfiniteTransition, condition: Weather
 fun DenseCloudOverlay(infiniteTransition: InfiniteTransition) {
     val cloudOffset1 by infiniteTransition.animateFloat(
         initialValue = -250f,
-        targetValue = 450f,
-        animationSpec = infiniteRepeatable(tween(40000, easing = LinearEasing), RepeatMode.Restart),
+        targetValue = 480f,
+        animationSpec = infiniteRepeatable(tween(38000, easing = LinearEasing), RepeatMode.Restart),
         label = "DenseCloud1"
     )
     val cloudOffset2 by infiniteTransition.animateFloat(
         initialValue = -150f,
-        targetValue = 550f,
-        animationSpec = infiniteRepeatable(tween(55000, easing = LinearEasing), RepeatMode.Restart),
+        targetValue = 580f,
+        animationSpec = infiniteRepeatable(tween(50000, easing = LinearEasing), RepeatMode.Restart),
         label = "DenseCloud2"
     )
 
     androidx.compose.foundation.Canvas(modifier = Modifier.fillMaxSize()) {
         val width = size.width
         if (width > 0) {
-            val darkStormColor = Color(0xFF0F172A).copy(alpha = 0.35f)
-            val slateCloudColor = Color(0xFF334155).copy(alpha = 0.30f)
+            val darkStormColor = Color(0xFF0F172A).copy(alpha = 0.38f)
+            val slateCloudColor = Color(0xFF334155).copy(alpha = 0.32f)
             drawCircle(
                 color = darkStormColor,
-                radius = 180.dp.toPx(),
-                center = Offset(cloudOffset1.dp.toPx(), 140.dp.toPx())
-            )
-            drawCircle(
-                color = slateCloudColor,
-                radius = 140.dp.toPx(),
-                center = Offset((cloudOffset1 + 130f).dp.toPx(), 180.dp.toPx())
-            )
-            drawCircle(
-                color = darkStormColor,
-                radius = 200.dp.toPx(),
-                center = Offset(cloudOffset2.dp.toPx(), 220.dp.toPx())
+                radius = 190.dp.toPx(),
+                center = Offset(cloudOffset1.dp.toPx(), 130.dp.toPx())
             )
             drawCircle(
                 color = slateCloudColor,
                 radius = 150.dp.toPx(),
-                center = Offset((cloudOffset2 - 120f).dp.toPx(), 200.dp.toPx())
+                center = Offset((cloudOffset1 + 140f).dp.toPx(), 170.dp.toPx())
+            )
+            drawCircle(
+                color = darkStormColor,
+                radius = 210.dp.toPx(),
+                center = Offset(cloudOffset2.dp.toPx(), 210.dp.toPx())
+            )
+            drawCircle(
+                color = slateCloudColor,
+                radius = 160.dp.toPx(),
+                center = Offset((cloudOffset2 - 130f).dp.toPx(), 190.dp.toPx())
             )
         }
     }
@@ -819,19 +1185,19 @@ fun FogOverlay(infiniteTransition: InfiniteTransition) {
     val fogOffset1 by infiniteTransition.animateFloat(
         initialValue = -200f,
         targetValue = 600f,
-        animationSpec = infiniteRepeatable(tween(35000, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(32000, easing = LinearEasing), RepeatMode.Restart),
         label = "FogOffset1"
     )
     val fogOffset2 by infiniteTransition.animateFloat(
         initialValue = 600f,
         targetValue = -200f,
-        animationSpec = infiniteRepeatable(tween(45000, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(42000, easing = LinearEasing), RepeatMode.Restart),
         label = "FogOffset2"
     )
     val fogAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.3f,
-        targetValue = 0.5f,
-        animationSpec = infiniteRepeatable(tween(5000, easing = LinearEasing), RepeatMode.Reverse),
+        initialValue = 0.32f,
+        targetValue = 0.52f,
+        animationSpec = infiniteRepeatable(tween(4500, easing = LinearEasing), RepeatMode.Reverse),
         label = "FogAlpha"
     )
 
@@ -840,14 +1206,14 @@ fun FogOverlay(infiniteTransition: InfiniteTransition) {
         val height = size.height
         if (width > 0 && height > 0) {
             drawOval(
-                color = Color.White.copy(alpha = fogAlpha * 0.4f),
-                topLeft = Offset(fogOffset1.dp.toPx(), height * 0.4f),
-                size = Size(width * 0.8f, height * 0.3f)
+                color = Color.White.copy(alpha = fogAlpha * 0.42f),
+                topLeft = Offset(fogOffset1.dp.toPx(), height * 0.35f),
+                size = Size(width * 0.85f, height * 0.30f)
             )
             drawOval(
-                color = Color.White.copy(alpha = fogAlpha * 0.35f),
-                topLeft = Offset(fogOffset2.dp.toPx(), height * 0.6f),
-                size = Size(width * 0.9f, height * 0.35f)
+                color = Color.White.copy(alpha = fogAlpha * 0.38f),
+                topLeft = Offset(fogOffset2.dp.toPx(), height * 0.55f),
+                size = Size(width * 0.95f, height * 0.35f)
             )
         }
     }
@@ -858,13 +1224,13 @@ fun MistOverlay(infiniteTransition: InfiniteTransition) {
     val driftX by infiniteTransition.animateFloat(
         initialValue = -50f,
         targetValue = 150f,
-        animationSpec = infiniteRepeatable(tween(12000, easing = LinearEasing), RepeatMode.Restart),
+        animationSpec = infiniteRepeatable(tween(11000, easing = LinearEasing), RepeatMode.Restart),
         label = "MistDriftX"
     )
     val driftY by infiniteTransition.animateFloat(
         initialValue = -20f,
         targetValue = 20f,
-        animationSpec = infiniteRepeatable(tween(4000, easing = LinearEasing), RepeatMode.Reverse),
+        animationSpec = infiniteRepeatable(tween(3800, easing = LinearEasing), RepeatMode.Reverse),
         label = "MistDriftY"
     )
 
@@ -872,14 +1238,14 @@ fun MistOverlay(infiniteTransition: InfiniteTransition) {
         val width = size.width
         val height = size.height
         if (width > 0 && height > 0) {
-            val mistParticleCount = 20
+            val mistParticleCount = 22
             for (i in 0 until mistParticleCount) {
                 val startX = (i * 113) % width.toInt()
                 val startY = (i * 73) % (height * 0.7f).toInt()
                 val currentX = (startX + driftX) % width
                 val currentY = startY + driftY
                 drawCircle(
-                    color = Color.White.copy(alpha = 0.15f),
+                    color = Color.White.copy(alpha = 0.18f),
                     radius = (10 + (i % 8)).dp.toPx(),
                     center = Offset(currentX, currentY)
                 )
@@ -892,8 +1258,8 @@ fun MistOverlay(infiniteTransition: InfiniteTransition) {
 fun HazeOverlay(infiniteTransition: InfiniteTransition) {
     val alpha by infiniteTransition.animateFloat(
         initialValue = 0.15f,
-        targetValue = 0.25f,
-        animationSpec = infiniteRepeatable(tween(6000, easing = LinearEasing), RepeatMode.Reverse),
+        targetValue = 0.28f,
+        animationSpec = infiniteRepeatable(tween(5500, easing = LinearEasing), RepeatMode.Reverse),
         label = "HazeAlpha"
     )
 

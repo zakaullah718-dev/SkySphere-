@@ -37,6 +37,7 @@ object SkySphereWidgetManager {
                     providerName.contains("1x1") -> R.layout.widget_1x1
                     providerName.contains("2x2") -> R.layout.widget_2x2
                     providerName.contains("4x2") -> R.layout.widget_4x2
+                    providerName.contains("4x3") -> R.layout.widget_4x3
                     providerName.contains("4x4") -> R.layout.widget_4x4
                     else -> R.layout.widget_2x2
                 }
@@ -44,7 +45,8 @@ object SkySphereWidgetManager {
                     providerName.contains("1x1") -> 1
                     providerName.contains("2x2") -> 2
                     providerName.contains("4x2") -> 3
-                    providerName.contains("4x4") -> 4
+                    providerName.contains("4x3") -> 4
+                    providerName.contains("4x4") -> 5
                     else -> 2
                 }
 
@@ -53,7 +55,8 @@ object SkySphereWidgetManager {
                     1 -> SkySphereWidgetPainter.drawWidget1x1(context, activeCity, isCelsius)
                     2 -> SkySphereWidgetPainter.drawWidget2x2(context, activeCity, isCelsius)
                     3 -> SkySphereWidgetPainter.drawWidget4x2(context, activeCity, isCelsius)
-                    4 -> SkySphereWidgetPainter.drawWidget4x4(context, activeCity, isCelsius)
+                    4 -> SkySphereWidgetPainter.drawWidget4x3(context, activeCity, isCelsius)
+                    5 -> SkySphereWidgetPainter.drawWidget4x4(context, activeCity, isCelsius)
                     else -> SkySphereWidgetPainter.drawWidget2x2(context, activeCity, isCelsius)
                 }
 
@@ -97,10 +100,16 @@ object SkySphereWidgetManager {
                     updateWidgetInstance(context, appWidgetManager, id, R.layout.widget_4x2, 3, repository, isCelsius, activeCity)
                 }
 
+                // 4x3 Widgets
+                val ids4x3 = appWidgetManager.getAppWidgetIds(ComponentName(context, SkySphereWidget4x3Provider::class.java))
+                for (id in ids4x3) {
+                    updateWidgetInstance(context, appWidgetManager, id, R.layout.widget_4x3, 4, repository, isCelsius, activeCity)
+                }
+
                 // 4x4 Widgets
                 val ids4x4 = appWidgetManager.getAppWidgetIds(ComponentName(context, SkySphereWidget4x4Provider::class.java))
                 for (id in ids4x4) {
-                    updateWidgetInstance(context, appWidgetManager, id, R.layout.widget_4x4, 4, repository, isCelsius, activeCity)
+                    updateWidgetInstance(context, appWidgetManager, id, R.layout.widget_4x4, 5, repository, isCelsius, activeCity)
                 }
             } catch (e: Exception) {
                 Log.e(TAG, "Error updating all widgets", e)
@@ -113,7 +122,7 @@ object SkySphereWidgetManager {
         appWidgetManager: AppWidgetManager,
         appWidgetId: Int,
         layoutId: Int,
-        sizeCategory: Int, // 1: 1x1, 2: 2x2, 3: 4x2, 4: 4x4
+        sizeCategory: Int, // 1: 1x1, 2: 2x2, 3: 4x2, 4: 4x3, 5: 4x4
         repository: WeatherRepository,
         isCelsius: Boolean,
         activeCity: CityWeather
@@ -140,7 +149,8 @@ object SkySphereWidgetManager {
             1 -> SkySphereWidgetPainter.drawWidget1x1(context, finalCity, isCelsius)
             2 -> SkySphereWidgetPainter.drawWidget2x2(context, finalCity, isCelsius)
             3 -> SkySphereWidgetPainter.drawWidget4x2(context, finalCity, isCelsius)
-            4 -> SkySphereWidgetPainter.drawWidget4x4(context, finalCity, isCelsius)
+            4 -> SkySphereWidgetPainter.drawWidget4x3(context, finalCity, isCelsius)
+            5 -> SkySphereWidgetPainter.drawWidget4x4(context, finalCity, isCelsius)
             else -> SkySphereWidgetPainter.drawWidget2x2(context, finalCity, isCelsius)
         }
 
@@ -158,24 +168,26 @@ object SkySphereWidgetManager {
         sizeCategory: Int,
         cityWeather: CityWeather
     ) {
-        // General tap opens Home screen
-        val openHomeIntent = createPendingIntent(context, "home", cityWeather.cityName, 100)
+        val cityName = cityWeather.cityName
+
+        // Default background tap -> Open Home
+        val openHomeIntent = createPendingIntent(context, "home", cityName, 100)
         views.setOnClickPendingIntent(R.id.widget_image_canvas, openHomeIntent)
 
-        if (sizeCategory >= 3) {
-            // Location tap opens Favorites / City search
-            val openFavIntent = createPendingIntent(context, "favorites", cityWeather.cityName, 101)
-            views.setOnClickPendingIntent(R.id.widget_click_location, openFavIntent)
+        // Temperature tap -> Open Home
+        views.setOnClickPendingIntent(R.id.widget_click_temp, createPendingIntent(context, "home", cityName, 101))
 
-            // Icon tap triggers manual refresh
-            val refreshIntent = createRefreshPendingIntent(context, 102)
-            views.setOnClickPendingIntent(R.id.widget_click_icon, refreshIntent)
-        }
+        // Weather Icon tap -> Open Radar screen
+        views.setOnClickPendingIntent(R.id.widget_click_icon, createPendingIntent(context, "radar", cityName, 102))
 
-        if (sizeCategory == 4) {
-            val openHourlyIntent = createPendingIntent(context, "details", cityWeather.cityName, 103)
-            views.setOnClickPendingIntent(R.id.widget_click_hourly, openHourlyIntent)
-        }
+        // City name / Location tap -> Open Search / Location selector
+        views.setOnClickPendingIntent(R.id.widget_click_location, createPendingIntent(context, "search", cityName, 103))
+
+        // Refresh area tap -> Trigger manual refresh broadcast
+        views.setOnClickPendingIntent(R.id.widget_click_refresh, createRefreshPendingIntent(context, 104))
+
+        // Hourly forecast tap -> Open Home
+        views.setOnClickPendingIntent(R.id.widget_click_hourly, createPendingIntent(context, "home", cityName, 105))
     }
 
     private fun createRefreshPendingIntent(context: Context, requestCode: Int): PendingIntent {

@@ -24,11 +24,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Pause
-import androidx.compose.material.icons.filled.PlayArrow
-import androidx.compose.material.icons.filled.SkipNext
-import androidx.compose.material.icons.filled.SkipPrevious
+import com.example.ui.icons.SkySphereIcons
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -287,7 +283,7 @@ fun RadarTimeLapsePanel(
                             .testTag("timelapse_prev_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.SkipPrevious,
+                            imageVector = SkySphereIcons.SkipPrevious,
                             contentDescription = "Previous Frame",
                             tint = Color.White,
                             modifier = Modifier.size(16.dp)
@@ -321,7 +317,7 @@ fun RadarTimeLapsePanel(
                                 )
                             } else {
                                 Icon(
-                                    imageVector = if (state.isPlaying) Icons.Default.Pause else Icons.Default.PlayArrow,
+                                    imageVector = if (state.isPlaying) SkySphereIcons.Pause else SkySphereIcons.Play,
                                     contentDescription = if (state.isPlaying) "Pause" else "Play",
                                     tint = Color.White,
                                     modifier = Modifier.size(20.dp)
@@ -342,7 +338,7 @@ fun RadarTimeLapsePanel(
                             .testTag("timelapse_next_button")
                     ) {
                         Icon(
-                            imageVector = Icons.Default.SkipNext,
+                            imageVector = SkySphereIcons.SkipNext,
                             contentDescription = "Next Frame",
                             tint = Color.White,
                             modifier = Modifier.size(16.dp)

@@ -28,19 +28,10 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Edit
-import androidx.compose.material.icons.filled.Info
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Palette
-import androidx.compose.material.icons.filled.Person
-import androidx.compose.material.icons.filled.Speed
-import androidx.compose.material.icons.filled.Thermostat
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
+import com.example.ui.icons.SkySphereIcons
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Text
@@ -116,7 +107,7 @@ fun SettingsScreen(
 
         // SEGMENTED WEATHER PROVIDER OPTION
         item {
-            SettingsSectionHeader(title = "METEOROLOGICAL BACKEND PROVIDER", icon = Icons.Default.Cloud)
+            SettingsSectionHeader(title = "METEOROLOGICAL BACKEND PROVIDER", icon = SkySphereIcons.Cloud)
             Spacer(modifier = Modifier.height(10.dp))
 
             SegmentedControl(
@@ -149,7 +140,7 @@ fun SettingsScreen(
 
         // SEGMENTED TEMPERATURE OPTION
         item {
-            SettingsSectionHeader(title = "TEMPERATURE SCALE", icon = Icons.Default.Thermostat)
+            SettingsSectionHeader(title = "TEMPERATURE SCALE", icon = SkySphereIcons.Thermostat)
             Spacer(modifier = Modifier.height(10.dp))
             
             SegmentedControl(
@@ -162,7 +153,7 @@ fun SettingsScreen(
 
         // SEGMENTED WIND OPTION
         item {
-            SettingsSectionHeader(title = "WIND VELOCITY UNIT", icon = Icons.Default.Speed)
+            SettingsSectionHeader(title = "WIND VELOCITY UNIT", icon = SkySphereIcons.Wind)
             Spacer(modifier = Modifier.height(10.dp))
 
             SegmentedControl(
@@ -186,7 +177,7 @@ fun SettingsScreen(
 
         // THEME PRESETS GRID ("A lot of theme options")
         item {
-            SettingsSectionHeader(title = "VISUAL THEME PRESETS", icon = Icons.Default.Palette)
+            SettingsSectionHeader(title = "VISUAL THEME PRESETS", icon = SkySphereIcons.Palette)
             Spacer(modifier = Modifier.height(12.dp))
 
             Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
@@ -258,7 +249,7 @@ fun SettingsScreen(
                                     contentAlignment = Alignment.Center
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Filled.Check,
+                                        imageVector = SkySphereIcons.Check,
                                         contentDescription = "Selected",
                                         tint = if (preset.isDark) Color.Black else Color.White,
                                         modifier = Modifier.size(16.dp)
@@ -328,7 +319,7 @@ fun SettingsScreen(
                 }
             }
 
-            SettingsSectionHeader(title = "WEATHER NOTIFICATIONS", icon = Icons.Default.NotificationsActive)
+            SettingsSectionHeader(title = "WEATHER NOTIFICATIONS", icon = SkySphereIcons.NotificationsActive)
             Spacer(modifier = Modifier.height(10.dp))
 
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
@@ -358,7 +349,7 @@ fun SettingsScreen(
                                     modifier = Modifier.weight(1f)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Person,
+                                        imageVector = SkySphereIcons.Person,
                                         contentDescription = null,
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(20.dp)
@@ -383,7 +374,7 @@ fun SettingsScreen(
                                     modifier = Modifier.testTag("edit_user_name_button")
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Default.Edit,
+                                        imageVector = SkySphereIcons.Edit,
                                         contentDescription = null,
                                         modifier = Modifier.size(14.dp)
                                     )
@@ -464,7 +455,7 @@ fun SettingsScreen(
                     shape = CircleShape
                 ) {
                     Icon(
-                        imageVector = Icons.Default.NotificationsActive,
+                        imageVector = SkySphereIcons.NotificationsActive,
                         contentDescription = null,
                         modifier = Modifier.size(16.dp)
                     )

@@ -79,6 +79,7 @@ class WeatherRepository(private val context: Context) {
     fun setAppTheme(themeId: String) {
         _appTheme.value = themeId
         prefs.edit().putString("app_theme", themeId).apply()
+        com.example.widget.SkySphereWidgetManager.updateAllWidgets(context)
     }
 
     private fun isFahrenheitCountry(country: String): Boolean {

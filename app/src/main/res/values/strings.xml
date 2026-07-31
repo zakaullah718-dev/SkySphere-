@@ -3,5 +3,6 @@
     <string name="widget_1x1_description">Compact temperature badge and condition icon.</string>
     <string name="widget_2x2_description">Summary weather card with temperature, condition, and high/low details.</string>
     <string name="widget_4x2_description">Wide weather dashboard with current weather, wind, and city details.</string>
+    <string name="widget_4x3_description">Detailed weather card with metrics and 3-hour forecast.</string>
     <string name="widget_4x4_description">Full flagship weather widget with current weather, 4 metrics grid, and 5-hour forecast.</string>
 </resources>

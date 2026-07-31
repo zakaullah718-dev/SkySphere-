@@ -1,10 +1,9 @@
 package com.example.data.processing
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.*
 import androidx.compose.ui.graphics.vector.ImageVector
 import com.example.data.models.WeatherDetails
 import com.example.data.models.WeatherCondition
+import com.example.ui.icons.SkySphereIcons
 
 /**
  * Priority levels for weather insights to allow color-coded visual rendering.
@@ -66,7 +65,7 @@ object WeatherAdviceGenerator {
                 WeatherAdvice(
                     title = "Wind-Chill Notice",
                     description = "Wind speeds are amplifying the cold. It feels like $feelsLikeUnit but actual is $currentTempUnit. Add a windbreaker layer.",
-                    icon = Icons.Filled.Thermostat,
+                    icon = SkySphereIcons.Thermostat,
                     priority = AdvicePriority.WARNING,
                     category = AdviceCategory.TEMPERATURE
                 )
@@ -76,7 +75,7 @@ object WeatherAdviceGenerator {
                 WeatherAdvice(
                     title = "Humid Heat Index",
                     description = "High humidity is compounding heat strain. It feels like $feelsLikeUnit due to ${details.humidity}% humidity. Ensure high fluid intake.",
-                    icon = Icons.Filled.Thermostat,
+                    icon = SkySphereIcons.Thermostat,
                     priority = AdvicePriority.WARNING,
                     category = AdviceCategory.TEMPERATURE
                 )
@@ -90,7 +89,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Severe Cold Alert",
                         description = "Freezing temperatures ($feelsLikeUnit). Heavy winter coat, thermal inner-layers, gloves, and a beanie are essential to prevent heat loss.",
-                        icon = Icons.Filled.SevereCold,
+                        icon = SkySphereIcons.Thermostat,
                         priority = AdvicePriority.CRITICAL,
                         category = AdviceCategory.TEMPERATURE
                     )
@@ -101,7 +100,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Winter Wear Recommended",
                         description = "Chilly day ($feelsLikeUnit). A warm coat or heavy sweater over lightweight layers, coupled with a scarf, is highly recommended.",
-                        icon = Icons.Filled.Checkroom,
+                        icon = SkySphereIcons.Thermostat,
                         priority = AdvicePriority.WARNING,
                         category = AdviceCategory.TEMPERATURE
                     )
@@ -112,7 +111,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Cool Weather Comfort",
                         description = "Fresh air ($feelsLikeUnit). A light jacket, fleece pullover, or cardigan is perfect for transitioning through the day.",
-                        icon = Icons.Filled.Checkroom,
+                        icon = SkySphereIcons.Thermostat,
                         priority = AdvicePriority.INFO,
                         category = AdviceCategory.TEMPERATURE
                     )
@@ -123,7 +122,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Optimal Thermal Comfort",
                         description = "Pleasant warmth ($feelsLikeUnit). Lightweight clothing (t-shirts, cotton shirts) will keep you perfectly comfortable outdoors.",
-                        icon = Icons.Filled.Checkroom,
+                        icon = SkySphereIcons.Thermostat,
                         priority = AdvicePriority.COMFORT,
                         category = AdviceCategory.TEMPERATURE
                     )
@@ -134,7 +133,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Warm Dress & Hydration",
                         description = "Warm temperatures ($feelsLikeUnit). Breathable cotton or linen apparel is ideal. Carry a bottle of water if walking.",
-                        icon = Icons.Filled.LocalDrink,
+                        icon = SkySphereIcons.Humidity,
                         priority = AdvicePriority.INFO,
                         category = AdviceCategory.TEMPERATURE
                     )
@@ -145,7 +144,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Extreme Heat Advisory",
                         description = "Extreme warmth ($feelsLikeUnit). Wear loose, light-colored clothing, wide-brimmed hats, and limit strenuous activities during midday hours.",
-                        icon = Icons.Filled.Warning,
+                        icon = SkySphereIcons.Warning,
                         priority = AdvicePriority.CRITICAL,
                         category = AdviceCategory.TEMPERATURE
                     )
@@ -163,7 +162,7 @@ object WeatherAdviceGenerator {
                 WeatherAdvice(
                     title = "Rain Gear Required",
                     description = "Active rainfall. Heavy rain or storm detected nearby. Waterproof jacket, sturdy umbrella, and slip-resistant footwear are mandatory.",
-                    icon = Icons.Filled.Umbrella,
+                    icon = SkySphereIcons.Umbrella,
                     priority = AdvicePriority.CRITICAL,
                     category = AdviceCategory.PRECIPITATION
                 )
@@ -173,7 +172,7 @@ object WeatherAdviceGenerator {
                 WeatherAdvice(
                     title = "Snow Gear & Traction",
                     description = "Active snowfall. Ground freezing likely. Wear insulated, water-resistant boots with aggressive treads to prevent slipping.",
-                    icon = Icons.Filled.AcUnit,
+                    icon = SkySphereIcons.Snowy,
                     priority = AdvicePriority.CRITICAL,
                     category = AdviceCategory.PRECIPITATION
                 )
@@ -186,7 +185,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Carry an Umbrella",
                         description = "Precipitation expected. Rain is likely around ${upcomingRainHour.time} (${upcomingRainHour.precipitationChance}% probability). Plan your commute accordingly.",
-                        icon = Icons.Filled.Umbrella,
+                        icon = SkySphereIcons.Umbrella,
                         priority = AdvicePriority.WARNING,
                         category = AdviceCategory.PRECIPITATION
                     )
@@ -199,7 +198,7 @@ object WeatherAdviceGenerator {
                         WeatherAdvice(
                             title = "Unstable Conditions",
                             description = "Scattered showers are possible today (${rainChanceToday}% chance). Keep an umbrella in your vehicle or bag.",
-                            icon = Icons.Filled.Umbrella,
+                            icon = SkySphereIcons.Umbrella,
                             priority = AdvicePriority.INFO,
                             category = AdviceCategory.PRECIPITATION
                         )
@@ -209,7 +208,7 @@ object WeatherAdviceGenerator {
                         WeatherAdvice(
                             title = "Dry & Clear Skies",
                             description = "No precipitation expected today. Enjoy dry roads and clear walking paths.",
-                            icon = Icons.Filled.WbSunny,
+                            icon = SkySphereIcons.Sunny,
                             priority = AdvicePriority.COMFORT,
                             category = AdviceCategory.PRECIPITATION
                         )
@@ -225,7 +224,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Safe Sun Exposure",
                         description = "Minimal UV radiation. Safe to enjoy extended outdoor time without major sunburn risk.",
-                        icon = Icons.Filled.WbSunny,
+                        icon = SkySphereIcons.Sunny,
                         priority = AdvicePriority.COMFORT,
                         category = AdviceCategory.UV_SUN
                     )
@@ -236,7 +235,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Moderate UV Alert",
                         description = "Moderate sun radiation. Apply SPF 15+ sunscreen and wear sunglasses if outdoors for over 20 minutes.",
-                        icon = Icons.Filled.WbSunny,
+                        icon = SkySphereIcons.UVIndex,
                         priority = AdvicePriority.INFO,
                         category = AdviceCategory.UV_SUN
                     )
@@ -247,7 +246,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "High UV Index",
                         description = "High UV intensity. Protective sunscreen (SPF 30+), wide-brimmed hats, and sunglasses are highly recommended. Seek shade during peak midday hours.",
-                        icon = Icons.Filled.WbSunny,
+                        icon = SkySphereIcons.UVIndex,
                         priority = AdvicePriority.WARNING,
                         category = AdviceCategory.UV_SUN
                     )
@@ -258,7 +257,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Extreme UV Hazard",
                         description = "Unprotected skin can burn rapidly. Avoid direct sun exposure between 10 AM and 4 PM. Apply SPF 50+ generously every 2 hours.",
-                        icon = Icons.Filled.Warning,
+                        icon = SkySphereIcons.Warning,
                         priority = AdvicePriority.CRITICAL,
                         category = AdviceCategory.UV_SUN
                     )
@@ -273,7 +272,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Calm Air",
                         description = "Perfect conditions for outdoor sports like badminton, cycling, or drone photography.",
-                        icon = Icons.Filled.Air,
+                        icon = SkySphereIcons.Wind,
                         priority = AdvicePriority.COMFORT,
                         category = AdviceCategory.WIND
                     )
@@ -284,7 +283,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Fresh Commute Winds",
                         description = "Moderate breezes. Great day for natural laundry drying or flying a kite. Holds minor resistance for cycling.",
-                        icon = Icons.Filled.Air,
+                        icon = SkySphereIcons.Wind,
                         priority = AdvicePriority.INFO,
                         category = AdviceCategory.WIND
                     )
@@ -295,7 +294,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Strong Gale Alert",
                         description = "Strong gusty winds. Hold onto hats and umbrellas. Avoid placing light objects on open terraces or balconies.",
-                        icon = Icons.Filled.Air,
+                        icon = SkySphereIcons.Wind,
                         priority = AdvicePriority.WARNING,
                         category = AdviceCategory.WIND
                     )
@@ -306,7 +305,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Hazardous Wind Warning",
                         description = "Dangerous wind gusts! Secure loose outdoor patio furniture, trash bins, and tents. Drive high-profile vehicles with extreme care.",
-                        icon = Icons.Filled.Warning,
+                        icon = SkySphereIcons.Warning,
                         priority = AdvicePriority.CRITICAL,
                         category = AdviceCategory.WIND
                     )
@@ -322,7 +321,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Pristine Air Quality",
                         description = "Air is beautifully clean. Ideal for breathing exercises, morning running, and outdoor aerobics.",
-                        icon = Icons.Filled.Eco,
+                        icon = SkySphereIcons.Wind,
                         priority = AdvicePriority.COMFORT,
                         category = AdviceCategory.AIR_QUALITY
                     )
@@ -333,7 +332,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Acceptable Air Quality",
                         description = "Moderate/Fair air. Completely safe for almost everyone. Extremely sensitive individuals should monitor throat irritation.",
-                        icon = Icons.Filled.Eco,
+                        icon = SkySphereIcons.Wind,
                         priority = AdvicePriority.INFO,
                         category = AdviceCategory.AIR_QUALITY
                     )
@@ -344,7 +343,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "Sensitive Groups Warning",
                         description = "Unhealthy for sensitive individuals. People with asthma or cardiopulmonary conditions should limit intense outdoor exertion.",
-                        icon = Icons.Filled.Masks,
+                        icon = SkySphereIcons.Warning,
                         priority = AdvicePriority.WARNING,
                         category = AdviceCategory.AIR_QUALITY
                     )
@@ -355,7 +354,7 @@ object WeatherAdviceGenerator {
                     WeatherAdvice(
                         title = "High Pollution Alert",
                         description = "Unhealthy air for all. Wear a high-efficiency mask (N95) outdoors, close windows, and activate indoor air purifiers.",
-                        icon = Icons.Filled.Warning,
+                        icon = SkySphereIcons.Warning,
                         priority = AdvicePriority.CRITICAL,
                         category = AdviceCategory.AIR_QUALITY
                     )
@@ -369,7 +368,7 @@ object WeatherAdviceGenerator {
                 WeatherAdvice(
                     title = "Low Pressure Advisory",
                     description = "Low barometric pressure (${details.pressureHpa} hPa) may induce minor headaches, joint swelling, or sleepiness in pressure-sensitive individuals.",
-                    icon = Icons.Filled.Info,
+                    icon = SkySphereIcons.Pressure,
                     priority = AdvicePriority.COMFORT,
                     category = AdviceCategory.LIFESTYLE
                 )
@@ -383,7 +382,7 @@ object WeatherAdviceGenerator {
                 WeatherAdvice(
                     title = "Delay Car Wash",
                     description = "Postpone washing your vehicle. Showers are forecasted in the next 48 hours.",
-                    icon = Icons.Filled.DirectionsCar,
+                    icon = SkySphereIcons.Cloud,
                     priority = AdvicePriority.COMFORT,
                     category = AdviceCategory.LIFESTYLE
                 )
@@ -393,7 +392,7 @@ object WeatherAdviceGenerator {
                 WeatherAdvice(
                     title = "Perfect Car Wash Window",
                     description = "Clean skies and no upcoming rain forecasted. Perfect timing for washing your vehicle.",
-                    icon = Icons.Filled.DirectionsCar,
+                    icon = SkySphereIcons.Sunny,
                     priority = AdvicePriority.COMFORT,
                     category = AdviceCategory.LIFESTYLE
                 )

@@ -12,9 +12,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Air
-import androidx.compose.material.icons.filled.Navigation
+import com.example.ui.icons.SkySphereIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -192,7 +190,7 @@ fun WindGaugeCard(
                         contentAlignment = Alignment.Center
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Air,
+                            imageVector = SkySphereIcons.Wind,
                             contentDescription = null,
                             tint = accentCyan,
                             modifier = Modifier.size(18.dp)
@@ -360,7 +358,7 @@ fun WindGaugeCard(
                 ) {
                     // Wind Icon & Direction Pointer
                     Icon(
-                        imageVector = Icons.Filled.Navigation,
+                        imageVector = SkySphereIcons.Wind,
                         contentDescription = "Wind Direction",
                         tint = accentCyan,
                         modifier = Modifier

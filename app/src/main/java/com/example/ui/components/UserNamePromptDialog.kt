@@ -14,9 +14,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.NotificationsActive
-import androidx.compose.material.icons.filled.Person
+import com.example.ui.icons.SkySphereIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
@@ -97,7 +95,7 @@ fun UserNamePromptDialog(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.NotificationsActive,
+                        imageVector = SkySphereIcons.NotificationsActive,
                         contentDescription = "Personalized Notifications",
                         tint = Color(0xFF38BDF8)
                     )
@@ -135,7 +133,7 @@ fun UserNamePromptDialog(
                     label = { Text("Your Display Name (e.g. Paul)") },
                     leadingIcon = {
                         Icon(
-                            imageVector = Icons.Default.Person,
+                            imageVector = SkySphereIcons.Person,
                             contentDescription = "User Icon",
                             tint = Color(0xFF38BDF8)
                         )

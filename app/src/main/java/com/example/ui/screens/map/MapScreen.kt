@@ -38,19 +38,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Air
-import androidx.compose.material.icons.filled.BeachAccess
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.Compress
-import androidx.compose.material.icons.filled.Layers
-import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.filled.MyLocation
-import androidx.compose.material.icons.filled.Thermostat
-import androidx.compose.material.icons.filled.WaterDrop
-import androidx.compose.material.icons.filled.WaterDrop
+import com.example.ui.icons.SkySphereIcons
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.CircularProgressIndicator
@@ -504,7 +492,7 @@ fun MapScreen(
                                     modifier = Modifier.size(28.dp)
                                 ) {
                                     Icon(
-                                        imageVector = Icons.Filled.Close,
+                                        imageVector = SkySphereIcons.Close,
                                         contentDescription = "Hide weather layer",
                                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.size(18.dp)
@@ -573,7 +561,7 @@ fun MapScreen(
                         modifier = Modifier.testTag("layer_selector_fab")
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Layers,
+                            imageVector = SkySphereIcons.Map,
                             contentDescription = "Weather Layers"
                         )
                     }
@@ -608,7 +596,7 @@ fun MapScreen(
                             )
                         } else {
                             Icon(
-                                imageVector = Icons.Filled.MyLocation,
+                                imageVector = SkySphereIcons.MyLocation,
                                 contentDescription = "My Location"
                             )
                         }
@@ -647,7 +635,7 @@ fun MapScreen(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         Icon(
-                            imageVector = Icons.Filled.Layers,
+                            imageVector = SkySphereIcons.Map,
                             contentDescription = null,
                             tint = MaterialTheme.colorScheme.primary,
                             modifier = Modifier.size(24.dp)
@@ -659,7 +647,7 @@ fun MapScreen(
                         )
                     }
                     IconButton(onClick = { showLayerSelectorSheet = false }) {
-                        Icon(imageVector = Icons.Filled.Close, contentDescription = "Close sheet")
+                        Icon(imageVector = SkySphereIcons.Close, contentDescription = "Close sheet")
                     }
                 }
 
@@ -726,7 +714,7 @@ fun MapScreen(
                                 }
                                 if (isSelected) {
                                     Icon(
-                                        imageVector = Icons.Filled.Check,
+                                        imageVector = SkySphereIcons.Check,
                                         contentDescription = "Active",
                                         tint = MaterialTheme.colorScheme.primary,
                                         modifier = Modifier.size(20.dp)
@@ -743,13 +731,13 @@ fun MapScreen(
 
 private fun getLayerIcon(layer: MapWeatherLayer): ImageVector {
     return when (layer) {
-        MapWeatherLayer.NONE -> Icons.Filled.Map
-        MapWeatherLayer.RAIN_RADAR -> Icons.Filled.BeachAccess
-        MapWeatherLayer.CLOUDS -> Icons.Filled.Cloud
-        MapWeatherLayer.TEMPERATURE -> Icons.Filled.Thermostat
-        MapWeatherLayer.WIND -> Icons.Filled.Air
-        MapWeatherLayer.HUMIDITY -> Icons.Filled.WaterDrop
-        MapWeatherLayer.PRESSURE -> Icons.Filled.Compress
+        MapWeatherLayer.NONE -> SkySphereIcons.Map
+        MapWeatherLayer.RAIN_RADAR -> SkySphereIcons.RainRadar
+        MapWeatherLayer.CLOUDS -> SkySphereIcons.Cloud
+        MapWeatherLayer.TEMPERATURE -> SkySphereIcons.Thermostat
+        MapWeatherLayer.WIND -> SkySphereIcons.Wind
+        MapWeatherLayer.HUMIDITY -> SkySphereIcons.Humidity
+        MapWeatherLayer.PRESSURE -> SkySphereIcons.Pressure
     }
 }
 

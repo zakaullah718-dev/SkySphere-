@@ -1,18 +1,7 @@
 package com.example.ui.navigation
 
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.outlined.FavoriteBorder
-import androidx.compose.material.icons.outlined.Home
-import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.Settings
 import androidx.compose.ui.graphics.vector.ImageVector
-
-import androidx.compose.material.icons.filled.Map
-import androidx.compose.material.icons.outlined.Map
+import com.example.ui.icons.SkySphereIcons
 
 sealed class Screen(
     val route: String,
@@ -25,36 +14,36 @@ sealed class Screen(
     object Home : Screen(
         route = "home",
         title = "SkySphere",
-        activeIcon = Icons.Filled.Home,
-        inactiveIcon = Icons.Outlined.Home
+        activeIcon = SkySphereIcons.HomeActive,
+        inactiveIcon = SkySphereIcons.Home
     )
     
     object Search : Screen(
         route = "search",
         title = "Explore",
-        activeIcon = Icons.Filled.Search,
-        inactiveIcon = Icons.Outlined.Search
+        activeIcon = SkySphereIcons.SearchActive,
+        inactiveIcon = SkySphereIcons.Search
     )
     
     object Map : Screen(
         route = "map",
         title = "Radar Map",
-        activeIcon = Icons.Filled.Map,
-        inactiveIcon = Icons.Outlined.Map
+        activeIcon = SkySphereIcons.MapActive,
+        inactiveIcon = SkySphereIcons.Map
     )
     
     object Favorites : Screen(
         route = "favorites",
         title = "Vault",
-        activeIcon = Icons.Filled.Favorite,
-        inactiveIcon = Icons.Outlined.FavoriteBorder
+        activeIcon = SkySphereIcons.VaultActive,
+        inactiveIcon = SkySphereIcons.Vault
     )
     
     object Settings : Screen(
         route = "settings",
         title = "Settings",
-        activeIcon = Icons.Filled.Settings,
-        inactiveIcon = Icons.Outlined.Settings
+        activeIcon = SkySphereIcons.SettingsActive,
+        inactiveIcon = SkySphereIcons.Settings
     )
 
     companion object {

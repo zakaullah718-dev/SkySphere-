@@ -24,12 +24,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Star
+import com.example.ui.icons.SkySphereIcons
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Card
@@ -165,7 +160,7 @@ fun WidgetConfigScreen(
             ConfigOptionCard(
                 title = "Current Location",
                 subtitle = "Automatically updates with your GPS location",
-                icon = Icons.Default.LocationOn,
+                icon = SkySphereIcons.Location,
                 isSelected = selectedMode == SkySphereWidgetPreferences.MODE_CURRENT_LOCATION,
                 onClick = {
                     selectedMode = SkySphereWidgetPreferences.MODE_CURRENT_LOCATION
@@ -180,7 +175,7 @@ fun WidgetConfigScreen(
             ConfigOptionCard(
                 title = "Selected City in SkySphere",
                 subtitle = "Currently showing: ${activeCity.cityName.uppercase()}",
-                icon = Icons.Default.CheckCircle,
+                icon = SkySphereIcons.Check,
                 isSelected = selectedMode == SkySphereWidgetPreferences.MODE_FIXED_CITY && selectedCityName == activeCity.cityName,
                 onClick = {
                     selectedMode = SkySphereWidgetPreferences.MODE_FIXED_CITY
@@ -249,7 +244,7 @@ fun WidgetConfigScreen(
                 ),
                 shape = RoundedCornerShape(16.dp)
             ) {
-                Icon(imageVector = Icons.Default.Check, contentDescription = "Apply")
+                Icon(imageVector = SkySphereIcons.Check, contentDescription = "Apply")
                 Spacer(modifier = Modifier.width(8.dp))
                 Text(
                     text = "APPLY WIDGET SETTINGS",
@@ -338,7 +333,7 @@ fun ConfigCityRow(
         verticalAlignment = Alignment.CenterVertically
     ) {
         Icon(
-            imageVector = Icons.Default.Star,
+            imageVector = SkySphereIcons.VaultActive,
             contentDescription = "Favorite",
             tint = Color(0xFFFACC15),
             modifier = Modifier.size(20.dp)

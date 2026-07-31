@@ -18,10 +18,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.automirrored.filled.Send
-import androidx.compose.material.icons.filled.*
+import com.example.ui.icons.SkySphereIcons
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -86,19 +83,29 @@ fun IntelligentHub(
     var showCitySelector by remember { mutableStateOf(false) }
 
     // Adaptive contrast styling variables for high accessibility
-    val isDark = true
     val textColor = Color.White
-    val subCardBg = Color(0xFF1E1E2E) // Accessible solid Dark Gray Card background (as requested)
-    val subCardBgSubtle = Color(0xFF242435) // Elegant solid deep-gray background
-    val subCardBorder = Color(0xFF374151) // Strong high-contrast border
-    val subCardBorderSubtle = Color(0xFF2F3F56) // Visible subcard border
-    val dividerColor = Color(0xFF374151) // Clear, visible divider line
+    val subCardBg = Color(0xFF1E1E2E)
+    val subCardBgSubtle = Color(0xFF242435)
+    val subCardBorder = Color(0xFF374151)
+    val subCardBorderSubtle = Color(0xFF2D3748)
+    val dividerColor = Color(0xFF2D3748)
 
-    // Active screen section state (for sub-tab selector)
-    var selectedSection by remember { mutableStateOf(0) } // 0: AI & Alerts, 1: Lifestyle, 2: Health & Travel, 3: Compare & Notify
-    val sectionTitles = listOf("AI & Alerts", "Lifestyle", "Health & Travel", "Compare & Notify")
-
-    // Smart processing values
+    // Processed Phase 7 Intelligence Data
+    val smartSummary = remember(details, isCelsius, cityWeather.cityName) {
+        IntelligentWeatherProcessor.processSmartWeatherSummary(details, isCelsius, cityWeather.cityName)
+    }
+    val primaryAiInsight = remember(details, isCelsius) {
+        IntelligentWeatherProcessor.processPrimaryAiInsight(details, isCelsius)
+    }
+    val smartScores = remember(details, isCelsius) {
+        IntelligentWeatherProcessor.processSmartWeatherScores(details, isCelsius)
+    }
+    val clothingAdvice = remember(details, isCelsius) {
+        IntelligentWeatherProcessor.processClothingAdvice(details, isCelsius)
+    }
+    val travelIntel = remember(details, isCelsius) {
+        IntelligentWeatherProcessor.processTravelIntelligence(details, isCelsius)
+    }
     val smartAlerts = remember(details, isCelsius) {
         IntelligentWeatherProcessor.processSmartAlerts(details, isCelsius)
     }
@@ -110,9 +117,6 @@ fun IntelligentHub(
     }
     val naturalTimeline = remember(details, isCelsius) {
         IntelligentWeatherProcessor.processWeatherTimelineSummary(details, isCelsius)
-    }
-    val travelPlannerSlots = remember(details, isCelsius) {
-        IntelligentWeatherProcessor.processTravelPlanner(details, isCelsius)
     }
 
     // Dynamic stateful notifications list
@@ -149,6 +153,9 @@ fun IntelligentHub(
         }
     }
 
+    val sectionTitles = listOf("AI & Alerts", "Lifestyle", "Health & Travel", "Compare & Notify")
+    var selectedSection by remember { mutableIntStateOf(0) }
+
     Scaffold(
         modifier = modifier.fillMaxSize(),
         topBar = {
@@ -169,7 +176,7 @@ fun IntelligentHub(
                         modifier = Modifier.testTag("hub_back_button")
                     ) {
                         Icon(
-                            imageVector = Icons.AutoMirrored.Filled.ArrowBack,
+                            imageVector = SkySphereIcons.Back,
                             contentDescription = "Back to main screen",
                             tint = MaterialTheme.colorScheme.onBackground
                         )
@@ -178,7 +185,6 @@ fun IntelligentHub(
                 actions = {
                     IconButton(
                         onClick = {
-                            // Manual Refresh of AI content
                             isGeneratingSummary = true
                             coroutineScope.launch {
                                 val tempFormatted = "${details.currentTemp}°${if (isCelsius) "C" else "F"}"
@@ -195,7 +201,7 @@ fun IntelligentHub(
                         }
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Refresh,
+                            imageVector = SkySphereIcons.Refresh,
                             contentDescription = "Regenerate summary",
                             tint = LuxurySkyBlue
                         )
@@ -261,23 +267,72 @@ fun IntelligentHub(
             ) {
                 when (selectedSection) {
                     0 -> { // AI Weather Assistant & Smart Alerts
-                        // 1. Weather Timeline Natural Language Card
+                        // 1. Requirement 8: AI Primary Insight Card
                         item {
                             SkySphereCard(
-                                modifier = Modifier.fillMaxWidth().testTag("weather_timeline_card")
+                                modifier = Modifier.fillMaxWidth().testTag("primary_ai_insight_card")
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Box(
+                                        contentAlignment = Alignment.Center,
+                                        modifier = Modifier
+                                            .size(36.dp)
+                                            .clip(CircleShape)
+                                            .background(Brush.linearGradient(colors = listOf(Color(0xFF2FA3FF), Color(0xFF00C6FF))))
+                                    ) {
+                                        Icon(
+                                            imageVector = SkySphereIcons.AutoAwesome,
+                                            contentDescription = null,
+                                            tint = Color.White,
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                    }
+                                    Spacer(modifier = Modifier.width(10.dp))
+                                    Column {
+                                        Text(
+                                            text = primaryAiInsight.category,
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                color = LuxurySkyBlue,
+                                                fontWeight = FontWeight.Bold,
+                                                letterSpacing = 1.5.sp
+                                            )
+                                        )
+                                        Text(
+                                            text = "PRIMARY AI RECOMMENDATION",
+                                            style = MaterialTheme.typography.labelSmall.copy(
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                                fontSize = 9.sp
+                                            )
+                                        )
+                                    }
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
+                                Text(
+                                    text = primaryAiInsight.insightText,
+                                    style = MaterialTheme.typography.titleMedium.copy(
+                                        fontWeight = FontWeight.SemiBold,
+                                        lineHeight = 22.sp,
+                                        color = MaterialTheme.colorScheme.onBackground
+                                    )
+                                )
+                            }
+                        }
+
+                        // 2. Requirement 1: Smart Weather Summary Card
+                        item {
+                            SkySphereCard(
+                                modifier = Modifier.fillMaxWidth().testTag("smart_weather_summary_card")
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        imageVector = Icons.Filled.Timeline,
+                                        imageVector = SkySphereIcons.Timeline,
                                         contentDescription = null,
                                         tint = LuxuryCyan,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "24H NATURAL TIMELINE",
+                                        text = "SMART WEATHER SUMMARY",
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             color = LuxuryCyan,
                                             fontWeight = FontWeight.Bold,
@@ -287,7 +342,7 @@ fun IntelligentHub(
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
                                 Text(
-                                    text = naturalTimeline,
+                                    text = smartSummary,
                                     style = MaterialTheme.typography.bodyMedium.copy(
                                         lineHeight = 22.sp,
                                         color = MaterialTheme.colorScheme.onBackground
@@ -296,23 +351,252 @@ fun IntelligentHub(
                             }
                         }
 
-                        // 2. AI Weather Assistant
+                        // 3. Requirement 6: Smart Weather Scores Card (0-100)
+                        item {
+                            SkySphereCard(
+                                modifier = Modifier.fillMaxWidth().testTag("smart_weather_scores_card")
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = SkySphereIcons.Sports,
+                                        contentDescription = null,
+                                        tint = LuxurySkyBlue,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "DAILY SMART WEATHER SCORES",
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            color = LuxurySkyBlue,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 1.sp
+                                        )
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(16.dp))
+
+                                val scoresList = listOf(
+                                    Triple("Outdoor Score", smartScores.outdoorScore, Color(0xFF69F0AE)),
+                                    Triple("Running Score", smartScores.runningScore, Color(0xFF40C4FF)),
+                                    Triple("Cycling Score", smartScores.cyclingScore, Color(0xFFFFD740)),
+                                    Triple("Travel Score", smartScores.travelScore, Color(0xFFB388FF)),
+                                    Triple("Comfort Score", smartScores.comfortScore, Color(0xFFFF8A80)),
+                                    Triple("Air Quality Score", smartScores.airQualityScore, Color(0xFF00E676))
+                                )
+
+                                scoresList.forEach { (label, score, color) ->
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp)
+                                    ) {
+                                        Text(
+                                            text = label,
+                                            style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Medium),
+                                            color = textColor,
+                                            modifier = Modifier.weight(1f)
+                                        )
+                                        Text(
+                                            text = "$score / 100",
+                                            style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                            color = color
+                                        )
+                                    }
+                                    LinearProgressIndicator(
+                                        progress = { score / 100f },
+                                        color = color,
+                                        trackColor = subCardBorder,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(4.dp)
+                                            .clip(CircleShape)
+                                    )
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                }
+                            }
+                        }
+
+                        // 4. Requirement 5: Clothing Advisor Card
+                        item {
+                            SkySphereCard(
+                                modifier = Modifier.fillMaxWidth().testTag("clothing_advisor_card")
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = SkySphereIcons.Check,
+                                        contentDescription = null,
+                                        tint = LuxuryCyan,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "CLOTHING ADVISOR",
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            color = LuxuryCyan,
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 1.sp
+                                        )
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(8.dp))
+                                Text(
+                                    text = clothingAdvice.summary,
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                LazyRow(
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    items(clothingAdvice.items) { item ->
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            modifier = Modifier
+                                                .clip(RoundedCornerShape(12.dp))
+                                                .background(subCardBgSubtle)
+                                                .border(1.dp, subCardBorderSubtle, RoundedCornerShape(12.dp))
+                                                .padding(horizontal = 10.dp, vertical = 6.dp)
+                                        ) {
+                                            Icon(
+                                                imageVector = SkySphereIcons.Check,
+                                                contentDescription = null,
+                                                tint = LuxurySkyBlue,
+                                                modifier = Modifier.size(14.dp)
+                                            )
+                                            Spacer(modifier = Modifier.width(6.dp))
+                                            Column {
+                                                Text(
+                                                    text = item.name,
+                                                    style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
+                                                    color = textColor
+                                                )
+                                                Text(
+                                                    text = item.reason,
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontSize = 10.sp),
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 5. Requirement 7: Intelligent Alerts Card (Only active when needed!)
+                        item {
+                            SkySphereCard(
+                                modifier = Modifier.fillMaxWidth().testTag("smart_alerts_card")
+                            ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Icon(
+                                        imageVector = SkySphereIcons.Warning,
+                                        contentDescription = null,
+                                        tint = Color(0xFFFF5252),
+                                        modifier = Modifier.size(22.dp)
+                                    )
+                                    Spacer(modifier = Modifier.width(8.dp))
+                                    Text(
+                                        text = "INTELLIGENT ALERTS",
+                                        style = MaterialTheme.typography.labelMedium.copy(
+                                            color = Color(0xFFFF5252),
+                                            fontWeight = FontWeight.Bold,
+                                            letterSpacing = 1.sp
+                                        )
+                                    )
+                                }
+                                Spacer(modifier = Modifier.height(12.dp))
+
+                                if (smartAlerts.isEmpty()) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
+                                    ) {
+                                        Icon(
+                                            imageVector = SkySphereIcons.Check,
+                                            contentDescription = null,
+                                            tint = Color(0xFF69F0AE),
+                                            modifier = Modifier.size(20.dp)
+                                        )
+                                        Spacer(modifier = Modifier.width(10.dp))
+                                        Text(
+                                            text = "Atmosphere stable. No hazardous alerts detected.",
+                                            style = MaterialTheme.typography.bodyMedium,
+                                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                                        )
+                                    }
+                                } else {
+                                    smartAlerts.forEach { alert ->
+                                        val priorityColor = when (alert.severity) {
+                                            AlertSeverity.CRITICAL -> Color(0xFFFF3D00)
+                                            AlertSeverity.WARNING -> Color(0xFFFFAB40)
+                                            AlertSeverity.INFO -> Color(0xFF40C4FF)
+                                        }
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .padding(vertical = 6.dp)
+                                                .clip(RoundedCornerShape(8.dp))
+                                                .background(priorityColor.copy(alpha = 0.08f))
+                                                .border(1.dp, priorityColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
+                                                .padding(12.dp)
+                                        ) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                                Icon(
+                                                    imageVector = SkySphereIcons.Warning,
+                                                    contentDescription = null,
+                                                    tint = priorityColor,
+                                                    modifier = Modifier.size(16.dp)
+                                                )
+                                                Spacer(modifier = Modifier.width(8.dp))
+                                                Text(
+                                                    text = alert.title,
+                                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
+                                                    color = priorityColor
+                                                )
+                                                Spacer(modifier = Modifier.weight(1f))
+                                                Text(
+                                                    text = alert.severity.name,
+                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                    color = priorityColor
+                                                )
+                                            }
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = alert.description,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = textColor
+                                            )
+                                            Spacer(modifier = Modifier.height(6.dp))
+                                            Text(
+                                                text = "REC: ${alert.recommendation}",
+                                                style = MaterialTheme.typography.bodySmall.copy(
+                                                    fontWeight = FontWeight.Bold,
+                                                    fontSize = 11.sp
+                                                ),
+                                                color = textColor.copy(alpha = 0.7f)
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        // 6. AI Assistant Q&A Card
                         item {
                             SkySphereCard(
                                 modifier = Modifier.fillMaxWidth().testTag("ai_assistant_card")
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        imageVector = Icons.Filled.Psychology,
+                                        imageVector = SkySphereIcons.Psychology,
                                         contentDescription = null,
                                         tint = LuxurySkyBlue,
                                         modifier = Modifier.size(22.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "AI COGNITIVE ASSISTANT",
+                                        text = "AI COGNITIVE Q&A ASSISTANT",
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             color = LuxurySkyBlue,
                                             fontWeight = FontWeight.Bold,
@@ -321,37 +605,6 @@ fun IntelligentHub(
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
-
-                                if (isGeneratingSummary) {
-                                    Box(
-                                        modifier = Modifier.fillMaxWidth().height(100.dp),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                            SkySphereLoadingAnimation()
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text(
-                                                "Synthesizing weather data...",
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                                            )
-                                        }
-                                    }
-                                } else {
-                                    aiSummaryState?.let {
-                                        Text(
-                                            text = it,
-                                            style = MaterialTheme.typography.bodyMedium.copy(
-                                                lineHeight = 20.sp,
-                                                fontStyle = androidx.compose.ui.text.font.FontStyle.Italic
-                                            ),
-                                            color = MaterialTheme.colorScheme.onBackground
-                                        )
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                        HorizontalDivider(color = dividerColor)
-                                        Spacer(modifier = Modifier.height(8.dp))
-                                    }
-                                }
 
                                 // Interactive Q&A Input
                                 Text(
@@ -394,7 +647,7 @@ fun IntelligentHub(
                                             }
                                         ) {
                                             Icon(
-                                                imageVector = Icons.AutoMirrored.Filled.Send,
+                                                imageVector = SkySphereIcons.Send,
                                                 contentDescription = "Submit query",
                                                 tint = LuxurySkyBlue
                                             )
@@ -433,7 +686,7 @@ fun IntelligentHub(
 
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                // Predefined quick question pills
+                                // Quick question pills
                                 LazyRow(
                                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                                     modifier = Modifier.fillMaxWidth()
@@ -509,14 +762,14 @@ fun IntelligentHub(
                                                     modifier = Modifier.fillMaxWidth()
                                                 ) {
                                                     Icon(
-                                                        imageVector = Icons.Filled.AutoAwesome,
+                                                        imageVector = SkySphereIcons.AutoAwesome,
                                                         contentDescription = null,
                                                         tint = LuxuryCyan,
                                                         modifier = Modifier.size(16.dp)
                                                     )
                                                     Spacer(modifier = Modifier.width(6.dp))
                                                     Text(
-                                                        text = "COGNITIVE INSIGHT",
+                                                        text = "AI INSIGHT",
                                                         style = MaterialTheme.typography.labelSmall.copy(
                                                             color = LuxuryCyan,
                                                             fontWeight = FontWeight.Bold,
@@ -529,7 +782,7 @@ fun IntelligentHub(
                                                         modifier = Modifier.size(24.dp)
                                                     ) {
                                                         Icon(
-                                                            imageVector = Icons.Filled.Close,
+                                                            imageVector = SkySphereIcons.Close,
                                                             contentDescription = "Clear answer",
                                                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                                             modifier = Modifier.size(14.dp)
@@ -548,126 +801,23 @@ fun IntelligentHub(
                                 }
                             }
                         }
-
-                        // 3. Smart Weather Alerts
-                        item {
-                            SkySphereCard(
-                                modifier = Modifier.fillMaxWidth().testTag("smart_alerts_card")
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Filled.NotificationImportant,
-                                        contentDescription = null,
-                                        tint = Color(0xFFFF5252),
-                                        modifier = Modifier.size(22.dp)
-                                    )
-                                    Spacer(modifier = Modifier.width(8.dp))
-                                    Text(
-                                        text = "SMART WEATHER ALERTS",
-                                        style = MaterialTheme.typography.labelMedium.copy(
-                                            color = Color(0xFFFF5252),
-                                            fontWeight = FontWeight.Bold,
-                                            letterSpacing = 1.sp
-                                        )
-                                    )
-                                }
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                if (smartAlerts.isEmpty()) {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp)
-                                    ) {
-                                        Icon(
-                                            imageVector = Icons.Filled.CheckCircle,
-                                            contentDescription = null,
-                                            tint = Color(0xFF69F0AE),
-                                            modifier = Modifier.size(20.dp)
-                                        )
-                                        Spacer(modifier = Modifier.width(10.dp))
-                                        Text(
-                                            text = "Atmosphere stable. No hazardous alerts detected.",
-                                            style = MaterialTheme.typography.bodyMedium,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                } else {
-                                    smartAlerts.forEachIndexed { idx, alert ->
-                                        val priorityColor = when (alert.severity) {
-                                            AlertSeverity.CRITICAL -> Color(0xFFFF3D00)
-                                            AlertSeverity.WARNING -> Color(0xFFFFAB40)
-                                            AlertSeverity.INFO -> Color(0xFF40C4FF)
-                                        }
-                                        Column(
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 6.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(priorityColor.copy(alpha = 0.08f))
-                                                .border(1.dp, priorityColor.copy(alpha = 0.2f), RoundedCornerShape(8.dp))
-                                                .padding(12.dp)
-                                        ) {
-                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                Icon(
-                                                    imageVector = Icons.Filled.Warning,
-                                                    contentDescription = null,
-                                                    tint = priorityColor,
-                                                    modifier = Modifier.size(16.dp)
-                                                )
-                                                Spacer(modifier = Modifier.width(8.dp))
-                                                Text(
-                                                    text = alert.title,
-                                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold),
-                                                    color = priorityColor
-                                                )
-                                                Spacer(modifier = Modifier.weight(1f))
-                                                Text(
-                                                    text = alert.severity.name,
-                                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                                    color = priorityColor
-                                                )
-                                            }
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text(
-                                                text = alert.description,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = textColor
-                                            )
-                                            Spacer(modifier = Modifier.height(6.dp))
-                                            Text(
-                                                text = "REC: ${alert.recommendation}",
-                                                style = MaterialTheme.typography.bodySmall.copy(
-                                                    fontWeight = FontWeight.Bold,
-                                                    fontSize = 11.sp
-                                                ),
-                                                color = textColor.copy(alpha = 0.7f)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
 
-                    1 -> { // Lifestyle Recommendations Scorecard
+                    1 -> { // Requirement 2: Lifestyle Intelligence Scorecard (All 12 categories!)
                         item {
                             SkySphereCard(
                                 modifier = Modifier.fillMaxWidth().testTag("lifestyle_scorecard_card")
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        imageVector = Icons.Filled.FitnessCenter,
+                                        imageVector = SkySphereIcons.Sports,
                                         contentDescription = null,
                                         tint = LuxuryCyan,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "LIFESTYLE SCORECARD",
+                                        text = "LIFESTYLE INTELLIGENCE (12 ACTIVITIES)",
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             color = LuxuryCyan,
                                             fontWeight = FontWeight.Bold,
@@ -683,17 +833,6 @@ fun IntelligentHub(
                                         rec.score >= 70 -> Color(0xFF40C4FF)
                                         rec.score >= 50 -> Color(0xFFFFD740)
                                         else -> Color(0xFFFF5252)
-                                    }
-
-                                    val iconVector = when (rec.iconName) {
-                                        "DirectionsRun" -> Icons.Filled.DirectionsRun
-                                        "DirectionsBike" -> Icons.Filled.DirectionsBike
-                                        "Terrain" -> Icons.Filled.Terrain
-                                        "BeachAccess" -> Icons.Filled.BeachAccess
-                                        "Grass" -> Icons.Filled.Grass
-                                        "CameraAlt" -> Icons.Filled.CameraAlt
-                                        "SetMeal" -> Icons.Filled.SetMeal
-                                        else -> Icons.Filled.Sports
                                     }
 
                                     Column(
@@ -713,7 +852,7 @@ fun IntelligentHub(
                                                     .background(progressColor.copy(alpha = 0.12f))
                                             ) {
                                                 Icon(
-                                                    imageVector = iconVector,
+                                                    imageVector = SkySphereIcons.Sports,
                                                     contentDescription = null,
                                                     tint = progressColor,
                                                     modifier = Modifier.size(18.dp)
@@ -765,24 +904,22 @@ fun IntelligentHub(
                         }
                     }
 
-                    2 -> { // Health Insights & Travel Planner
-                        // 1. Health Insights
+                    2 -> { // Requirements 3 & 4: Health & Travel Intelligence
+                        // 1. Requirement 3: Health Intelligence
                         item {
                             SkySphereCard(
                                 modifier = Modifier.fillMaxWidth().testTag("health_insights_card")
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        imageVector = Icons.Filled.Favorite,
+                                        imageVector = SkySphereIcons.Favorite,
                                         contentDescription = null,
                                         tint = Color(0xFFFF5252),
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "HEALTH INSIGHTS",
+                                        text = "HEALTH INTELLIGENCE (8 TOPICS)",
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             color = Color(0xFFFF5252),
                                             fontWeight = FontWeight.Bold,
@@ -799,18 +936,10 @@ fun IntelligentHub(
                                         AlertSeverity.INFO -> Color(0xFF69F0AE)
                                     }
 
-                                    val insightIcon = when (insight.iconName) {
-                                        "Spa" -> Icons.Filled.Spa
-                                        "WbSunny" -> Icons.Filled.WbSunny
-                                        "LocalDrink" -> Icons.Filled.LocalDrink
-                                        "Air" -> Icons.Filled.Air
-                                        else -> Icons.Filled.Favorite
-                                    }
-
                                     Column(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .padding(vertical = 8.dp)
+                                            .padding(vertical = 6.dp)
                                             .clip(RoundedCornerShape(8.dp))
                                             .background(subCardBg)
                                             .border(1.dp, subCardBorderSubtle, RoundedCornerShape(8.dp))
@@ -821,7 +950,7 @@ fun IntelligentHub(
                                             modifier = Modifier.fillMaxWidth()
                                         ) {
                                             Icon(
-                                                imageVector = insightIcon,
+                                                imageVector = SkySphereIcons.Favorite,
                                                 contentDescription = null,
                                                 tint = riskColor,
                                                 modifier = Modifier.size(20.dp)
@@ -841,7 +970,7 @@ fun IntelligentHub(
                                         }
                                         Spacer(modifier = Modifier.height(4.dp))
                                         Text(
-                                            text = "Level: ${insight.value}",
+                                            text = "Metric: ${insight.value}",
                                             style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold),
                                             color = riskColor
                                         )
@@ -856,23 +985,21 @@ fun IntelligentHub(
                             }
                         }
 
-                        // 2. Travel Planner (Outdoor & Travel Windows)
+                        // 2. Requirement 4: Travel Intelligence
                         item {
                             SkySphereCard(
                                 modifier = Modifier.fillMaxWidth().testTag("travel_planner_card")
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        imageVector = Icons.Filled.DepartureBoard,
+                                        imageVector = SkySphereIcons.Timeline,
                                         contentDescription = null,
                                         tint = LuxurySkyBlue,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "TRAVEL & OUTDOOR PLANNER",
+                                        text = "TRAVEL INTELLIGENCE & ADVICE",
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             color = LuxurySkyBlue,
                                             fontWeight = FontWeight.Bold,
@@ -881,79 +1008,101 @@ fun IntelligentHub(
                                     )
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
+
                                 Text(
-                                    text = "Ranked best hours of the day for outdoor activities, travel or commute:",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(bottom = 12.dp)
+                                    text = travelIntel.bestTravelTimeToday,
+                                    style = MaterialTheme.typography.titleSmall.copy(fontWeight = FontWeight.Bold, color = LuxuryCyan)
+                                )
+                                Spacer(modifier = Modifier.height(6.dp))
+                                Text(
+                                    text = "Visibility Advice: ${travelIntel.visibilityAdvice}",
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = textColor
                                 )
 
-                                if (travelPlannerSlots.isEmpty()) {
-                                    Text(
-                                        "No future hours data available to plan.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                } else {
-                                    travelPlannerSlots.take(5).forEach { slot ->
-                                        val suitColor = when (slot.suitability) {
-                                            "Ideal" -> Color(0xFF69F0AE)
-                                            "Moderate" -> Color(0xFFFFD740)
-                                            else -> Color(0xFFFF5252)
-                                        }
+                                travelIntel.rainDelayWarning?.let {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(text = "⚠️ $it", style = MaterialTheme.typography.bodySmall, color = Color(0xFFFFD740))
+                                }
+                                travelIntel.fogWarning?.let {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(text = "🌫️ $it", style = MaterialTheme.typography.bodySmall, color = Color(0xFFFFD740))
+                                }
+                                travelIntel.windWarning?.let {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(text = "💨 $it", style = MaterialTheme.typography.bodySmall, color = Color(0xFFFFD740))
+                                }
+                                travelIntel.stormAlert?.let {
+                                    Spacer(modifier = Modifier.height(6.dp))
+                                    Text(text = "🌩️ $it", style = MaterialTheme.typography.bodySmall, color = Color(0xFFFF5252))
+                                }
 
-                                        Row(
-                                            verticalAlignment = Alignment.CenterVertically,
-                                            modifier = Modifier
-                                                .fillMaxWidth()
-                                                .padding(vertical = 4.dp)
-                                                .clip(RoundedCornerShape(8.dp))
-                                                .background(subCardBgSubtle)
-                                                .border(1.dp, subCardBorderSubtle, RoundedCornerShape(8.dp))
-                                                .padding(10.dp)
-                                        ) {
-                                            Column(modifier = Modifier.weight(1f)) {
-                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                    Text(
-                                                        text = slot.time,
-                                                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                                                        color = textColor
-                                                    )
-                                                    Spacer(modifier = Modifier.width(12.dp))
-                                                    Text(
-                                                        text = slot.tempFormatted,
-                                                        style = MaterialTheme.typography.bodyMedium,
-                                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                                    )
-                                                }
-                                                Spacer(modifier = Modifier.height(2.dp))
+                                Spacer(modifier = Modifier.height(16.dp))
+                                Text(
+                                    text = "Hourly Travel Suitability:",
+                                    style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Spacer(modifier = Modifier.height(8.dp))
+
+                                travelIntel.hourlySlots.take(5).forEach { slot ->
+                                    val suitColor = when (slot.suitability) {
+                                        "Ideal" -> Color(0xFF69F0AE)
+                                        "Moderate" -> Color(0xFFFFD740)
+                                        else -> Color(0xFFFF5252)
+                                    }
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .padding(vertical = 4.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(subCardBgSubtle)
+                                            .border(1.dp, subCardBorderSubtle, RoundedCornerShape(8.dp))
+                                            .padding(10.dp)
+                                    ) {
+                                        Column(modifier = Modifier.weight(1f)) {
+                                            Row(verticalAlignment = Alignment.CenterVertically) {
                                                 Text(
-                                                    text = slot.tip,
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                                    text = slot.time,
+                                                    style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                                                    color = textColor
+                                                )
+                                                Spacer(modifier = Modifier.width(12.dp))
+                                                Text(
+                                                    text = slot.tempFormatted,
+                                                    style = MaterialTheme.typography.bodyMedium,
+                                                    color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
                                             }
-                                            Spacer(modifier = Modifier.width(12.dp))
-                                            Column(horizontalAlignment = Alignment.End) {
-                                                Box(
-                                                    modifier = Modifier
-                                                        .clip(RoundedCornerShape(4.dp))
-                                                        .background(suitColor.copy(alpha = 0.15f))
-                                                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                                                ) {
-                                                    Text(
-                                                        text = slot.suitability.uppercase(),
-                                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                                        color = suitColor
-                                                    )
-                                                }
-                                                Spacer(modifier = Modifier.height(4.dp))
+                                            Spacer(modifier = Modifier.height(2.dp))
+                                            Text(
+                                                text = slot.tip,
+                                                style = MaterialTheme.typography.bodySmall,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f)
+                                            )
+                                        }
+                                        Spacer(modifier = Modifier.width(12.dp))
+                                        Column(horizontalAlignment = Alignment.End) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .clip(RoundedCornerShape(4.dp))
+                                                    .background(suitColor.copy(alpha = 0.15f))
+                                                    .padding(horizontal = 6.dp, vertical = 2.dp)
+                                            ) {
                                                 Text(
-                                                    text = "Score: ${slot.score}",
+                                                    text = slot.suitability.uppercase(),
                                                     style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
                                                     color = suitColor
                                                 )
                                             }
+                                            Spacer(modifier = Modifier.height(4.dp))
+                                            Text(
+                                                text = "Score: ${slot.score}",
+                                                style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
+                                                color = suitColor
+                                            )
                                         }
                                     }
                                 }
@@ -961,17 +1110,14 @@ fun IntelligentHub(
                         }
                     }
 
-                    3 -> { // Weather Comparison & Simulated Notification History
-                        // 1. Weather Comparison Side-By-Side
+                    3 -> { // Comparison & Notification Center
                         item {
                             SkySphereCard(
                                 modifier = Modifier.fillMaxWidth().testTag("weather_comparison_card")
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        imageVector = Icons.Filled.CompareArrows,
+                                        imageVector = SkySphereIcons.Compare,
                                         contentDescription = null,
                                         tint = LuxuryCyan,
                                         modifier = Modifier.size(20.dp)
@@ -1024,17 +1170,6 @@ fun IntelligentHub(
                                                 style = MaterialTheme.typography.bodySmall,
                                                 color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
-                                            Spacer(modifier = Modifier.height(8.dp))
-                                            Text(
-                                                text = "AQI: ${details.airQuality.aqi}",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = textColor
-                                            )
-                                            Text(
-                                                text = "Wind: ${details.windSpeed.toInt()} km/h",
-                                                style = MaterialTheme.typography.labelSmall,
-                                                color = textColor
-                                            )
                                         }
                                     }
 
@@ -1053,7 +1188,7 @@ fun IntelligentHub(
                                                 verticalArrangement = Arrangement.Center
                                             ) {
                                                 Icon(
-                                                    imageVector = Icons.Filled.Add,
+                                                    imageVector = SkySphereIcons.Plus,
                                                     contentDescription = "Select Comparison City",
                                                     tint = LuxuryCyan,
                                                     modifier = Modifier.size(32.dp)
@@ -1063,12 +1198,6 @@ fun IntelligentHub(
                                                     text = "CHOOSE CITY",
                                                     style = MaterialTheme.typography.labelMedium.copy(fontWeight = FontWeight.Bold),
                                                     color = LuxuryCyan,
-                                                    textAlign = TextAlign.Center
-                                                )
-                                                Text(
-                                                    text = "Select a city to compare",
-                                                    style = MaterialTheme.typography.bodySmall,
-                                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                                                     textAlign = TextAlign.Center
                                                 )
                                             }
@@ -1104,104 +1233,28 @@ fun IntelligentHub(
                                                     style = MaterialTheme.typography.bodySmall,
                                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                                 )
-                                                Spacer(modifier = Modifier.height(8.dp))
-                                                Text(
-                                                    text = "AQI: ${cDetails.airQuality.aqi}",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = textColor
-                                                )
-                                                Text(
-                                                    text = "Wind: ${cDetails.windSpeed.toInt()} km/h",
-                                                    style = MaterialTheme.typography.labelSmall,
-                                                    color = textColor
-                                                )
                                             }
                                         }
-                                    }
-                                }
-
-                                if (comparisonCity != null) {
-                                    val comp = comparisonCity!!
-                                    Spacer(modifier = Modifier.height(16.dp))
-                                    HorizontalDivider(color = dividerColor)
-                                    Spacer(modifier = Modifier.height(12.dp))
-
-                                    // Comparative summary text
-                                    val tempDiff = (details.currentTemp - comp.weatherDetails.currentTemp)
-                                    val warmerText = when {
-                                        tempDiff > 0 -> "${cityWeather.cityName} is warmer by ${tempDiff.absoluteValue}°."
-                                        tempDiff < 0 -> "${comp.cityName} is warmer by ${tempDiff.absoluteValue}°."
-                                        else -> "Both cities are currently at the same temperature."
-                                    }
-
-                                    val aqiDiff = (details.airQuality.aqi - comp.weatherDetails.airQuality.aqi)
-                                    val cleanText = when {
-                                        aqiDiff > 0 -> "${comp.cityName} has cleaner air."
-                                        aqiDiff < 0 -> "${cityWeather.cityName} has cleaner air."
-                                        else -> "Both cities share identical air safety grades."
-                                    }
-
-                                    Column(
-                                        modifier = Modifier
-                                            .fillMaxWidth()
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0x05FFFFFF))
-                                            .padding(12.dp)
-                                    ) {
-                                        Row(verticalAlignment = Alignment.CenterVertically) {
-                                            Icon(
-                                                imageVector = Icons.Filled.AutoAwesome,
-                                                contentDescription = null,
-                                                tint = LuxurySkyBlue,
-                                                modifier = Modifier.size(16.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(6.dp))
-                                            Text(
-                                                text = "COMPARATIVE ANALYSIS",
-                                                style = MaterialTheme.typography.labelSmall.copy(
-                                                    color = LuxurySkyBlue,
-                                                    fontWeight = FontWeight.Bold,
-                                                    letterSpacing = 1.sp
-                                                )
-                                            )
-                                        }
-                                        Spacer(modifier = Modifier.height(6.dp))
-                                        Text(
-                                            text = "• $warmerText\n• $cleanText",
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = Color.White
-                                        )
-                                    }
-
-                                    Spacer(modifier = Modifier.height(12.dp))
-                                    OutlinedButton(
-                                        onClick = { showCitySelector = true },
-                                        colors = ButtonDefaults.outlinedButtonColors(contentColor = LuxuryCyan),
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Text("CHANGE COMPARISON CITY")
                                     }
                                 }
                             }
                         }
 
-                        // 2. Simulated Notification Settings & List
+                        // Notification Preferences
                         item {
                             SkySphereCard(
-                                modifier = Modifier.fillMaxWidth().testTag("notification_center_card")
+                                modifier = Modifier.fillMaxWidth().testTag("notification_settings_card")
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically
-                                ) {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
                                     Icon(
-                                        imageVector = Icons.Filled.NotificationsActive,
+                                        imageVector = SkySphereIcons.Notifications,
                                         contentDescription = null,
                                         tint = LuxurySkyBlue,
                                         modifier = Modifier.size(20.dp)
                                     )
                                     Spacer(modifier = Modifier.width(8.dp))
                                     Text(
-                                        text = "NOTIFICATION INTELLIGENCE SYSTEM",
+                                        text = "NOTIFICATION PREFERENCES",
                                         style = MaterialTheme.typography.labelMedium.copy(
                                             color = LuxurySkyBlue,
                                             fontWeight = FontWeight.Bold,
@@ -1211,95 +1264,26 @@ fun IntelligentHub(
                                 }
                                 Spacer(modifier = Modifier.height(12.dp))
 
-                                Text(
-                                    text = "Send weather notifications only when important conditions change.",
-                                    style = MaterialTheme.typography.bodySmall,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                                )
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                Column {
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Checkbox(
-                                            checked = notificationSettingsAlerts,
-                                            onCheckedChange = { notificationSettingsAlerts = it },
-                                            colors = CheckboxDefaults.colors(checkedColor = LuxurySkyBlue)
-                                        )
-                                        Text("Severe Weather Warnings", style = MaterialTheme.typography.bodyMedium, color = textColor)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = "Severe Weather Alerts", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = textColor)
+                                        Text(text = "Instant alerts for rain, storms, winds, heat & cold", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Checkbox(
-                                            checked = notificationSettingsShifts,
-                                            onCheckedChange = { notificationSettingsShifts = it },
-                                            colors = CheckboxDefaults.colors(checkedColor = LuxurySkyBlue)
-                                        )
-                                        Text("Significant Atmosphere Shifts", style = MaterialTheme.typography.bodyMedium, color = textColor)
-                                    }
-                                    Row(
-                                        verticalAlignment = Alignment.CenterVertically,
-                                        modifier = Modifier.fillMaxWidth()
-                                    ) {
-                                        Checkbox(
-                                            checked = notificationSettingsSummary,
-                                            onCheckedChange = { notificationSettingsSummary = it },
-                                            colors = CheckboxDefaults.colors(checkedColor = LuxurySkyBlue)
-                                        )
-                                        Text("Morning Cognitive Summaries", style = MaterialTheme.typography.bodyMedium, color = textColor)
-                                    }
+                                    Switch(checked = notificationSettingsAlerts, onCheckedChange = { notificationSettingsAlerts = it }, colors = SwitchDefaults.colors(checkedThumbColor = LuxurySkyBlue))
                                 }
 
-                                Spacer(modifier = Modifier.height(12.dp))
-                                HorizontalDivider(color = dividerColor)
-                                Spacer(modifier = Modifier.height(12.dp))
-
-                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                    Text(
-                                        text = "HISTORICAL ALERTS LOG",
-                                        style = MaterialTheme.typography.labelSmall.copy(fontWeight = FontWeight.Bold),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Spacer(modifier = Modifier.weight(1f))
-                                    TextButton(
-                                        onClick = { notificationsList = emptyList() },
-                                        contentPadding = PaddingValues()
-                                    ) {
-                                        Text("Clear All", style = MaterialTheme.typography.labelSmall, color = LuxurySkyBlue)
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    modifier = Modifier.fillMaxWidth()
+                                ) {
+                                    Column(modifier = Modifier.weight(1f)) {
+                                        Text(text = "Daily AI Weather Summary", style = MaterialTheme.typography.bodyMedium.copy(fontWeight = FontWeight.Bold), color = textColor)
+                                        Text(text = "Receive short natural-language summary daily", style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     }
-                                }
-
-                                if (notificationsList.isEmpty()) {
-                                    Text(
-                                        text = "Log empty. No notifications triggered.",
-                                        style = MaterialTheme.typography.bodySmall,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(vertical = 12.dp)
-                                    )
-                                } else {
-                                    notificationsList.forEach { note ->
-                                        Row(
-                                            verticalAlignment = Alignment.Top,
-                                            modifier = Modifier.padding(vertical = 4.dp)
-                                        ) {
-                                            Icon(
-                                                imageVector = Icons.Filled.Info,
-                                                contentDescription = null,
-                                                tint = LuxurySkyBlue,
-                                                modifier = Modifier.size(14.dp).padding(top = 2.dp)
-                                            )
-                                            Spacer(modifier = Modifier.width(8.dp))
-                                            Text(
-                                                text = note,
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = textColor
-                                            )
-                                        }
-                                    }
+                                    Switch(checked = notificationSettingsSummary, onCheckedChange = { notificationSettingsSummary = it }, colors = SwitchDefaults.colors(checkedThumbColor = LuxurySkyBlue))
                                 }
                             }
                         }
@@ -1309,76 +1293,53 @@ fun IntelligentHub(
         }
     }
 
-    // City Selector Bottom Sheet for Comparison
+    // City selector modal sheet for side-by-side comparison
     if (showCitySelector) {
-        val selectableCities = allCities.filter { it.cityName != cityWeather.cityName }
         AlertDialog(
             onDismissRequest = { showCitySelector = false },
             title = {
                 Text(
-                    "CHOOSE CITY TO COMPARE",
+                    text = "SELECT COMPARISON CITY",
                     style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.Bold)
                 )
             },
             text = {
-                Column(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    if (selectableCities.isEmpty()) {
-                        Text(
-                            "Please search and add cities to your catalog first.",
-                            style = MaterialTheme.typography.bodyMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                    } else {
-                        LazyColumn(
-                            verticalArrangement = Arrangement.spacedBy(8.dp),
-                            modifier = Modifier.fillMaxWidth().heightIn(max = 300.dp)
-                        ) {
-                            itemsIndexed(selectableCities, key = { index, city -> "hub_city_${index}_${city.cityName}" }) { _, city ->
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(subCardBgSubtle)
-                                        .clickable {
-                                            comparisonCity = city
-                                            showCitySelector = false
-                                        }
-                                        .padding(12.dp)
-                                ) {
-                                    Column(modifier = Modifier.weight(1f)) {
-                                        Text(
-                                            text = city.cityName,
-                                            style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
-                                            color = textColor
-                                        )
-                                        Text(
-                                            text = city.country,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                                        )
-                                    }
-                                    Text(
-                                        text = "${city.weatherDetails.currentTemp}°",
-                                        style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.ExtraBold),
-                                        color = LuxuryCyan
-                                    )
+                Column {
+                    allCities.filter { it.cityName != cityWeather.cityName }.forEach { city ->
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clickable {
+                                    comparisonCity = city
+                                    showCitySelector = false
                                 }
-                            }
+                                .padding(vertical = 12.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = city.cityName,
+                                style = MaterialTheme.typography.bodyLarge.copy(fontWeight = FontWeight.Bold),
+                                color = textColor,
+                                modifier = Modifier.weight(1f)
+                            )
+                            Text(
+                                text = "${city.weatherDetails.currentTemp}°${if (isCelsius) "C" else "F"}",
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = LuxurySkyBlue
+                            )
                         }
+                        HorizontalDivider(color = subCardBorderSubtle)
                     }
                 }
             },
             confirmButton = {
                 TextButton(onClick = { showCitySelector = false }) {
-                    Text("CLOSE", color = LuxurySkyBlue)
+                    Text("Close", color = LuxurySkyBlue)
                 }
             },
-            containerColor = MaterialTheme.colorScheme.surface,
-            textContentColor = MaterialTheme.colorScheme.onSurface,
-            titleContentColor = MaterialTheme.colorScheme.onSurface
+            containerColor = Color(0xFF1E1E2E),
+            titleContentColor = textColor,
+            textContentColor = textColor
         )
     }
 }

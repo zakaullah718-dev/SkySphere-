@@ -3,7 +3,6 @@ package com.example.ui.screens.home
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.material.icons.filled.MyLocation
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
@@ -28,16 +27,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Air
-import androidx.compose.material.icons.filled.Compress
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.LightMode
-import androidx.compose.material.icons.filled.Thermostat
-import androidx.compose.material.icons.filled.Visibility
-import androidx.compose.material.icons.filled.WaterDrop
-import androidx.compose.material.icons.filled.WbSunny
+import com.example.ui.icons.SkySphereIcons
 import androidx.compose.foundation.border
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -70,15 +60,12 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.material.icons.filled.Warning
-import androidx.compose.material.icons.filled.Close
+import com.example.ui.components.isDayTime
 import com.example.data.models.CityWeather
 import com.example.data.models.WeatherDetails
 import com.example.ui.components.SkySphereCard
 import com.example.ui.components.WeatherConditionIcon
 import com.example.ui.components.WeatherAnimatedBackground
-import com.example.ui.components.isDayTime
-import androidx.compose.material.icons.filled.Refresh
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -117,9 +104,6 @@ import android.os.Bundle
 import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.material3.FloatingActionButton
-import androidx.compose.material.icons.filled.Psychology
-import androidx.compose.material.icons.filled.ChevronRight
-import androidx.compose.material.icons.filled.AutoAwesome
 import androidx.core.content.ContextCompat
 import androidx.core.location.LocationManagerCompat
 
@@ -498,7 +482,7 @@ fun HomeScreenContent(
                     contentAlignment = Alignment.Center
                 ) {
                     Icon(
-                        imageVector = Icons.Default.Refresh,
+                        imageVector = SkySphereIcons.Refresh,
                         contentDescription = "Refreshing",
                         tint = if (isPullRefreshing) Color(0xFF2FA3FF) else Color(0xFF2FA3FF).copy(alpha = progressFraction),
                         modifier = Modifier
@@ -586,7 +570,7 @@ fun HomeScreenContent(
                                 modifier = Modifier.weight(1f)
                             ) {
                                 Icon(
-                                    imageVector = Icons.Default.Warning,
+                                    imageVector = SkySphereIcons.Warning,
                                     contentDescription = "Warning",
                                     tint = Color(0xFFFF5252),
                                     modifier = Modifier.size(24.dp)
@@ -612,7 +596,7 @@ fun HomeScreenContent(
                             }
                             IconButton(onClick = onClearError) {
                                 Icon(
-                                    imageVector = Icons.Default.Close,
+                                    imageVector = SkySphereIcons.Close,
                                     contentDescription = "Dismiss error",
                                     tint = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
@@ -695,7 +679,7 @@ fun HomeScreenContent(
                                 .testTag("home_gps_button")
                         ) {
                             Icon(
-                                imageVector = Icons.Default.MyLocation,
+                                imageVector = SkySphereIcons.MyLocation,
                                 contentDescription = "Current Location",
                                 tint = MaterialTheme.colorScheme.primary
                             )
@@ -709,7 +693,7 @@ fun HomeScreenContent(
                             .testTag("home_favorite_button")
                     ) {
                         Icon(
-                            imageVector = if (cityWeather.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                            imageVector = if (cityWeather.isFavorite) SkySphereIcons.VaultActive else SkySphereIcons.Vault,
                             contentDescription = "Toggle Favorite",
                             tint = if (cityWeather.isFavorite) Color(0xFFFF5252) else MaterialTheme.colorScheme.onBackground
                         )
@@ -842,7 +826,7 @@ fun HomeScreenContent(
                             KeyMetricCell(
                                 title = "FEELS LIKE",
                                 value = "${formatTemp(details.feelsLike, isCelsius)}°",
-                                icon = Icons.Filled.Thermostat,
+                                icon = SkySphereIcons.Thermostat,
                                 iconColor = Color(0xFFFFB74D)
                             )
                         }
@@ -850,7 +834,7 @@ fun HomeScreenContent(
                             KeyMetricCell(
                                 title = "HUMIDITY",
                                 value = "${details.humidity}%",
-                                icon = Icons.Filled.WaterDrop,
+                                icon = SkySphereIcons.Humidity,
                                 iconColor = LuxurySkyBlue
                             )
                         }
@@ -866,7 +850,7 @@ fun HomeScreenContent(
                             KeyMetricCell(
                                 title = "WIND SPEED",
                                 value = formatWind(details.windSpeed, windUnit),
-                                icon = Icons.Filled.Air,
+                                icon = SkySphereIcons.Wind,
                                 iconColor = LuxurySkyBlue
                             )
                         }
@@ -874,7 +858,7 @@ fun HomeScreenContent(
                             KeyMetricCell(
                                 title = "PRESSURE",
                                 value = "${details.pressureHpa} hPa",
-                                icon = Icons.Filled.Compress,
+                                icon = SkySphereIcons.Pressure,
                                 iconColor = Color(0xFFB0BEC5)
                             )
                         }
@@ -885,7 +869,7 @@ fun HomeScreenContent(
                     KeyMetricCell(
                         title = "UV INDEX",
                         value = "${details.uvIndex} - ${getUvDescription(details.uvIndex)}",
-                        icon = Icons.Filled.WbSunny,
+                        icon = SkySphereIcons.UVIndex,
                         iconColor = Color(0xFFFF7043)
                     )
                 }
@@ -1103,21 +1087,21 @@ fun HomeScreenContent(
                             title = "AIR QUALITY",
                             value = "${details.airQuality.aqi}",
                             subtitle = details.airQuality.level,
-                            icon = Icons.Filled.Air,
+                            icon = SkySphereIcons.Wind,
                             iconColor = LuxuryCyan
                         )
                         TelemetryCard(
                             title = "UV INDEX",
                             value = "${details.uvIndex}",
                             subtitle = if (details.uvIndex <= 2) "Low exposure" else if (details.uvIndex <= 5) "Moderate exposure" else "High exposure",
-                            icon = Icons.Filled.WbSunny,
+                            icon = SkySphereIcons.UVIndex,
                             iconColor = LuxurySkyBlue
                         )
                         TelemetryCard(
                             title = "CLOUD COVERAGE",
                             value = "${details.cloudCoverage}%",
                             subtitle = if (details.cloudCoverage < 10) "Completely clear" else if (details.cloudCoverage < 50) "Scattered clouds" else "Overcast skies",
-                            icon = Icons.Filled.WbSunny,
+                            icon = SkySphereIcons.Cloud,
                             iconColor = LuxurySkyBlue
                         )
                     }
@@ -1126,21 +1110,21 @@ fun HomeScreenContent(
                             title = "VISIBILITY",
                             value = "${details.visibilityKm} km",
                             subtitle = "Atmospheric clarity",
-                            icon = Icons.Filled.Visibility,
+                            icon = SkySphereIcons.Visibility,
                             iconColor = LuxuryCyan
                         )
                         TelemetryCard(
                             title = "DEW POINT",
                             value = "${formatTemp(details.currentTemp - ((100 - details.humidity) / 5), isCelsius)}°",
                             subtitle = "Condensation index",
-                            icon = Icons.Filled.WaterDrop,
+                            icon = SkySphereIcons.Humidity,
                             iconColor = LuxuryCyan
                         )
                         TelemetryCard(
                             title = "BAROMETER",
                             value = "${details.pressureHpa} hPa",
                             subtitle = "Steady pressure",
-                            icon = Icons.Filled.Compress,
+                            icon = SkySphereIcons.Pressure,
                             iconColor = Color(0xFFB0BEC5)
                         )
                     }
@@ -1182,7 +1166,7 @@ fun HomeScreenContent(
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Icon(
-                        imageVector = Icons.Filled.WbSunny,
+                        imageVector = SkySphereIcons.Sunny,
                         contentDescription = null,
                         tint = Color(0xFFFFD54F),
                         modifier = Modifier.size(18.dp)
@@ -1282,7 +1266,7 @@ fun HomeScreenContent(
                             )
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Psychology,
+                            imageVector = SkySphereIcons.AutoAwesome,
                             contentDescription = "Intelligent Cognitive Hub",
                             tint = Color.White,
                             modifier = Modifier.size(22.dp)
@@ -1314,7 +1298,7 @@ fun HomeScreenContent(
                         )
                     }
                     Icon(
-                        imageVector = Icons.Filled.ChevronRight,
+                        imageVector = SkySphereIcons.ChevronRight,
                         contentDescription = "Open Hub",
                         tint = Color(0x7FFFFFFF),
                         modifier = Modifier.size(20.dp)
@@ -1344,7 +1328,7 @@ fun HomeScreenContent(
                 contentAlignment = Alignment.Center
             ) {
                 Icon(
-                    imageVector = Icons.Filled.AutoAwesome,
+                    imageVector = SkySphereIcons.AutoAwesome,
                     contentDescription = "AI Hub shortcut",
                     modifier = Modifier.size(24.dp)
                 )

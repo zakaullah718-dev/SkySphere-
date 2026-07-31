@@ -34,10 +34,15 @@ object SkySphereWidgetPainter {
         val cardBgColor: Int,
         val textColorPrimary: Int,
         val textColorSecondary: Int,
-        val themeType: ThemeType
+        val borderAlpha: Int,
+        val themeType: ThemeType,
+        val appThemeId: String
     )
 
-    fun getThemeForWeather(cityWeather: CityWeather): WeatherTheme {
+    fun getThemeForWeather(context: Context, cityWeather: CityWeather): WeatherTheme {
+        val prefs = context.getSharedPreferences("skysphere_prefs", Context.MODE_PRIVATE)
+        val appThemeId = prefs.getString("app_theme", "MIDNIGHT_BLUE") ?: "MIDNIGHT_BLUE"
+
         val condition = cityWeather.weatherDetails.condition
         val isNight = cityWeather.isNight
 
@@ -66,97 +71,76 @@ object SkySphereWidgetPainter {
             }
         }
 
-        return when (themeType) {
-            ThemeType.SUNNY -> WeatherTheme(
-                topColor = Color.parseColor("#0284C7"),
-                bottomColor = Color.parseColor("#0369A1"),
-                accentColor = Color.parseColor("#FDE047"),
-                cardBgColor = Color.parseColor("#0C4A6E"),
-                textColorPrimary = Color.WHITE,
-                textColorSecondary = Color.parseColor("#BAE6FD"),
-                themeType = ThemeType.SUNNY
-            )
-            ThemeType.PARTLY_CLOUDY -> WeatherTheme(
-                topColor = Color.parseColor("#0369A1"),
-                bottomColor = Color.parseColor("#075985"),
-                accentColor = Color.parseColor("#BAE6FD"),
-                cardBgColor = Color.parseColor("#0C4A6E"),
-                textColorPrimary = Color.WHITE,
-                textColorSecondary = Color.parseColor("#E0F2FE"),
-                themeType = ThemeType.PARTLY_CLOUDY
-            )
-            ThemeType.CLOUDY -> WeatherTheme(
-                topColor = Color.parseColor("#475569"),
-                bottomColor = Color.parseColor("#1E293B"),
-                accentColor = Color.parseColor("#CBD5E1"),
-                cardBgColor = Color.parseColor("#334155"),
-                textColorPrimary = Color.WHITE,
-                textColorSecondary = Color.parseColor("#94A3B8"),
-                themeType = ThemeType.CLOUDY
-            )
-            ThemeType.RAIN -> WeatherTheme(
-                topColor = Color.parseColor("#0F766E"),
-                bottomColor = Color.parseColor("#042F2E"),
-                accentColor = Color.parseColor("#5EEAD4"),
-                cardBgColor = Color.parseColor("#134E4A"),
-                textColorPrimary = Color.WHITE,
-                textColorSecondary = Color.parseColor("#CCFBF1"),
-                themeType = ThemeType.RAIN
-            )
-            ThemeType.THUNDERSTORM -> WeatherTheme(
-                topColor = Color.parseColor("#4C1D95"),
-                bottomColor = Color.parseColor("#1E1B4B"),
-                accentColor = Color.parseColor("#FDE047"),
-                cardBgColor = Color.parseColor("#2E1065"),
-                textColorPrimary = Color.WHITE,
-                textColorSecondary = Color.parseColor("#DDD6FE"),
-                themeType = ThemeType.THUNDERSTORM
-            )
-            ThemeType.SNOW -> WeatherTheme(
-                topColor = Color.parseColor("#0891B2"),
-                bottomColor = Color.parseColor("#164E63"),
-                accentColor = Color.parseColor("#CFFAFE"),
-                cardBgColor = Color.parseColor("#0E7490"),
-                textColorPrimary = Color.WHITE,
-                textColorSecondary = Color.parseColor("#ECFEFF"),
-                themeType = ThemeType.SNOW
-            )
-            ThemeType.FOG -> WeatherTheme(
-                topColor = Color.parseColor("#64748B"),
-                bottomColor = Color.parseColor("#334155"),
-                accentColor = Color.parseColor("#F1F5F9"),
-                cardBgColor = Color.parseColor("#475569"),
-                textColorPrimary = Color.WHITE,
-                textColorSecondary = Color.parseColor("#CBD5E1"),
-                themeType = ThemeType.FOG
-            )
-            ThemeType.SUNRISE -> WeatherTheme(
-                topColor = Color.parseColor("#EA580C"),
-                bottomColor = Color.parseColor("#9D174D"),
-                accentColor = Color.parseColor("#FDE047"),
-                cardBgColor = Color.parseColor("#C2410C"),
-                textColorPrimary = Color.WHITE,
-                textColorSecondary = Color.parseColor("#FED7AA"),
-                themeType = ThemeType.SUNRISE
-            )
-            ThemeType.SUNSET -> WeatherTheme(
-                topColor = Color.parseColor("#7E22CE"),
-                bottomColor = Color.parseColor("#EA580C"),
-                accentColor = Color.parseColor("#FDE047"),
-                cardBgColor = Color.parseColor("#581C87"),
-                textColorPrimary = Color.WHITE,
-                textColorSecondary = Color.parseColor("#F3E8FF"),
-                themeType = ThemeType.SUNSET
-            )
-            ThemeType.NIGHT -> WeatherTheme(
+        // Synchronize App Theme colors with Weather Condition accents
+        return when (appThemeId) {
+            "OBSIDIAN_DARK" -> WeatherTheme(
                 topColor = Color.parseColor("#0F172A"),
-                bottomColor = Color.parseColor("#020617"),
-                accentColor = Color.parseColor("#38BDF8"),
-                cardBgColor = Color.parseColor("#1E293B"),
+                bottomColor = Color.parseColor("#030712"),
+                accentColor = Color.parseColor("#00E5FF"),
+                cardBgColor = Color.parseColor("#121B2D"),
                 textColorPrimary = Color.WHITE,
-                textColorSecondary = Color.parseColor("#94A3B8"),
-                themeType = ThemeType.NIGHT
+                textColorSecondary = Color.parseColor("#7DD3FC"),
+                borderAlpha = 50,
+                themeType = themeType,
+                appThemeId = appThemeId
             )
+            "SKY_LIGHT" -> WeatherTheme(
+                topColor = Color.parseColor("#F8FAFC"),
+                bottomColor = Color.parseColor("#E2E8F0"),
+                accentColor = Color.parseColor("#0284C7"),
+                cardBgColor = Color.parseColor("#FFFFFF"),
+                textColorPrimary = Color.parseColor("#0F172A"),
+                textColorSecondary = Color.parseColor("#334155"),
+                borderAlpha = 90,
+                themeType = themeType,
+                appThemeId = appThemeId
+            )
+            "SUNSET_GOLD" -> WeatherTheme(
+                topColor = Color.parseColor("#36170B"),
+                bottomColor = Color.parseColor("#120703"),
+                accentColor = Color.parseColor("#F59E0B"),
+                cardBgColor = Color.parseColor("#421E0F"),
+                textColorPrimary = Color.WHITE,
+                textColorSecondary = Color.parseColor("#FDE68A"),
+                borderAlpha = 60,
+                themeType = themeType,
+                appThemeId = appThemeId
+            )
+            "AURORA_TEAL" -> WeatherTheme(
+                topColor = Color.parseColor("#07261F"),
+                bottomColor = Color.parseColor("#020D0A"),
+                accentColor = Color.parseColor("#10B981"),
+                cardBgColor = Color.parseColor("#0D382E"),
+                textColorPrimary = Color.WHITE,
+                textColorSecondary = Color.parseColor("#A7F3D0"),
+                borderAlpha = 55,
+                themeType = themeType,
+                appThemeId = appThemeId
+            )
+            "VIOLET_NIGHT" -> WeatherTheme(
+                topColor = Color.parseColor("#220D3D"),
+                bottomColor = Color.parseColor("#090314"),
+                accentColor = Color.parseColor("#A855F7"),
+                cardBgColor = Color.parseColor("#33155B"),
+                textColorPrimary = Color.WHITE,
+                textColorSecondary = Color.parseColor("#E9D5FF"),
+                borderAlpha = 60,
+                themeType = themeType,
+                appThemeId = appThemeId
+            )
+            else -> { // MIDNIGHT_BLUE default
+                WeatherTheme(
+                    topColor = Color.parseColor("#0B1736"),
+                    bottomColor = Color.parseColor("#030814"),
+                    accentColor = Color.parseColor("#38BDF8"),
+                    cardBgColor = Color.parseColor("#13234A"),
+                    textColorPrimary = Color.WHITE,
+                    textColorSecondary = Color.parseColor("#93C5FD"),
+                    borderAlpha = 55,
+                    themeType = themeType,
+                    appThemeId = "MIDNIGHT_BLUE"
+                )
+            }
         }
     }
 
@@ -173,14 +157,14 @@ object SkySphereWidgetPainter {
         }
     }
 
-    // --- DRAW WIDGET 1x1 (SMALL BADGE) ---
+    // --- DRAW WIDGET 1x1 (COMPACT BADGE) ---
     fun drawWidget1x1(context: Context, cityWeather: CityWeather, isCelsius: Boolean): Bitmap {
         val width = 220
         val height = 220
         val bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
-        val theme = getThemeForWeather(cityWeather)
+        val theme = getThemeForWeather(context, cityWeather)
         drawBackgroundCard(canvas, width.toFloat(), height.toFloat(), theme)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -192,7 +176,7 @@ object SkySphereWidgetPainter {
         paint.textAlign = Paint.Align.CENTER
         canvas.drawText(cityWeather.cityName.uppercase(Locale.getDefault()), 110f, 32f, paint)
 
-        // Weather Icon (Center-Left)
+        // Animated Weather Icon (Center-Left)
         drawWeatherIcon(canvas, 62f, 95f, 32f, cityWeather.weatherDetails.condition, cityWeather.isNight, theme)
 
         // Temp (Center-Right)
@@ -200,7 +184,7 @@ object SkySphereWidgetPainter {
         paint.textSize = 46f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textAlign = Paint.Align.LEFT
-        canvas.drawText(formatTemp(cityWeather.weatherDetails.currentTemp, isCelsius), 112f, 110f, paint)
+        drawTextWithShadow(canvas, formatTemp(cityWeather.weatherDetails.currentTemp, isCelsius), 112f, 110f, paint, theme)
 
         // Condition Text (Center-Bottom)
         paint.color = theme.textColorPrimary
@@ -219,14 +203,14 @@ object SkySphereWidgetPainter {
         return bitmap
     }
 
-    // --- DRAW WIDGET 2x2 (MEDIUM SUMMARY) ---
+    // --- DRAW WIDGET 2x2 (SQUARE SUMMARY) ---
     fun drawWidget2x2(context: Context, cityWeather: CityWeather, isCelsius: Boolean): Bitmap {
         val targetWidth = 360
         val targetHeight = 360
         val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
         val canvas = Canvas(bitmap)
 
-        val theme = getThemeForWeather(cityWeather)
+        val theme = getThemeForWeather(context, cityWeather)
         drawBackgroundCard(canvas, targetWidth.toFloat(), targetHeight.toFloat(), theme)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -239,7 +223,7 @@ object SkySphereWidgetPainter {
         val locationText = cityWeather.cityName.uppercase(Locale.getDefault())
         canvas.drawText(locationText, 30f, 48f, paint)
 
-        // Weather Icon (Right side)
+        // Animated Weather Icon (Right side)
         drawWeatherIcon(canvas, 275f, 120f, 52f, cityWeather.weatherDetails.condition, cityWeather.isNight, theme)
 
         // Temperature
@@ -247,7 +231,7 @@ object SkySphereWidgetPainter {
         paint.textSize = 76f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         val tempStr = formatTemp(cityWeather.weatherDetails.currentTemp, isCelsius)
-        canvas.drawText(tempStr, 30f, 138f, paint)
+        drawTextWithShadow(canvas, tempStr, 30f, 138f, paint, theme)
 
         // Condition Name
         paint.textSize = 22f
@@ -291,7 +275,7 @@ object SkySphereWidgetPainter {
         val width = 720f
         val height = 360f
 
-        val theme = getThemeForWeather(cityWeather)
+        val theme = getThemeForWeather(context, cityWeather)
         drawBackgroundCard(canvas, width, height, theme)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -339,7 +323,7 @@ object SkySphereWidgetPainter {
         paint.textSize = 96f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
         paint.textAlign = Paint.Align.RIGHT
-        canvas.drawText(formatTemp(cityWeather.weatherDetails.currentTemp, isCelsius), 480f, 135f, paint)
+        drawTextWithShadow(canvas, formatTemp(cityWeather.weatherDetails.currentTemp, isCelsius), 480f, 135f, paint, theme)
 
         // Feels like
         paint.color = theme.textColorSecondary
@@ -350,7 +334,78 @@ object SkySphereWidgetPainter {
         return bitmap
     }
 
-    // --- DRAW WIDGET 4x4 (FLAGSHIP WIDGET) ---
+    // --- DRAW WIDGET 4x3 (DETAILED CARD WITH 3-HOUR FORECAST) ---
+    fun drawWidget4x3(context: Context, cityWeather: CityWeather, isCelsius: Boolean): Bitmap {
+        val targetWidth = 480
+        val targetHeight = 360
+        val bitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888)
+        val canvas = Canvas(bitmap)
+        canvas.scale(480f / 720f, 360f / 540f)
+
+        val width = 720f
+        val height = 540f
+
+        val theme = getThemeForWeather(context, cityWeather)
+        drawBackgroundCard(canvas, width, height, theme)
+
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+
+        // Header: City Name
+        paint.color = theme.textColorPrimary
+        paint.textSize = 32f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        paint.textAlign = Paint.Align.LEFT
+        canvas.drawText(cityWeather.cityName.uppercase(Locale.getDefault()), 40f, 60f, paint)
+
+        // Subheader: Updated time
+        val timeFmt = SimpleDateFormat("hh:mm a", Locale.getDefault())
+        paint.color = theme.textColorSecondary
+        paint.textSize = 19f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        canvas.drawText("Updated ${timeFmt.format(Date())}", 40f, 92f, paint)
+
+        // Weather Icon (Right side)
+        drawWeatherIcon(canvas, 570f, 140f, 75f, cityWeather.weatherDetails.condition, cityWeather.isNight, theme)
+
+        // Temperature (Left side)
+        paint.color = theme.textColorPrimary
+        paint.textSize = 100f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        drawTextWithShadow(canvas, formatTemp(cityWeather.weatherDetails.currentTemp, isCelsius), 40f, 185f, paint, theme)
+
+        // Condition & High/Low
+        paint.textSize = 24f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
+        canvas.drawText(cityWeather.weatherDetails.condition.displayName, 40f, 225f, paint)
+
+        paint.color = theme.textColorSecondary
+        paint.textSize = 19f
+        paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.NORMAL)
+        val subInfo = "H: ${formatTemp(cityWeather.weatherDetails.highTemp, isCelsius)}  L: ${formatTemp(cityWeather.weatherDetails.lowTemp, isCelsius)}  •  Feels ${formatTemp(cityWeather.weatherDetails.feelsLike, isCelsius)}"
+        canvas.drawText(subInfo, 40f, 256f, paint)
+
+        // 4 Mini Metric Pills (Y = 285..365)
+        val pW = 152f
+        val pH = 75f
+        drawMiniPill(canvas, 40f, 285f, pW, pH, "HUMIDITY", "${cityWeather.weatherDetails.humidity}%", theme)
+        drawMiniPill(canvas, 204f, 285f, pW, pH, "WIND", formatSpeed(cityWeather.weatherDetails.windSpeed, isCelsius), theme)
+        drawMiniPill(canvas, 368f, 285f, pW, pH, "UV INDEX", "${cityWeather.weatherDetails.uvIndex}", theme)
+        val precip = cityWeather.weatherDetails.hourlyForecast.firstOrNull()?.precipitationChance ?: 0
+        drawMiniPill(canvas, 532f, 285f, 148f, pH, "RAIN", "$precip%", theme)
+
+        // 3-Hour Forecast Pills (Y = 380..510)
+        val hourly3 = cityWeather.weatherDetails.hourlyForecast.take(3)
+        val pillW = 205f
+        val pillH = 125f
+        hourly3.forEachIndexed { idx, hour ->
+            val px = 40f + idx * (pillW + 12f)
+            drawHourlyPill(canvas, px, 385f, pillW, pillH, hour, isCelsius, theme)
+        }
+
+        return bitmap
+    }
+
+    // --- DRAW WIDGET 4x4 (FLAGSHIP FULL SUITE WIDGET) ---
     fun drawWidget4x4(context: Context, cityWeather: CityWeather, isCelsius: Boolean): Bitmap {
         val targetWidth = 420
         val targetHeight = 420
@@ -361,7 +416,7 @@ object SkySphereWidgetPainter {
         val width = 720f
         val height = 720f
 
-        val theme = getThemeForWeather(cityWeather)
+        val theme = getThemeForWeather(context, cityWeather)
         drawBackgroundCard(canvas, width, height, theme)
 
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
@@ -396,7 +451,7 @@ object SkySphereWidgetPainter {
         paint.color = theme.textColorPrimary
         paint.textSize = 118f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
-        canvas.drawText(formatTemp(cityWeather.weatherDetails.currentTemp, isCelsius), 40f, 210f, paint)
+        drawTextWithShadow(canvas, formatTemp(cityWeather.weatherDetails.currentTemp, isCelsius), 40f, 210f, paint, theme)
 
         // Condition & High/Low
         paint.textSize = 28f
@@ -410,7 +465,7 @@ object SkySphereWidgetPainter {
         val highLowText = "High: ${formatTemp(cityWeather.weatherDetails.highTemp, isCelsius)}   Low: ${formatTemp(cityWeather.weatherDetails.lowTemp, isCelsius)}   Feels: ${formatTemp(cityWeather.weatherDetails.feelsLike, isCelsius)}"
         canvas.drawText(highLowText, 40f, 298f, paint)
 
-        // 4 WEATHER METRICS GRID CARDS (Y = 335 to 455)
+        // 4 WEATHER METRICS GRID CARDS (Y = 335 to 445)
         val cardWidth = 148f
         val cardHeight = 110f
         val startX = 40f
@@ -455,11 +510,27 @@ object SkySphereWidgetPainter {
 
     // --- DRAWING UTILITY HELPERS ---
 
+    private fun drawTextWithShadow(canvas: Canvas, text: String, x: Float, y: Float, paint: Paint, theme: WeatherTheme) {
+        val origColor = paint.color
+        // Subtle drop shadow behind text
+        paint.color = Color.BLACK
+        paint.alpha = 90
+        canvas.drawText(text, x + 3f, y + 4f, paint)
+        paint.color = origColor
+        canvas.drawText(text, x, y, paint)
+    }
+
     private fun drawBackgroundCard(canvas: Canvas, width: Float, height: Float, theme: WeatherTheme) {
         val rect = RectF(0f, 0f, width, height)
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
 
-        // Gradient
+        // 1. Ambient Drop Shadow (Outer ambient shadow cast behind main card)
+        val shadowRect = RectF(4f, 8f, width - 4f, height + 6f)
+        paint.color = Color.BLACK
+        paint.alpha = 75
+        canvas.drawRoundRect(shadowRect, 48f, 48f, paint)
+
+        // 2. Base Linear Gradient Fill (App Theme Color Palette + Glass Transparency)
         val gradient = LinearGradient(
             0f, 0f, 0f, height,
             theme.topColor, theme.bottomColor,
@@ -469,51 +540,82 @@ object SkySphereWidgetPainter {
         canvas.drawRoundRect(rect, 44f, 44f, paint)
         paint.shader = null
 
-        // Render Dynamic Weather Background Effects
+        // 3. Render Dynamic Weather Background Effects & Atmosphere Glow
         drawBackgroundEffects(canvas, width, height, theme)
 
-        // Subtle Glassmorphic Border
+        // 4. Frosted Glass Diagonal Specular Light Sweep
+        val glossPath = Path()
+        glossPath.moveTo(0f, 0f)
+        glossPath.lineTo(width * 0.7f, 0f)
+        glossPath.lineTo(0f, height * 0.75f)
+        glossPath.close()
+
+        val glossGradient = LinearGradient(
+            0f, 0f, width * 0.4f, height * 0.4f,
+            Color.argb(45, 255, 255, 255),
+            Color.TRANSPARENT,
+            Shader.TileMode.CLAMP
+        )
+        paint.shader = glossGradient
+        canvas.drawPath(glossPath, paint)
+        paint.shader = null
+
+        // 5. Top Edge Reflection Bar Highlight
+        val topBarRect = RectF(20f, 0f, width - 20f, 14f)
+        val topBarGradient = LinearGradient(
+            0f, 0f, 0f, 14f,
+            Color.argb(70, 255, 255, 255),
+            Color.TRANSPARENT,
+            Shader.TileMode.CLAMP
+        )
+        paint.shader = topBarGradient
+        canvas.drawRoundRect(topBarRect, 8f, 8f, paint)
+        paint.shader = null
+
+        // 6. Translucent Glass Border Stroke
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 3f
         paint.color = Color.WHITE
-        paint.alpha = 45
+        paint.alpha = theme.borderAlpha
         canvas.drawRoundRect(rect, 44f, 44f, paint)
     }
 
     private fun drawBackgroundEffects(canvas: Canvas, width: Float, height: Float, theme: WeatherTheme) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val timeMs = System.currentTimeMillis()
+
         when (theme.themeType) {
             ThemeType.SUNNY -> {
                 val radialGradient = RadialGradient(
-                    width * 0.85f, height * 0.15f, width * 0.45f,
+                    width * 0.85f, height * 0.15f, width * 0.5f,
                     Color.argb(140, 255, 224, 130),
                     Color.TRANSPARENT,
                     Shader.TileMode.CLAMP
                 )
                 paint.shader = radialGradient
-                canvas.drawCircle(width * 0.85f, height * 0.15f, width * 0.45f, paint)
+                canvas.drawCircle(width * 0.85f, height * 0.15f, width * 0.5f, paint)
                 paint.shader = null
             }
             ThemeType.SUNRISE -> {
                 val radialGradient = RadialGradient(
-                    width * 0.5f, height * 0.95f, width * 0.6f,
-                    Color.argb(130, 253, 224, 71),
+                    width * 0.5f, height * 0.95f, width * 0.65f,
+                    Color.argb(135, 253, 224, 71),
                     Color.TRANSPARENT,
                     Shader.TileMode.CLAMP
                 )
                 paint.shader = radialGradient
-                canvas.drawCircle(width * 0.5f, height * 0.95f, width * 0.6f, paint)
+                canvas.drawCircle(width * 0.5f, height * 0.95f, width * 0.65f, paint)
                 paint.shader = null
             }
             ThemeType.SUNSET -> {
                 val radialGradient = RadialGradient(
-                    width * 0.5f, height * 0.9f, width * 0.65f,
-                    Color.argb(140, 251, 146, 60),
+                    width * 0.5f, height * 0.9f, width * 0.7f,
+                    Color.argb(145, 251, 146, 60),
                     Color.TRANSPARENT,
                     Shader.TileMode.CLAMP
                 )
                 paint.shader = radialGradient
-                canvas.drawCircle(width * 0.5f, height * 0.9f, width * 0.65f, paint)
+                canvas.drawCircle(width * 0.5f, height * 0.9f, width * 0.7f, paint)
                 paint.shader = null
             }
             ThemeType.NIGHT -> {
@@ -532,13 +634,14 @@ object SkySphereWidgetPainter {
                     floatArrayOf(0.08f, 0.7f, 2.0f, 160f),
                     floatArrayOf(0.92f, 0.75f, 2.2f, 170f)
                 )
-                for (star in starCoords) {
-                    paint.alpha = star[3].toInt()
+                starCoords.forEachIndexed { i, star ->
+                    val twinkleAlpha = (130 + sin(timeMs / 250.0 + i) * 115).toInt().coerceIn(30, 255)
+                    paint.alpha = twinkleAlpha
                     canvas.drawCircle(width * star[0], height * star[1], star[2], paint)
                 }
                 val moonAura = RadialGradient(
                     width * 0.8f, height * 0.2f, width * 0.35f,
-                    Color.argb(70, 56, 189, 248),
+                    Color.argb(80, 56, 189, 248),
                     Color.TRANSPARENT,
                     Shader.TileMode.CLAMP
                 )
@@ -557,10 +660,11 @@ object SkySphereWidgetPainter {
                     floatArrayOf(0.42f, 0.5f), floatArrayOf(0.62f, 0.4f), floatArrayOf(0.78f, 0.55f),
                     floatArrayOf(0.15f, 0.75f), floatArrayOf(0.52f, 0.78f), floatArrayOf(0.88f, 0.72f)
                 )
-                for (drop in rainCoords) {
+                rainCoords.forEachIndexed { idx, drop ->
+                    val dy = ((timeMs / 12L + idx * 25) % height.toInt()).toFloat()
                     val sx = width * drop[0]
-                    val sy = height * drop[1]
-                    paint.alpha = 75
+                    val sy = (height * drop[1] + dy) % height
+                    paint.alpha = 85
                     canvas.drawLine(sx, sy, sx - 15f, sy + 30f, paint)
                 }
                 paint.style = Paint.Style.FILL
@@ -568,22 +672,25 @@ object SkySphereWidgetPainter {
             ThemeType.SNOW -> {
                 paint.color = Color.WHITE
                 val snowCoords = arrayOf(
-                    floatArrayOf(0.1f, 0.15f, 4f, 160f), floatArrayOf(0.28f, 0.1f, 5f, 200f),
-                    floatArrayOf(0.48f, 0.22f, 3.5f, 140f), floatArrayOf(0.68f, 0.08f, 4.5f, 180f),
-                    floatArrayOf(0.85f, 0.18f, 5.5f, 220f), floatArrayOf(0.18f, 0.45f, 4f, 150f),
-                    floatArrayOf(0.38f, 0.52f, 3.5f, 130f), floatArrayOf(0.58f, 0.42f, 4.5f, 170f),
-                    floatArrayOf(0.78f, 0.58f, 5f, 190f), floatArrayOf(0.12f, 0.78f, 4f, 160f),
-                    floatArrayOf(0.52f, 0.75f, 4.5f, 180f), floatArrayOf(0.86f, 0.72f, 3.5f, 140f)
+                    floatArrayOf(0.1f, 0.15f, 4f), floatArrayOf(0.28f, 0.1f, 5f),
+                    floatArrayOf(0.48f, 0.22f, 3.5f), floatArrayOf(0.68f, 0.08f, 4.5f),
+                    floatArrayOf(0.85f, 0.18f, 5.5f), floatArrayOf(0.18f, 0.45f, 4f),
+                    floatArrayOf(0.38f, 0.52f, 3.5f), floatArrayOf(0.58f, 0.42f, 4.5f),
+                    floatArrayOf(0.78f, 0.58f, 5f), floatArrayOf(0.12f, 0.78f, 4f),
+                    floatArrayOf(0.52f, 0.75f, 4.5f), floatArrayOf(0.86f, 0.72f, 3.5f)
                 )
-                for (s in snowCoords) {
-                    paint.alpha = s[3].toInt()
-                    canvas.drawCircle(width * s[0], height * s[1], s[2], paint)
+                snowCoords.forEachIndexed { i, s ->
+                    val xWobble = sin(timeMs / 550.0 + i).toFloat() * 6f
+                    val yPos = ((height * s[1] + (timeMs / 16L + i * 20) % height.toInt())).toFloat() % height
+                    paint.alpha = (160 + sin(timeMs / 400.0 + i) * 60).toInt().coerceIn(60, 240)
+                    canvas.drawCircle(width * s[0] + xWobble, yPos, s[2], paint)
                 }
             }
             ThemeType.THUNDERSTORM -> {
+                val stormFlashAlpha = (90 + sin(timeMs / 140.0) * 70).toInt().coerceIn(20, 160)
                 val stormGlow = RadialGradient(
                     width * 0.75f, height * 0.25f, width * 0.45f,
-                    Color.argb(80, 253, 224, 71),
+                    Color.argb(stormFlashAlpha, 253, 224, 71),
                     Color.TRANSPARENT,
                     Shader.TileMode.CLAMP
                 )
@@ -592,10 +699,11 @@ object SkySphereWidgetPainter {
                 paint.shader = null
             }
             ThemeType.PARTLY_CLOUDY, ThemeType.CLOUDY, ThemeType.FOG -> {
+                val cloudDrift = sin(timeMs / 900.0).toFloat() * 8f
                 paint.color = Color.WHITE
-                paint.alpha = 22
-                canvas.drawCircle(width * 0.85f, height * 0.2f, width * 0.25f, paint)
-                canvas.drawCircle(width * 0.7f, height * 0.15f, width * 0.2f, paint)
+                paint.alpha = 26
+                canvas.drawCircle(width * 0.85f + cloudDrift, height * 0.2f, width * 0.25f, paint)
+                canvas.drawCircle(width * 0.7f + cloudDrift, height * 0.15f, width * 0.2f, paint)
             }
         }
     }
@@ -616,14 +724,14 @@ object SkySphereWidgetPainter {
         // Card Fill
         paint.style = Paint.Style.FILL
         paint.color = theme.cardBgColor
-        paint.alpha = 185
+        paint.alpha = 195
         canvas.drawRoundRect(rect, 24f, 24f, paint)
 
         // Card Border
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 2f
         paint.color = Color.WHITE
-        paint.alpha = 30
+        paint.alpha = 35
         canvas.drawRoundRect(rect, 24f, 24f, paint)
 
         // Label
@@ -656,9 +764,16 @@ object SkySphereWidgetPainter {
 
         paint.style = Paint.Style.FILL
         paint.color = theme.cardBgColor
-        paint.alpha = 185
+        paint.alpha = 195
         canvas.drawRoundRect(rect, 20f, 20f, paint)
 
+        paint.style = Paint.Style.STROKE
+        paint.strokeWidth = 1.8f
+        paint.color = Color.WHITE
+        paint.alpha = 30
+        canvas.drawRoundRect(rect, 20f, 20f, paint)
+
+        paint.style = Paint.Style.FILL
         paint.color = theme.textColorSecondary
         paint.textSize = 13f
         paint.typeface = Typeface.create(Typeface.DEFAULT, Typeface.BOLD)
@@ -686,14 +801,14 @@ object SkySphereWidgetPainter {
 
         paint.style = Paint.Style.FILL
         paint.color = theme.cardBgColor
-        paint.alpha = 185
+        paint.alpha = 195
         canvas.drawRoundRect(rect, 24f, 24f, paint)
 
         // Border
         paint.style = Paint.Style.STROKE
         paint.strokeWidth = 2f
         paint.color = Color.WHITE
-        paint.alpha = 25
+        paint.alpha = 30
         canvas.drawRoundRect(rect, 24f, 24f, paint)
 
         // Time
@@ -722,7 +837,7 @@ object SkySphereWidgetPainter {
         }
     }
 
-    // --- VECTOR WEATHER ICON DRAWING ENGINE ---
+    // --- ANIMATED VECTOR WEATHER ICON DRAWING ENGINE ---
     private fun drawWeatherIcon(
         canvas: Canvas,
         cx: Float,
@@ -733,11 +848,12 @@ object SkySphereWidgetPainter {
         theme: WeatherTheme
     ) {
         val paint = Paint(Paint.ANTI_ALIAS_FLAG)
+        val timeMs = System.currentTimeMillis()
 
         if (isNight && (condition == WeatherCondition.SUNNY || condition == WeatherCondition.PARTLY_CLOUDY)) {
-            // Draw Moon with glow ring
+            // Draw Moon with glowing ring & twinkling star
             paint.color = Color.parseColor("#38BDF8")
-            paint.alpha = 40
+            paint.alpha = 45
             canvas.drawCircle(cx, cy, radius * 1.25f, paint)
 
             paint.color = Color.parseColor("#F1F5F9")
@@ -752,23 +868,26 @@ object SkySphereWidgetPainter {
 
         when (condition) {
             WeatherCondition.SUNNY -> {
-                // Outer glow
+                // Animated Pulsing Corona
+                val pulseScale = 1.0f + (sin(timeMs / 400.0) * 0.08f).toFloat()
                 paint.color = Color.parseColor("#FDE047")
-                paint.alpha = 60
-                canvas.drawCircle(cx, cy, radius * 1.2f, paint)
+                paint.alpha = 65
+                canvas.drawCircle(cx, cy, radius * 1.25f * pulseScale, paint)
 
                 // Sun Disk
                 paint.color = Color.parseColor("#FDE047")
                 paint.alpha = 255
                 canvas.drawCircle(cx, cy, radius * 0.7f, paint)
 
-                // Sun Rays
+                // Animated Rotating Sun Rays
                 paint.color = Color.parseColor("#FACC15")
                 paint.strokeWidth = radius * 0.18f
                 paint.style = Paint.Style.STROKE
                 paint.strokeCap = Paint.Cap.ROUND
+
+                val angleOffset = (timeMs / 45L) % 360
                 for (i in 0 until 8) {
-                    val angle = Math.toRadians((i * 45).toDouble())
+                    val angle = Math.toRadians((i * 45 + angleOffset).toDouble())
                     val x1 = cx + (radius * 0.82f) * cos(angle).toFloat()
                     val y1 = cy + (radius * 0.82f) * sin(angle).toFloat()
                     val x2 = cx + (radius * 1.15f) * cos(angle).toFloat()
@@ -782,20 +901,22 @@ object SkySphereWidgetPainter {
                 paint.style = Paint.Style.FILL
                 canvas.drawCircle(cx - radius * 0.3f, cy - radius * 0.3f, radius * 0.6f, paint)
 
-                // Cloud
+                // Animated Cloud Drift
+                val driftX = sin(timeMs / 700.0).toFloat() * 3f
                 paint.color = Color.WHITE
-                canvas.drawCircle(cx - radius * 0.2f, cy + radius * 0.2f, radius * 0.45f, paint)
-                canvas.drawCircle(cx + radius * 0.2f, cy + radius * 0.1f, radius * 0.55f, paint)
-                val rect = RectF(cx - radius * 0.5f, cy + radius * 0.2f, cx + radius * 0.6f, cy + radius * 0.65f)
+                canvas.drawCircle(cx - radius * 0.2f + driftX, cy + radius * 0.2f, radius * 0.45f, paint)
+                canvas.drawCircle(cx + radius * 0.2f + driftX, cy + radius * 0.1f, radius * 0.55f, paint)
+                val rect = RectF(cx - radius * 0.5f + driftX, cy + radius * 0.2f, cx + radius * 0.6f + driftX, cy + radius * 0.65f)
                 canvas.drawRoundRect(rect, 15f, 15f, paint)
             }
             WeatherCondition.CLOUDY -> {
-                // Overcast Clouds
+                // Overcast Clouds with subtle animation
+                val driftX = sin(timeMs / 800.0).toFloat() * 4f
                 paint.color = Color.parseColor("#E2E8F0")
                 paint.style = Paint.Style.FILL
-                canvas.drawCircle(cx - radius * 0.3f, cy, radius * 0.5f, paint)
-                canvas.drawCircle(cx + radius * 0.2f, cy - radius * 0.1f, radius * 0.65f, paint)
-                val rect = RectF(cx - radius * 0.6f, cy + radius * 0.1f, cx + radius * 0.7f, cy + radius * 0.6f)
+                canvas.drawCircle(cx - radius * 0.3f + driftX, cy, radius * 0.5f, paint)
+                canvas.drawCircle(cx + radius * 0.2f + driftX, cy - radius * 0.1f, radius * 0.65f, paint)
+                val rect = RectF(cx - radius * 0.6f + driftX, cy + radius * 0.1f, cx + radius * 0.7f + driftX, cy + radius * 0.6f)
                 canvas.drawRoundRect(rect, 15f, 15f, paint)
             }
             WeatherCondition.RAINY -> {
@@ -807,14 +928,19 @@ object SkySphereWidgetPainter {
                 val rect = RectF(cx - radius * 0.55f, cy - radius * 0.1f, cx + radius * 0.65f, cy + radius * 0.3f)
                 canvas.drawRoundRect(rect, 15f, 15f, paint)
 
-                // Rain Drops
+                // Animated Falling Rain Drops
                 paint.color = Color.parseColor("#38BDF8")
                 paint.strokeWidth = radius * 0.15f
                 paint.style = Paint.Style.STROKE
                 paint.strokeCap = Paint.Cap.ROUND
-                canvas.drawLine(cx - radius * 0.3f, cy + radius * 0.4f, cx - radius * 0.4f, cy + radius * 0.8f, paint)
-                canvas.drawLine(cx, cy + radius * 0.4f, cx - radius * 0.1f, cy + radius * 0.8f, paint)
-                canvas.drawLine(cx + radius * 0.3f, cy + radius * 0.4f, cx + radius * 0.2f, cy + radius * 0.8f, paint)
+
+                val drop1Y = cy + radius * 0.4f + ((timeMs / 12L + 0) % (radius * 0.4f).toInt())
+                val drop2Y = cy + radius * 0.4f + ((timeMs / 12L + 15) % (radius * 0.4f).toInt())
+                val drop3Y = cy + radius * 0.4f + ((timeMs / 12L + 30) % (radius * 0.4f).toInt())
+
+                canvas.drawLine(cx - radius * 0.3f, drop1Y, cx - radius * 0.4f, drop1Y + radius * 0.3f, paint)
+                canvas.drawLine(cx, drop2Y, cx - radius * 0.1f, drop2Y + radius * 0.3f, paint)
+                canvas.drawLine(cx + radius * 0.3f, drop3Y, cx + radius * 0.2f, drop3Y + radius * 0.3f, paint)
             }
             WeatherCondition.STORM -> {
                 // Dark Cloud
@@ -822,8 +948,10 @@ object SkySphereWidgetPainter {
                 paint.style = Paint.Style.FILL
                 canvas.drawCircle(cx, cy - radius * 0.2f, radius * 0.65f, paint)
 
-                // Lightning Bolt
+                // Animated Lightning Bolt Brightness Pulse
+                val lightningAlpha = (180 + sin(timeMs / 140.0) * 75).toInt().coerceIn(80, 255)
                 paint.color = Color.parseColor("#FACC15")
+                paint.alpha = lightningAlpha
                 val path = Path()
                 path.moveTo(cx + radius * 0.1f, cy + radius * 0.1f)
                 path.lineTo(cx - radius * 0.2f, cy + radius * 0.6f)
@@ -840,21 +968,30 @@ object SkySphereWidgetPainter {
                 paint.style = Paint.Style.FILL
                 canvas.drawCircle(cx, cy - radius * 0.2f, radius * 0.6f, paint)
 
-                // Snowflakes
+                // Animated Floating Snowflakes
                 paint.color = Color.WHITE
-                canvas.drawCircle(cx - radius * 0.35f, cy + radius * 0.55f, radius * 0.15f, paint)
-                canvas.drawCircle(cx, cy + radius * 0.6f, radius * 0.15f, paint)
-                canvas.drawCircle(cx + radius * 0.35f, cy + radius * 0.55f, radius * 0.15f, paint)
+                val snow1X = cx - radius * 0.35f + sin(timeMs / 500.0).toFloat() * 4f
+                val snow2X = cx + sin(timeMs / 500.0 + 1).toFloat() * 4f
+                val snow3X = cx + radius * 0.35f + sin(timeMs / 500.0 + 2).toFloat() * 4f
+
+                val snow1Y = cy + radius * 0.45f + ((timeMs / 16L) % (radius * 0.3f).toInt())
+                val snow2Y = cy + radius * 0.45f + ((timeMs / 16L + 10) % (radius * 0.3f).toInt())
+                val snow3Y = cy + radius * 0.45f + ((timeMs / 16L + 20) % (radius * 0.3f).toInt())
+
+                canvas.drawCircle(snow1X, snow1Y, radius * 0.13f, paint)
+                canvas.drawCircle(snow2X, snow2Y, radius * 0.13f, paint)
+                canvas.drawCircle(snow3X, snow3Y, radius * 0.13f, paint)
             }
             WeatherCondition.FOGGY -> {
-                // Fog Bands
+                // Animated Fog Bands
+                val shiftX = sin(timeMs / 900.0).toFloat() * 6f
                 paint.color = Color.parseColor("#E2E8F0")
                 paint.strokeWidth = radius * 0.2f
                 paint.style = Paint.Style.STROKE
                 paint.strokeCap = Paint.Cap.ROUND
-                canvas.drawLine(cx - radius * 0.7f, cy - radius * 0.3f, cx + radius * 0.7f, cy - radius * 0.3f, paint)
-                canvas.drawLine(cx - radius * 0.85f, cy, cx + radius * 0.85f, cy, paint)
-                canvas.drawLine(cx - radius * 0.6f, cy + radius * 0.3f, cx + radius * 0.6f, cy + radius * 0.3f, paint)
+                canvas.drawLine(cx - radius * 0.7f + shiftX, cy - radius * 0.3f, cx + radius * 0.7f + shiftX, cy - radius * 0.3f, paint)
+                canvas.drawLine(cx - radius * 0.85f - shiftX, cy, cx + radius * 0.85f - shiftX, cy, paint)
+                canvas.drawLine(cx - radius * 0.6f + shiftX, cy + radius * 0.3f, cx + radius * 0.6f + shiftX, cy + radius * 0.3f, paint)
             }
         }
     }

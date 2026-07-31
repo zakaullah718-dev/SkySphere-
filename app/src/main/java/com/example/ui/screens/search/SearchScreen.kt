@@ -19,14 +19,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Close
-import androidx.compose.material.icons.filled.Delete
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.FavoriteBorder
-import androidx.compose.material.icons.filled.History
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Warning
+import com.example.ui.icons.SkySphereIcons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -107,7 +100,7 @@ fun SearchScreen(
                         modifier = Modifier.weight(1f)
                     ) {
                         Icon(
-                            imageVector = Icons.Default.Warning,
+                            imageVector = SkySphereIcons.Warning,
                             contentDescription = "Warning",
                             tint = Color(0xFFFF5252),
                             modifier = Modifier.size(20.dp)
@@ -122,7 +115,7 @@ fun SearchScreen(
                     }
                     IconButton(onClick = { viewModel.clearError() }) {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            imageVector = SkySphereIcons.Close,
                             contentDescription = "Dismiss error",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant,
                             modifier = Modifier.size(16.dp)
@@ -146,7 +139,7 @@ fun SearchScreen(
             },
             leadingIcon = {
                 Icon(
-                    imageVector = Icons.Default.Search,
+                    imageVector = SkySphereIcons.Search,
                     contentDescription = null,
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp)
@@ -156,7 +149,7 @@ fun SearchScreen(
                 if (query.isNotEmpty()) {
                     IconButton(onClick = { viewModel.onSearchQueryChanged("") }) {
                         Icon(
-                            imageVector = Icons.Default.Close,
+                            imageVector = SkySphereIcons.Close,
                             contentDescription = "Clear text",
                             tint = MaterialTheme.colorScheme.onSurfaceVariant
                         )
@@ -232,7 +225,7 @@ fun SearchScreen(
                     ) {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.History,
+                                imageVector = SkySphereIcons.Search,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.6f),
                                 modifier = Modifier.size(16.dp)
@@ -250,7 +243,7 @@ fun SearchScreen(
                             modifier = Modifier.size(24.dp)
                         ) {
                             Icon(
-                                imageVector = Icons.Default.Delete,
+                                imageVector = SkySphereIcons.Close,
                                 contentDescription = "Delete search",
                                 tint = Color(0xFFFF5252).copy(alpha = 0.8f),
                                 modifier = Modifier.size(16.dp)
@@ -421,7 +414,7 @@ fun SearchCityCard(
                                 .testTag("search_favorite_toggle_${city.cityName.lowercase()}")
                         ) {
                             Icon(
-                                imageVector = if (city.isFavorite) Icons.Filled.Favorite else Icons.Filled.FavoriteBorder,
+                                imageVector = if (city.isFavorite) SkySphereIcons.VaultActive else SkySphereIcons.Vault,
                                 contentDescription = "Favorite Toggle",
                                 tint = if (city.isFavorite) Color(0xFFFF5252) else MaterialTheme.colorScheme.onBackground,
                                 modifier = Modifier.size(18.dp)
@@ -448,7 +441,7 @@ fun EmptySearchState(query: String) {
             modifier = Modifier.padding(32.dp)
         ) {
             Icon(
-                imageVector = Icons.Default.Search,
+                imageVector = SkySphereIcons.Search,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
                 modifier = Modifier.size(64.dp)

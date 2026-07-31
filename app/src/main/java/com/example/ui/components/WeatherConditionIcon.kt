@@ -6,17 +6,6 @@ import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AcUnit
-import androidx.compose.material.icons.filled.Bedtime
-import androidx.compose.material.icons.filled.BlurOn
-import androidx.compose.material.icons.filled.Cloud
-import androidx.compose.material.icons.filled.CloudQueue
-import androidx.compose.material.icons.filled.Grain
-import androidx.compose.material.icons.filled.NightsStay
-import androidx.compose.material.icons.filled.Thunderstorm
-import androidx.compose.material.icons.filled.WaterDrop
-import androidx.compose.material.icons.filled.WbSunny
 import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -31,9 +20,13 @@ import androidx.compose.ui.graphics.Color
 import com.example.data.models.CityWeather
 import com.example.data.models.WeatherCondition
 import com.example.data.models.WeatherDetails
+import com.example.ui.icons.SkySphereIcons
 import com.example.utils.WeatherTimeUtils
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+
+import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.unit.dp
 
 @Composable
 fun WeatherConditionIcon(
@@ -89,21 +82,21 @@ fun WeatherConditionIcon(
 
     val safeCondition = condition ?: WeatherCondition.PARTLY_CLOUDY
     val icon = when {
-        effectiveIsNight && safeCondition == WeatherCondition.SUNNY -> Icons.Filled.Bedtime
-        effectiveIsNight && safeCondition == WeatherCondition.PARTLY_CLOUDY -> Icons.Filled.NightsStay
-        effectiveIsNight && safeCondition == WeatherCondition.CLOUDY -> Icons.Filled.Cloud
-        effectiveIsNight && safeCondition == WeatherCondition.RAINY -> Icons.Filled.WaterDrop
-        effectiveIsNight && safeCondition == WeatherCondition.STORM -> Icons.Filled.Thunderstorm
-        effectiveIsNight && safeCondition == WeatherCondition.SNOWY -> Icons.Filled.AcUnit
-        effectiveIsNight && safeCondition == WeatherCondition.FOGGY -> Icons.Filled.BlurOn
-        safeCondition == WeatherCondition.SUNNY -> Icons.Filled.WbSunny
-        safeCondition == WeatherCondition.PARTLY_CLOUDY -> Icons.Filled.CloudQueue
-        safeCondition == WeatherCondition.CLOUDY -> Icons.Filled.Cloud
-        safeCondition == WeatherCondition.RAINY -> Icons.Filled.WaterDrop
-        safeCondition == WeatherCondition.STORM -> Icons.Filled.Thunderstorm
-        safeCondition == WeatherCondition.SNOWY -> Icons.Filled.AcUnit
-        safeCondition == WeatherCondition.FOGGY -> Icons.Filled.Grain
-        else -> Icons.Filled.CloudQueue
+        effectiveIsNight && safeCondition == WeatherCondition.SUNNY -> SkySphereIcons.Moon
+        effectiveIsNight && safeCondition == WeatherCondition.PARTLY_CLOUDY -> SkySphereIcons.MoonPartlyCloudy
+        effectiveIsNight && safeCondition == WeatherCondition.CLOUDY -> SkySphereIcons.Cloud
+        effectiveIsNight && safeCondition == WeatherCondition.RAINY -> SkySphereIcons.Rainy
+        effectiveIsNight && safeCondition == WeatherCondition.STORM -> SkySphereIcons.Thunderstorm
+        effectiveIsNight && safeCondition == WeatherCondition.SNOWY -> SkySphereIcons.Snowy
+        effectiveIsNight && safeCondition == WeatherCondition.FOGGY -> SkySphereIcons.Foggy
+        safeCondition == WeatherCondition.SUNNY -> SkySphereIcons.Sunny
+        safeCondition == WeatherCondition.PARTLY_CLOUDY -> SkySphereIcons.SunPartlyCloudy
+        safeCondition == WeatherCondition.CLOUDY -> SkySphereIcons.Cloud
+        safeCondition == WeatherCondition.RAINY -> SkySphereIcons.Rainy
+        safeCondition == WeatherCondition.STORM -> SkySphereIcons.Thunderstorm
+        safeCondition == WeatherCondition.SNOWY -> SkySphereIcons.Snowy
+        safeCondition == WeatherCondition.FOGGY -> SkySphereIcons.Foggy
+        else -> SkySphereIcons.SunPartlyCloudy
     }
 
     val defaultTint = when {
@@ -126,8 +119,8 @@ fun WeatherConditionIcon(
 
     val infiniteTransition = rememberInfiniteTransition(label = "IconAnimation")
     
-    // Slow rotation for Sunny and Snowy
-    val rotationAngle by if (safeCondition == WeatherCondition.SUNNY || safeCondition == WeatherCondition.SNOWY) {
+    // 1. Sun rotates slowly
+    val sunRotationAngle by if (safeCondition == WeatherCondition.SUNNY) {
         infiniteTransition.animateFloat(
             initialValue = 0f,
             targetValue = 360f,
@@ -135,25 +128,85 @@ fun WeatherConditionIcon(
                 animation = tween(25000, easing = LinearEasing),
                 repeatMode = RepeatMode.Restart
             ),
-            label = "IconRotation"
+            label = "SunRotation"
         )
     } else {
-        androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(0f) }
+        remember { mutableStateOf(0f) }
     }
 
-    // Micro-pulsation for Rain/Storm/Partly Cloudy
-    val pulseScale by if (safeCondition == WeatherCondition.RAINY || safeCondition == WeatherCondition.STORM || safeCondition == WeatherCondition.PARTLY_CLOUDY) {
+    // 2. Clouds drift gently
+    val cloudDriftX by if (safeCondition == WeatherCondition.CLOUDY || safeCondition == WeatherCondition.PARTLY_CLOUDY) {
         infiniteTransition.animateFloat(
-            initialValue = 0.95f,
-            targetValue = 1.05f,
+            initialValue = -4f,
+            targetValue = 4f,
             animationSpec = infiniteRepeatable(
-                animation = tween(2500, easing = LinearEasing),
+                animation = tween(3500, easing = LinearEasing),
                 repeatMode = RepeatMode.Reverse
             ),
-            label = "IconPulse"
+            label = "CloudDrift"
         )
     } else {
-        androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(1f) }
+        remember { mutableStateOf(0f) }
+    }
+
+    // 3. Rain falls continuously
+    val rainOffsetY by if (safeCondition == WeatherCondition.RAINY) {
+        infiniteTransition.animateFloat(
+            initialValue = -2f,
+            targetValue = 3f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1200, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "RainOffset"
+        )
+    } else {
+        remember { mutableStateOf(0f) }
+    }
+
+    // 4. Snow floats softly
+    val snowSwayX by if (safeCondition == WeatherCondition.SNOWY) {
+        infiniteTransition.animateFloat(
+            initialValue = -3f,
+            targetValue = 3f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(2800, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "SnowSway"
+        )
+    } else {
+        remember { mutableStateOf(0f) }
+    }
+
+    // 5. Lightning flashes briefly
+    val flashScale by if (safeCondition == WeatherCondition.STORM) {
+        infiniteTransition.animateFloat(
+            initialValue = 0.95f,
+            targetValue = 1.15f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(1800, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "StormFlash"
+        )
+    } else {
+        remember { mutableStateOf(1f) }
+    }
+
+    // 6. Fog moves slowly
+    val fogDriftX by if (safeCondition == WeatherCondition.FOGGY) {
+        infiniteTransition.animateFloat(
+            initialValue = -5f,
+            targetValue = 5f,
+            animationSpec = infiniteRepeatable(
+                animation = tween(4500, easing = LinearEasing),
+                repeatMode = RepeatMode.Reverse
+            ),
+            label = "FogDrift"
+        )
+    } else {
+        remember { mutableStateOf(0f) }
     }
 
     Icon(
@@ -161,8 +214,9 @@ fun WeatherConditionIcon(
         contentDescription = safeCondition.displayName,
         tint = tint ?: defaultTint,
         modifier = modifier
-            .rotate(rotationAngle)
-            .scale(pulseScale)
+            .offset(x = (cloudDriftX + snowSwayX + fogDriftX).dp, y = rainOffsetY.dp)
+            .rotate(sunRotationAngle)
+            .scale(flashScale)
     )
 }
 

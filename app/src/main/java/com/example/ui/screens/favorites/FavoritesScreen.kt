@@ -18,10 +18,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.LocationOn
-import androidx.compose.material.icons.outlined.FavoriteBorder
+import com.example.ui.icons.SkySphereIcons
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -156,7 +153,7 @@ fun FavoriteCityCard(
                     Column {
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Icon(
-                                imageVector = Icons.Default.LocationOn,
+                                imageVector = SkySphereIcons.Location,
                                 contentDescription = null,
                                 tint = MaterialTheme.colorScheme.primary,
                                 modifier = Modifier.size(14.dp)
@@ -217,7 +214,7 @@ fun FavoriteCityCard(
                             .testTag("favorite_remove_button_${(city.cityName ?: "city").lowercase()}")
                     ) {
                         Icon(
-                            imageVector = Icons.Filled.Favorite,
+                            imageVector = SkySphereIcons.VaultActive,
                             contentDescription = "Remove from Vault",
                             tint = Color(0xFFFF5252),
                             modifier = Modifier.size(18.dp)
@@ -243,7 +240,7 @@ fun EmptyVaultState() {
             modifier = Modifier.padding(32.dp)
         ) {
             Icon(
-                imageVector = Icons.Outlined.FavoriteBorder,
+                imageVector = SkySphereIcons.Vault,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.3f),
                 modifier = Modifier.size(64.dp)
