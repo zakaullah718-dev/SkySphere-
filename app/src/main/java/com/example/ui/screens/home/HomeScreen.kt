@@ -1132,25 +1132,22 @@ fun HomeScreenContent(
                 
                 Spacer(modifier = Modifier.height(24.dp))
                 
-                Text(
-                    text = "SUNRISE & SUNSET",
-                    style = MaterialTheme.typography.labelSmall.copy(
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 2.sp
-                    )
+                com.example.ui.components.HumidityChartComponent(
+                    details = details,
+                    isCelsius = isCelsius,
+                    modifier = Modifier.fillMaxWidth().testTag("humidity_spline_chart")
                 )
-                Spacer(modifier = Modifier.height(12.dp))
+
+                Spacer(modifier = Modifier.height(24.dp))
                 
-                SkySphereCard(
-                    modifier = Modifier.fillMaxWidth()
-                ) {
-                    SunriseSunsetArc(
-                        sunrise = details.sunrise,
-                        sunset = details.sunset,
-                        modifier = Modifier.fillMaxWidth()
-                    )
-                }
+                com.example.ui.components.AstronomyCard(
+                    sunrise = details.sunrise,
+                    sunset = details.sunset,
+                    latitude = cityWeather.latitude,
+                    longitude = cityWeather.longitude,
+                    cityName = cityWeather.cityName,
+                    modifier = Modifier.fillMaxWidth().testTag("astronomy_card")
+                )
             }
         }
 

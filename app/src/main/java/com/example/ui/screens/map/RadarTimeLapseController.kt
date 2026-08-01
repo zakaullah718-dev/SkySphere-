@@ -70,72 +70,28 @@ class RadarTimeLapseController(
         }
 
         preloadJob = scope.launch {
-            val frames = fetchOrGenerateFrames()
-            val initialIndex = frames.indexOfLast { !it.isForecast }.coerceAtLeast(0)
+            val liveRadarFrame = try {
+                radarRepository.getLatestRadarFrame()
+            } catch (e: Exception) {
+                RadarFrame()
+            }
+            val nowSec = System.currentTimeMillis() / 1000L
+            val liveTimeLapseFrame = createFrame(0, liveRadarFrame.time.takeIf { it > 0 } ?: nowSec, liveRadarFrame, nowSec)
+            val frames = listOf(liveTimeLapseFrame)
 
             _state.update {
                 it.copy(
                     frames = frames,
-                    currentFrameIndex = initialIndex,
-                    isLoading = true
-                )
-            }
-
-            val initialFrame = frames.getOrNull(initialIndex)
-            if (initialFrame != null && onFrameChanged != null) {
-                onFrameChanged(initialFrame)
-            }
-
-            // Check if current layer is already 100% pre-decoded in RAM
-            val isAlreadyCached = RadarPreloader.areAllFramesCached(layer, frames, lat, lon, zoom)
-            if (isAlreadyCached) {
-                _state.update { s ->
-                    val allReadyFrames = s.frames.map { f -> f.copy(isReady = true) }
-                    s.copy(
-                        frames = allReadyFrames,
-                        isLoading = false,
-                        isBuffering = false,
-                        isReadyToPlay = true,
-                        bufferProgress = 1.0f
-                    )
-                }
-                return@launch
-            }
-
-            // Preload current active layer frames completely into RAM
-            val orderedFrames = if (initialFrame != null) {
-                listOf(initialFrame) + frames.filter { it.index != initialIndex }
-            } else frames
-
-            RadarPreloader.preloadFrames(
-                layer = layer,
-                frames = orderedFrames,
-                centerLat = lat,
-                centerLon = lon,
-                mapZoom = zoom,
-                onProgress = { loaded, total ->
-                    val progress = if (total > 0) loaded.toFloat() / total else 1.0f
-                    _state.update { s -> s.copy(bufferProgress = progress) }
-                },
-                onFrameReady = { fIdx ->
-                    _state.update { s ->
-                        val updatedFrames = s.frames.map { f ->
-                            if (f.index == fIdx) f.copy(isReady = true) else f
-                        }
-                        s.copy(frames = updatedFrames)
-                    }
-                }
-            )
-
-            _state.update { s ->
-                val allReadyFrames = s.frames.map { f -> f.copy(isReady = true) }
-                s.copy(
-                    frames = allReadyFrames,
+                    currentFrameIndex = 0,
                     isLoading = false,
                     isBuffering = false,
-                    isReadyToPlay = true,
+                    isReadyToPlay = false,
                     bufferProgress = 1.0f
                 )
+            }
+
+            if (onFrameChanged != null) {
+                onFrameChanged(liveTimeLapseFrame)
             }
         }
     }

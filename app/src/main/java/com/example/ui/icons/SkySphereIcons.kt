@@ -19,6 +19,33 @@ object SkySphereIcons {
 
     // --- NAVIGATION ICONS ---
 
+    val Info: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "SkySphereInfo",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).path(
+            fill = null,
+            stroke = SolidColor(Color.White),
+            strokeLineWidth = 1.8f,
+            strokeLineCap = StrokeCap.Round,
+            strokeLineJoin = StrokeJoin.Round
+        ) {
+            moveTo(12f, 22f)
+            curveTo(17.52f, 22f, 22f, 17.52f, 22f, 12f)
+            curveTo(22f, 6.48f, 17.52f, 2f, 12f, 2f)
+            curveTo(6.48f, 2f, 2f, 6.48f, 2f, 12f)
+            curveTo(2f, 17.52f, 6.48f, 22f, 12f, 22f)
+            close()
+            moveTo(12f, 16f)
+            lineTo(12f, 11f)
+            moveTo(12f, 8f)
+            lineTo(12.01f, 8f)
+        }.build()
+    }
+
     val HomeActive: ImageVector by lazy {
         ImageVector.Builder(
             name = "SkySphereHomeActive",
@@ -1448,6 +1475,64 @@ object SkySphereIcons {
             lineTo(12f, 13.5f)
             lineTo(9f, 12f)
             close()
+        }.build()
+    }
+
+    val Moonrise: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "SkySphereMoonrise",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).path(
+            fill = null,
+            stroke = SolidColor(Color(0xFF38BDF8)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round
+        ) {
+            // Horizon Line
+            moveTo(2f, 18f); lineTo(22f, 18f)
+
+            // Crescent Moon
+            moveTo(6f, 18f)
+            curveTo(6f, 14.69f, 8.69f, 12f, 12f, 12f)
+            curveTo(13.8f, 12f, 15.4f, 12.8f, 16.5f, 14.1f)
+            curveTo(15.2f, 14.1f, 14f, 15.2f, 14f, 16.5f)
+            curveTo(14f, 17f, 14.2f, 17.5f, 14.5f, 18f)
+
+            // Ascending Arrow
+            moveTo(18f, 10f); lineTo(18f, 3f)
+            moveTo(15f, 6f); lineTo(18f, 3f); lineTo(21f, 6f)
+        }.build()
+    }
+
+    val Moonset: ImageVector by lazy {
+        ImageVector.Builder(
+            name = "SkySphereMoonset",
+            defaultWidth = 24.dp,
+            defaultHeight = 24.dp,
+            viewportWidth = 24f,
+            viewportHeight = 24f
+        ).path(
+            fill = null,
+            stroke = SolidColor(Color(0xFF818CF8)),
+            strokeLineWidth = 2f,
+            strokeLineCap = StrokeCap.Round
+        ) {
+            // Horizon Line
+            moveTo(2f, 18f); lineTo(22f, 18f)
+
+            // Crescent Moon
+            moveTo(6f, 18f)
+            curveTo(6f, 14.69f, 8.69f, 12f, 12f, 12f)
+            curveTo(13.8f, 12f, 15.4f, 12.8f, 16.5f, 14.1f)
+            curveTo(15.2f, 14.1f, 14f, 15.2f, 14f, 16.5f)
+            curveTo(14f, 17f, 14.2f, 17.5f, 14.5f, 18f)
+
+            // Descending Arrow
+            moveTo(18f, 3f); lineTo(18f, 10f)
+            moveTo(15f, 7f); lineTo(18f, 10f); lineTo(21f, 7f)
         }.build()
     }
 }

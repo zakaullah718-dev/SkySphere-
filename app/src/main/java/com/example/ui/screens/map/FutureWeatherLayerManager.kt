@@ -19,7 +19,69 @@ import org.osmdroid.tileprovider.tilesource.ITileSource
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
 import org.osmdroid.views.overlay.TilesOverlay
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.FutureTask
+import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
+
+object RadarTileFetcher {
+    private val semaphore = Semaphore(4) // Rate limit to max 4 concurrent network tile downloads
+    private val inFlightTasks = ConcurrentHashMap<String, FutureTask<Bitmap?>>()
+
+    fun fetchOrDeduplicateTile(
+        cacheKey: String,
+        fetcher: () -> Bitmap?
+    ): Bitmap? {
+        // 1. Check RAM Cache
+        val ramCached = TileRamCache.get(cacheKey)
+        if (ramCached != null) {
+            RadarApiTracker.logRamCacheHit(cacheKey)
+            return ramCached
+        }
+
+        // 2. Check Local Disk Cache
+        val diskCached = DiskTileCache.get(cacheKey)
+        if (diskCached != null) {
+            RadarApiTracker.logDiskCacheHit(cacheKey)
+            TileRamCache.put(cacheKey, diskCached)
+            return diskCached
+        }
+
+        // 3. Deduplicate in-flight requests (prevent duplicate tile downloads)
+        val newTask = FutureTask<Bitmap?> {
+            semaphore.acquire()
+            try {
+                val bitmap = fetcher()
+                if (bitmap != null) {
+                    TileRamCache.put(cacheKey, bitmap)
+                    DiskTileCache.put(cacheKey, bitmap)
+                }
+                bitmap
+            } finally {
+                semaphore.release()
+            }
+        }
+
+        val existingTask = inFlightTasks.putIfAbsent(cacheKey, newTask)
+        if (existingTask != null) {
+            RadarApiTracker.logDuplicatePrevented(cacheKey)
+            return try {
+                existingTask.get(5, TimeUnit.SECONDS)
+            } catch (e: Exception) {
+                null
+            }
+        }
+
+        return try {
+            newTask.run()
+            newTask.get(5, TimeUnit.SECONDS)
+        } catch (e: Exception) {
+            null
+        } finally {
+            inFlightTasks.remove(cacheKey)
+        }
+    }
+}
 
 class WeatherTilesOverlay(
     val pTileProvider: MapTileProviderBase,
@@ -69,6 +131,8 @@ class FutureWeatherLayerManager(
         if (layer == MapWeatherLayer.NONE) {
             return null
         }
+
+        DiskTileCache.init(context)
 
         if (layer == MapWeatherLayer.RAIN_RADAR) {
             val dummyTileSource = object : OnlineTileSourceBase(
@@ -168,73 +232,55 @@ class RainRadarTileModuleProvider(
         var frame = customRadarFrame ?: radarRepository.getLatestRadarFrameSync()
         val cacheKey = "RainViewer_Radar_${frame.time}_${clampedZoom}_${x}_${y}"
 
-        val ramCached = TileRamCache.get(cacheKey)
-        if (ramCached != null) {
-            return Pair(ramCached, "Reused from preloaded RAM cache")
-        }
-
         if (isPlaybackActive) {
-            // NEVER request network tiles while playback animation is active
             return Pair(null, "Playback active: skipped network request")
         }
 
-        val cached = parentBitmapCache.get(cacheKey)
-        if (cached != null && !cached.isRecycled) {
-            return Pair(cached, "Reused from in-memory cache")
-        }
+        val bitmap = RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
+            var tileUrl = frame.buildTileUrl(clampedZoom, x, y)
+            RadarApiTracker.logRainViewerRequest(tileUrl)
+            var tileBytes: ByteArray? = null
+            var httpCode = 0
 
-        var tileUrl = frame.buildTileUrl(clampedZoom, x, y)
-        var tileBytes: ByteArray? = null
-        var httpCode = 0
-        var isFresh = false
-
-        try {
-            val req = Request.Builder()
-                .url(tileUrl)
-                .header("User-Agent", "SkySphereApp/1.0")
-                .build()
-            client.newCall(req).execute().use { response ->
-                httpCode = response.code
-                if (httpCode == 410) {
-                    radarRepository.invalidateCache()
-                    frame = radarRepository.getLatestRadarFrameSync(forceRefresh = true)
-                    tileUrl = frame.buildTileUrl(clampedZoom, x, y)
-                    val retryReq = Request.Builder()
-                        .url(tileUrl)
-                        .header("User-Agent", "SkySphereApp/1.0")
-                        .build()
-                    client.newCall(retryReq).execute().use { retryResp ->
-                        if (retryResp.isSuccessful) {
-                            tileBytes = retryResp.body?.bytes()
-                            isFresh = true
+            try {
+                val req = Request.Builder()
+                    .url(tileUrl)
+                    .header("User-Agent", "SkySphereApp/1.0")
+                    .build()
+                client.newCall(req).execute().use { response ->
+                    httpCode = response.code
+                    if (httpCode == 410) {
+                        radarRepository.invalidateCache()
+                        frame = radarRepository.getLatestRadarFrameSync(forceRefresh = true)
+                        tileUrl = frame.buildTileUrl(clampedZoom, x, y)
+                        RadarApiTracker.logRainViewerRequest(tileUrl)
+                        val retryReq = Request.Builder()
+                            .url(tileUrl)
+                            .header("User-Agent", "SkySphereApp/1.0")
+                            .build()
+                        client.newCall(retryReq).execute().use { retryResp ->
+                            if (retryResp.isSuccessful) {
+                                tileBytes = retryResp.body?.bytes()
+                            }
                         }
+                    } else if (response.isSuccessful) {
+                        tileBytes = response.body?.bytes()
                     }
-                } else if (response.isSuccessful) {
-                    tileBytes = response.body?.bytes()
-                    isFresh = true
                 }
+            } catch (e: Exception) {
+                Log.e("RainRadarTile", "Network error fetching provider tile [Z=$clampedZoom, X=$x, Y=$y]: ${e.localizedMessage}")
             }
-        } catch (e: Exception) {
-            Log.e("RainRadarTile", "Network error fetching provider tile [Z=$clampedZoom, X=$x, Y=$y]: ${e.localizedMessage}")
+
+            if (tileBytes != null && tileBytes!!.isNotEmpty()) {
+                try {
+                    BitmapFactory.decodeByteArray(tileBytes, 0, tileBytes!!.size)
+                } catch (e: Exception) {
+                    null
+                }
+            } else null
         }
 
-        if (tileBytes == null || tileBytes!!.isEmpty()) {
-            return Pair(null, "Download failed (HTTP $httpCode)")
-        }
-
-        return try {
-            val bitmap = BitmapFactory.decodeByteArray(tileBytes, 0, tileBytes!!.size)
-            if (bitmap != null) {
-                parentBitmapCache.put(cacheKey, bitmap)
-                TileRamCache.put(cacheKey, bitmap)
-                val sourceText = if (isFresh) "Freshly downloaded" else "Retrieved from cache"
-                Pair(bitmap, sourceText)
-            } else {
-                Pair(null, "Decode failed")
-            }
-        } catch (e: Exception) {
-            Pair(null, "Decode exception: ${e.localizedMessage}")
-        }
+        return Pair(bitmap, if (bitmap != null) "Loaded" else "Failed")
     }
 
     private inner class RainTileLoader : MapTileModuleProviderBase.TileLoader() {
@@ -254,7 +300,7 @@ class RainRadarTileModuleProvider(
             val providerMaxZoom = FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
 
             if (mapZoom <= providerMaxZoom) {
-                val (bitmap, status) = fetchProviderTileBitmap(mapZoom, tileX, tileY)
+                val (bitmap, _) = fetchProviderTileBitmap(mapZoom, tileX, tileY)
                 return if (bitmap != null) BitmapDrawable(null, bitmap) else FutureWeatherLayerManager.emptyTransparentTile
             } else {
                 val deltaZ = mapZoom - providerMaxZoom
@@ -324,57 +370,43 @@ class OwmTileModuleProvider(
         val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM)
         val cacheKey = "${layerEndpoint}_${clampedZoom}_${x}_${y}"
 
-        val ramCached = TileRamCache.get(cacheKey)
-        if (ramCached != null) {
-            return ramCached
-        }
-
         if (isPlaybackActive) {
-            // NEVER request network tiles while playback animation is active
             return null
         }
 
-        val cached = parentBitmapCache.get(cacheKey)
-        if (cached != null && !cached.isRecycled) {
-            return cached
-        }
+        return RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
+            val url = "https://tile.openweathermap.org/map/$layerEndpoint/$clampedZoom/$x/$y.png?appid=$owmApiKey"
+            RadarApiTracker.logOpenWeatherRequest(url)
+            var tileBytes: ByteArray? = null
 
-        val url = "https://tile.openweathermap.org/map/$layerEndpoint/$clampedZoom/$x/$y.png?appid=$owmApiKey"
-        var tileBytes: ByteArray? = null
-
-        try {
-            val req = Request.Builder()
-                .url(url)
-                .header("User-Agent", "SkySphereApp/1.0")
-                .build()
-            client.newCall(req).execute().use { response ->
-                if (response.isSuccessful) {
-                    tileBytes = response.body?.bytes()
+            try {
+                val req = Request.Builder()
+                    .url(url)
+                    .header("User-Agent", "SkySphereApp/1.0")
+                    .build()
+                client.newCall(req).execute().use { response ->
+                    if (response.isSuccessful) {
+                        tileBytes = response.body?.bytes()
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e("OwmTile", "Network error fetching OWM tile [$layerEndpoint Z=$clampedZoom X=$x Y=$y]: ${e.localizedMessage}")
             }
-        } catch (e: Exception) {
-            Log.e("OwmTile", "Network error fetching OWM tile [$layerEndpoint Z=$clampedZoom X=$x Y=$y]: ${e.localizedMessage}")
-        }
 
-        if (tileBytes == null || tileBytes!!.isEmpty()) {
-            return null
-        }
-
-        return try {
-            var bitmap = BitmapFactory.decodeByteArray(tileBytes, 0, tileBytes!!.size)
-            if (bitmap != null) {
-                if (isCloudsDark) {
-                    bitmap = applyDarkCloudStyle(bitmap)
-                }
-                parentBitmapCache.put(cacheKey, bitmap)
-                TileRamCache.put(cacheKey, bitmap)
-                bitmap
-            } else {
+            if (tileBytes == null || tileBytes!!.isEmpty()) {
                 null
+            } else {
+                try {
+                    var bitmap = BitmapFactory.decodeByteArray(tileBytes, 0, tileBytes!!.size)
+                    if (bitmap != null && isCloudsDark) {
+                        bitmap = applyDarkCloudStyle(bitmap)
+                    }
+                    bitmap
+                } catch (e: Exception) {
+                    Log.e("OwmTile", "Decode error for OWM tile: ${e.localizedMessage}")
+                    null
+                }
             }
-        } catch (e: Exception) {
-            Log.e("OwmTile", "Decode error for OWM tile: ${e.localizedMessage}")
-            null
         }
     }
 
@@ -454,3 +486,4 @@ class OwmTileModuleProvider(
         }
     }
 }
+

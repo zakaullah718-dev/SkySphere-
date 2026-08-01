@@ -71,7 +71,7 @@ object WeatherTimeUtils {
         }
     }
 
-    private fun resolveTimeZone(timeZoneId: String?, longitude: Double?): TimeZone {
+    fun resolveTimeZone(timeZoneId: String?, longitude: Double?): TimeZone {
         if (!timeZoneId.isNullOrBlank()) {
             try {
                 val tz = TimeZone.getTimeZone(timeZoneId)

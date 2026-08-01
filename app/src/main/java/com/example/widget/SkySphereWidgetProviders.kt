@@ -31,8 +31,12 @@ open class BaseSkySphereWidgetProvider : AppWidgetProvider() {
         val action = intent.action
         Log.d("SkySphereWidgetProvider", "onReceive action: $action")
         if (action == SkySphereWidgetManager.ACTION_REFRESH_WIDGET ||
+            action == SkySphereWidgetManager.ACTION_CLOCK_TICK ||
             action == AppWidgetManager.ACTION_APPWIDGET_UPDATE ||
             action == AppWidgetManager.ACTION_APPWIDGET_OPTIONS_CHANGED ||
+            action == Intent.ACTION_TIME_TICK ||
+            action == Intent.ACTION_TIME_CHANGED ||
+            action == Intent.ACTION_TIMEZONE_CHANGED ||
             action == Intent.ACTION_BOOT_COMPLETED
         ) {
             SkySphereWidgetManager.updateAllWidgets(context)

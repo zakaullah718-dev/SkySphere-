@@ -130,19 +130,17 @@ fun RadarTimeLapsePanel(
                 ) {
                     Box(
                         modifier = Modifier
-                            .size(7.dp)
+                            .size(8.dp)
                             .clip(CircleShape)
-                            .background(
-                                if (isNowFrame || state.isPlaying) Color(0xFF00E676) else Color(0xFF4FD1C5)
-                            )
-                            .alpha(if (state.isPlaying || isNowFrame) pulseAlpha else 0.8f)
+                            .background(Color(0xFF00E676))
+                            .alpha(pulseAlpha)
                     )
-                    Spacer(modifier = Modifier.width(5.dp))
+                    Spacer(modifier = Modifier.width(6.dp))
 
                     Text(
-                        text = currentFrame?.displayLabel ?: "NOW (LIVE)",
+                        text = "LIVE MAP (OPTIMIZED)",
                         style = MaterialTheme.typography.titleMedium.copy(
-                            color = if (isNowFrame) Color(0xFF00E676) else Color.White,
+                            color = Color(0xFF00E676),
                             fontWeight = FontWeight.Bold,
                             fontSize = 12.sp
                         )
@@ -159,30 +157,18 @@ fun RadarTimeLapsePanel(
                     }
                 }
 
-                // Speed Selector Pill Button
-                val speedStr = when (state.playbackSpeed) {
-                    0.25f -> "0.25x"
-                    0.5f -> "0.5x"
-                    1.0f -> "1x"
-                    1.5f -> "1.5x"
-                    2.0f -> "2x"
-                    else -> "${state.playbackSpeed}x"
-                }
+                // Speed Selector Pill Button (Disabled during optimization)
                 Surface(
                     shape = RoundedCornerShape(8.dp),
-                    color = Color(0x33FFFFFF),
+                    color = Color(0x1AFFFFFF),
                     modifier = Modifier
                         .clip(RoundedCornerShape(8.dp))
-                        .clickable {
-                            try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
-                            onCycleSpeed()
-                        }
                         .testTag("timelapse_speed_button")
                 ) {
                     Text(
-                        text = speedStr,
+                        text = "1x (Paused)",
                         style = MaterialTheme.typography.labelMedium.copy(
-                            color = Color(0xFF4FD1C5),
+                            color = Color(0x88FFFFFF),
                             fontWeight = FontWeight.Bold,
                             fontSize = 10.sp
                         ),
@@ -191,56 +177,46 @@ fun RadarTimeLapsePanel(
                 }
             }
 
-            AnimatedVisibility(
-                visible = !state.isReadyToPlay || state.isLoading || state.isBuffering,
-                enter = fadeIn(),
-                exit = fadeOut()
+            // Optimization Notice Bar
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(vertical = 4.dp)
+                    .background(Color(0x1F4FD1C5), RoundedCornerShape(6.dp))
+                    .padding(horizontal = 8.dp, vertical = 4.dp)
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 2.dp)
-                        .background(Color(0x224FD1C5), RoundedCornerShape(4.dp))
-                        .padding(horizontal = 6.dp, vertical = 2.dp)
-                ) {
-                    CircularProgressIndicator(
+                Icon(
+                    imageVector = SkySphereIcons.Info,
+                    contentDescription = null,
+                    tint = Color(0xFF4FD1C5),
+                    modifier = Modifier.size(12.dp)
+                )
+                Spacer(modifier = Modifier.width(6.dp))
+                Text(
+                    text = "Timelapse playback temporarily paused for radar optimization",
+                    style = MaterialTheme.typography.labelSmall.copy(
                         color = Color(0xFF4FD1C5),
-                        strokeWidth = 2.dp,
-                        modifier = Modifier.size(10.dp)
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium
                     )
-                    Spacer(modifier = Modifier.width(4.dp))
-                    Text(
-                        text = "Preloading radar time-lapse... ${(state.bufferProgress * 100).toInt()}%",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = Color(0xFF4FD1C5),
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Medium
-                        )
-                    )
-                }
+                )
             }
 
-            // 2. TIMELINE SLIDER
+            // 2. TIMELINE SLIDER (Disabled during optimization)
             val maxIndex = (state.frames.size - 1).coerceAtLeast(1)
             Slider(
                 value = state.currentFrameIndex.toFloat().coerceIn(0f, maxIndex.toFloat()),
-                onValueChange = { newValue ->
-                    val newIndex = newValue.toInt()
-                    if (newIndex != lastHapticIndex) {
-                        lastHapticIndex = newIndex
-                        try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
-                    }
-                    onSeekToFrame(newIndex)
-                },
+                onValueChange = { },
+                enabled = false,
                 valueRange = 0f..maxIndex.toFloat(),
                 steps = (state.frames.size - 2).coerceAtLeast(0),
                 colors = SliderDefaults.colors(
-                    thumbColor = if (isNowFrame) Color(0xFF00E676) else Color(0xFF4FD1C5),
-                    activeTrackColor = Color(0xFF319795),
-                    inactiveTrackColor = Color(0x33FFFFFF),
-                    activeTickColor = Color.Transparent,
-                    inactiveTickColor = Color.Transparent
+                    disabledThumbColor = Color(0xFF00E676),
+                    disabledActiveTrackColor = Color(0xFF319795),
+                    disabledInactiveTrackColor = Color(0x22FFFFFF),
+                    disabledActiveTickColor = Color.Transparent,
+                    disabledInactiveTickColor = Color.Transparent
                 ),
                 modifier = Modifier
                     .fillMaxWidth()
@@ -248,7 +224,7 @@ fun RadarTimeLapsePanel(
                     .testTag("timelapse_slider")
             )
 
-            // 3. BOTTOM CONTROLS & STATUS ROW
+            // 3. BOTTOM CONTROLS & STATUS ROW (Disabled during optimization)
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -256,9 +232,9 @@ fun RadarTimeLapsePanel(
                     .fillMaxWidth()
                     .padding(top = 0.dp)
             ) {
-                // Left: History Span Label
+                // Left: Live Status
                 Text(
-                    text = state.availableHistoryLabel,
+                    text = "Live Radar Active",
                     style = MaterialTheme.typography.labelSmall.copy(
                         color = Color(0xB3FFFFFF),
                         fontSize = 9.sp,
@@ -266,81 +242,63 @@ fun RadarTimeLapsePanel(
                     )
                 )
 
-                // Center: Compact Playback Controls
+                // Center: Disabled Playback Controls
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
-                    // Previous Frame Button
+                    // Previous Frame Button (Disabled)
                     IconButton(
-                        onClick = {
-                            try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
-                            onPreviousFrame()
-                        },
+                        onClick = { },
+                        enabled = false,
                         modifier = Modifier
                             .size(28.dp)
-                            .background(Color(0x1AFFFFFF), CircleShape)
+                            .background(Color(0x0DFFFFFF), CircleShape)
                             .testTag("timelapse_prev_button")
                     ) {
                         Icon(
                             imageVector = SkySphereIcons.SkipPrevious,
-                            contentDescription = "Previous Frame",
-                            tint = Color.White,
+                            contentDescription = "Previous Frame (Disabled)",
+                            tint = Color(0x44FFFFFF),
                             modifier = Modifier.size(16.dp)
                         )
                     }
 
-                    // Main Play / Pause Button
-                    val isPlayable = state.isReadyToPlay && !state.isLoading && !state.isBuffering
+                    // Main Play / Pause Button (Disabled)
                     Surface(
                         shape = CircleShape,
-                        color = if (isPlayable) Color(0xFF319795) else Color(0x66319795),
-                        shadowElevation = if (isPlayable) 3.dp else 0.dp,
+                        color = Color(0x33319795),
                         modifier = Modifier
                             .size(36.dp)
                             .clip(CircleShape)
-                            .clickable(enabled = isPlayable) {
-                                try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
-                                onTogglePlayPause()
-                            }
                             .testTag("timelapse_play_pause_button")
                     ) {
                         Box(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            if (!isPlayable) {
-                                CircularProgressIndicator(
-                                    color = Color.White,
-                                    strokeWidth = 2.dp,
-                                    modifier = Modifier.size(16.dp)
-                                )
-                            } else {
-                                Icon(
-                                    imageVector = if (state.isPlaying) SkySphereIcons.Pause else SkySphereIcons.Play,
-                                    contentDescription = if (state.isPlaying) "Pause" else "Play",
-                                    tint = Color.White,
-                                    modifier = Modifier.size(20.dp)
-                                )
-                            }
+                            Icon(
+                                imageVector = SkySphereIcons.Play,
+                                contentDescription = "Play (Disabled for optimization)",
+                                tint = Color(0x66FFFFFF),
+                                modifier = Modifier.size(20.dp)
+                            )
                         }
                     }
 
-                    // Next Frame Button
+                    // Next Frame Button (Disabled)
                     IconButton(
-                        onClick = {
-                            try { haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove) } catch (_: Exception) {}
-                            onNextFrame()
-                        },
+                        onClick = { },
+                        enabled = false,
                         modifier = Modifier
                             .size(28.dp)
-                            .background(Color(0x1AFFFFFF), CircleShape)
+                            .background(Color(0x0DFFFFFF), CircleShape)
                             .testTag("timelapse_next_button")
                     ) {
                         Icon(
                             imageVector = SkySphereIcons.SkipNext,
-                            contentDescription = "Next Frame",
-                            tint = Color.White,
+                            contentDescription = "Next Frame (Disabled)",
+                            tint = Color(0x44FFFFFF),
                             modifier = Modifier.size(16.dp)
                         )
                     }
@@ -349,17 +307,17 @@ fun RadarTimeLapsePanel(
                 // Right: Badge Tag
                 Surface(
                     shape = RoundedCornerShape(5.dp),
-                    color = if (isNowFrame) Color(0x3300E676) else Color(0x1AFFFFFF),
+                    color = Color(0x3300E676),
                     modifier = Modifier.clip(RoundedCornerShape(5.dp))
                 ) {
                     Text(
-                        text = if (isNowFrame) "NOW (LIVE)" else if (currentFrame?.isForecast == true) "Forecast" else "Radar",
+                        text = "LIVE",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            color = if (isNowFrame) Color(0xFF00E676) else Color(0xCCFFFFFF),
+                            color = Color(0xFF00E676),
                             fontSize = 9.sp,
-                            fontWeight = if (isNowFrame) FontWeight.Bold else FontWeight.Medium
+                            fontWeight = FontWeight.Bold
                         ),
-                        modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp)
                     )
                 }
             }

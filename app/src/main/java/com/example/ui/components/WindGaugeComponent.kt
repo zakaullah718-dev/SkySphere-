@@ -5,13 +5,19 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.compose.foundation.Canvas
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -32,7 +38,6 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.*
 import androidx.compose.ui.text.font.FontWeight
@@ -145,10 +150,10 @@ fun WindGaugeCard(
 
     var isCompassMode by rememberSaveable { mutableStateOf(false) }
 
-    // 3D Morph/Flip Animation
+    // 3D Morph/Flip Animation (350ms duration)
     val flipAngle by animateFloatAsState(
         targetValue = if (isCompassMode) 180f else 0f,
-        animationSpec = tween(durationMillis = 420, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 350, easing = FastOutSlowInEasing),
         label = "WindGauge3DFlip"
     )
 
@@ -176,12 +181,12 @@ fun WindGaugeCard(
 
     val cardAlpha by animateFloatAsState(
         targetValue = if (isInitialized) 1f else 0f,
-        animationSpec = tween(durationMillis = 600, easing = FastOutSlowInEasing),
+        animationSpec = tween(durationMillis = 500, easing = FastOutSlowInEasing),
         label = "WindGaugeAlpha"
     )
 
     val cardScale by animateFloatAsState(
-        targetValue = if (isInitialized) 1f else 0.92f,
+        targetValue = if (isInitialized) 1f else 0.95f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioMediumBouncy,
             stiffness = Spring.StiffnessLow
@@ -190,12 +195,12 @@ fun WindGaugeCard(
     )
 
     val cardTranslationY by animateFloatAsState(
-        targetValue = if (isInitialized) 0f else 40f,
-        animationSpec = tween(durationMillis = 600, easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)),
+        targetValue = if (isInitialized) 0f else 30f,
+        animationSpec = tween(durationMillis = 500, easing = CubicBezierEasing(0.16f, 1f, 0.3f, 1f)),
         label = "WindGaugeTranslationY"
     )
 
-    // Sensor Manager Setup for Real-time Compass
+    // Sensor Manager Setup for Professional Compass Filtering & Calibration
     val sensorManager = remember { context.getSystemService(Context.SENSOR_SERVICE) as? SensorManager }
     val isCompassAvailable = remember(sensorManager) {
         sensorManager != null && (
@@ -205,14 +210,19 @@ fun WindGaugeCard(
     }
 
     var filteredHeadingDegrees by remember { mutableFloatStateOf(0f) }
+    var sensorAccuracy by remember { mutableIntStateOf(SensorManager.SENSOR_STATUS_ACCURACY_HIGH) }
 
+    // Smooth Spring Animation for Compass Heading with Inertia
     val animatedCompassHeading by animateFloatAsState(
         targetValue = filteredHeadingDegrees,
-        animationSpec = spring(stiffness = Spring.StiffnessMediumLow, dampingRatio = Spring.DampingRatioNoBouncy),
+        animationSpec = spring(
+            stiffness = Spring.StiffnessMediumLow,
+            dampingRatio = Spring.DampingRatioNoBouncy
+        ),
         label = "AnimatedCompassHeading"
     )
 
-    // Register Sensor Listener when in Compass Mode
+    // Sensor Listener lifecycle: paused when Compass Mode is closed or off-screen
     DisposableEffect(isCompassMode, sensorManager, isCompassAvailable) {
         if (!isCompassMode || sensorManager == null || !isCompassAvailable) return@DisposableEffect onDispose {}
 
@@ -259,15 +269,26 @@ fun WindGaugeCard(
                 }
 
                 azimuthDeg?.let { target ->
+                    // Shortest-path angle delta calculation to avoid 360 -> 0 jump glitch
                     var diff = (target - currentFiltered) % 360f
                     if (diff < -180f) diff += 360f
                     if (diff > 180f) diff -= 360f
-                    currentFiltered = (currentFiltered + 0.18f * diff + 360f) % 360f
-                    filteredHeadingDegrees = currentFiltered
+
+                    // Deadband threshold: ignore minor noise < 0.3 degrees when stationary to prevent jitter
+                    if (abs(diff) > 0.3f) {
+                        // Dynamic Low-Pass Filter factor: fast reaction for large turns, extra smooth for small drifts
+                        val filterAlpha = if (abs(diff) > 15f) 0.35f else 0.12f
+                        currentFiltered = (currentFiltered + filterAlpha * diff + 360f) % 360f
+                        filteredHeadingDegrees = currentFiltered
+                    }
                 }
             }
 
-            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {}
+            override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+                if (sensor?.type == Sensor.TYPE_MAGNETIC_FIELD || sensor?.type == Sensor.TYPE_ROTATION_VECTOR) {
+                    sensorAccuracy = accuracy
+                }
+            }
         }
 
         if (rotationVectorSensor != null) {
@@ -282,9 +303,9 @@ fun WindGaugeCard(
         }
     }
 
-    // Haptic feedback pulse on North alignment (within 3.5 degrees)
+    // Light Haptic pulse when compass aligns near North (within 3.0 degrees)
     var wasNearNorth by remember { mutableStateOf(false) }
-    val isNearNorth = (filteredHeadingDegrees <= 3.5f || filteredHeadingDegrees >= 356.5f)
+    val isNearNorth = (filteredHeadingDegrees <= 3.0f || filteredHeadingDegrees >= 357.0f)
     LaunchedEffect(isNearNorth, isCompassMode) {
         if (isCompassMode && isNearNorth && !wasNearNorth) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -352,6 +373,7 @@ fun WindGaugeCard(
                 // DIGITAL COMPASS MODE
                 CompassModeContent(
                     isCompassAvailable = isCompassAvailable,
+                    sensorAccuracy = sensorAccuracy,
                     deviceHeading = animatedCompassHeading,
                     windSpeedKmH = windSpeedKmH,
                     windDirection = windDirection,
@@ -448,32 +470,23 @@ private fun WindGaugeModeContent(
                     )
                 }
 
-                // Compass Mode Switch Button
+                // Sleek Header Compass Icon Button
                 Surface(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(12.dp))
+                        .clip(CircleShape)
                         .clickable { onSwitchToCompass() },
-                    shape = RoundedCornerShape(12.dp),
-                    color = accentCyan.copy(alpha = 0.2f)
+                    shape = CircleShape,
+                    color = accentCyan.copy(alpha = 0.18f)
                 ) {
-                    Row(
-                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp)
+                    Box(
+                        modifier = Modifier.padding(6.dp),
+                        contentAlignment = Alignment.Center
                     ) {
                         Icon(
                             imageVector = SkySphereIcons.Compass,
                             contentDescription = "Switch to Compass",
                             tint = accentCyan,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Text(
-                            text = "COMPASS",
-                            style = MaterialTheme.typography.labelSmall.copy(
-                                fontWeight = FontWeight.Bold,
-                                color = accentCyan,
-                                fontSize = 11.sp
-                            )
+                            modifier = Modifier.size(18.dp)
                         )
                     }
                 }
@@ -484,7 +497,7 @@ private fun WindGaugeModeContent(
 
         // Gauge Body
         Box(
-            modifier = Modifier.size(210.dp),
+            modifier = Modifier.size(220.dp),
             contentAlignment = Alignment.Center
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
@@ -580,7 +593,7 @@ private fun WindGaugeModeContent(
                     }
                 }
 
-                // Rotating Arrow Pointer
+                // Rotating Wind Pointer
                 val pointerAngleRad = Math.toRadians((animatedWindAngle - 90.0)).toDouble()
                 val pointerDistance = radius - 38.dp.toPx()
                 val pointerCenter = Offset(
@@ -736,6 +749,7 @@ private fun WindGaugeModeContent(
 @Composable
 private fun CompassModeContent(
     isCompassAvailable: Boolean,
+    sensorAccuracy: Int,
     deviceHeading: Float,
     windSpeedKmH: Double,
     windDirection: String,
@@ -787,30 +801,64 @@ private fun CompassModeContent(
                 )
             }
 
-            // Return to Wind Gauge Button
+            // Sleek Header Wind Icon Button
             Surface(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
+                    .clip(CircleShape)
                     .clickable { onSwitchToGauge() },
-                shape = RoundedCornerShape(12.dp),
-                color = accentCyan.copy(alpha = 0.2f)
+                shape = CircleShape,
+                color = accentCyan.copy(alpha = 0.18f)
             ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp)
+                Box(
+                    modifier = Modifier.padding(6.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Icon(
                         imageVector = SkySphereIcons.Wind,
                         contentDescription = "Switch to Wind Gauge",
                         tint = accentCyan,
-                        modifier = Modifier.size(14.dp)
+                        modifier = Modifier.size(18.dp)
+                    )
+                }
+            }
+        }
+
+        Spacer(modifier = Modifier.height(12.dp))
+
+        // Non-intrusive Calibration Banner if low accuracy is detected
+        val needsCalibration = isCompassAvailable && (
+            sensorAccuracy == SensorManager.SENSOR_STATUS_ACCURACY_LOW ||
+            sensorAccuracy == SensorManager.SENSOR_STATUS_UNRELIABLE
+        )
+        AnimatedVisibility(
+            visible = needsCalibration,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically()
+        ) {
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(bottom = 12.dp),
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.tertiaryContainer.copy(alpha = 0.7f),
+                border = BorderStroke(1.dp, MaterialTheme.colorScheme.tertiary.copy(alpha = 0.5f))
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Text(
+                        text = "∞",
+                        style = MaterialTheme.typography.titleLarge.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.onTertiaryContainer
+                        )
                     )
                     Text(
-                        text = "GAUGE",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            fontWeight = FontWeight.Bold,
-                            color = accentCyan,
+                        text = "Move your phone in a figure-eight motion to improve compass accuracy.",
+                        style = MaterialTheme.typography.bodySmall.copy(
+                            color = MaterialTheme.colorScheme.onTertiaryContainer,
                             fontSize = 11.sp
                         )
                     )
@@ -818,14 +866,12 @@ private fun CompassModeContent(
             }
         }
 
-        Spacer(modifier = Modifier.height(16.dp))
-
         if (!isCompassAvailable) {
             // Fallback when device lacks compass hardware
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(210.dp)
+                    .height(240.dp)
                     .background(trackBg.copy(alpha = 0.4f), RoundedCornerShape(20.dp))
                     .padding(16.dp),
                 contentAlignment = Alignment.Center
@@ -860,100 +906,168 @@ private fun CompassModeContent(
                 }
             }
         } else {
-            // Real-Time Compass Dial
+            // Flagship Aviation/Marine Digital Navigation Compass Dial
+            val surfaceColor = MaterialTheme.colorScheme.surface
             Box(
-                modifier = Modifier.size(210.dp),
+                modifier = Modifier.size(240.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Canvas(modifier = Modifier.fillMaxSize()) {
                     val center = Offset(size.width / 2f, size.height / 2f)
-                    val radius = min(size.width, size.height) / 2f - 12.dp.toPx()
+                    val outerRadius = min(size.width, size.height) / 2f - 10.dp.toPx()
 
-                    // Outer Metallic Ring Gradient
+                    // 1. Metallic Glass Outer Ring with Brushed Sweep Reflections
                     drawCircle(
                         brush = Brush.sweepGradient(
                             listOf(
-                                accentCyan.copy(alpha = 0.6f),
-                                Color.White.copy(alpha = 0.8f),
-                                accentSky.copy(alpha = 0.6f),
-                                Color.White.copy(alpha = 0.3f),
-                                accentCyan.copy(alpha = 0.6f)
+                                accentCyan.copy(alpha = 0.85f),
+                                Color.White.copy(alpha = 0.95f),
+                                accentSky.copy(alpha = 0.7f),
+                                Color.White.copy(alpha = 0.35f),
+                                accentCyan.copy(alpha = 0.85f)
                             )
                         ),
-                        radius = radius,
+                        radius = outerRadius,
                         center = center,
                         style = Stroke(width = 3.dp.toPx())
                     )
 
-                    // Inner soft blue glow disc
+                    // Inner Precision Glass Bezel
+                    drawCircle(
+                        color = Color.White.copy(alpha = 0.15f),
+                        radius = outerRadius - 4.dp.toPx(),
+                        center = center,
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+
+                    // Soft Ambient Blue Radial Backlight
                     drawCircle(
                         brush = Brush.radialGradient(
                             colors = listOf(
-                                accentCyan.copy(alpha = 0.12f),
-                                accentSky.copy(alpha = 0.03f),
+                                accentCyan.copy(alpha = 0.18f),
+                                accentSky.copy(alpha = 0.05f),
                                 Color.Transparent
                             ),
                             center = center,
-                            radius = radius
+                            radius = outerRadius
                         ),
-                        radius = radius - 4.dp.toPx(),
+                        radius = outerRadius - 5.dp.toPx(),
                         center = center
                     )
 
-                    // Rotating Compass Rose (rotated by -deviceHeading)
+                    // 2. Rotating Compass Rose Dial (Rotated by -deviceHeading)
                     rotate(degrees = -deviceHeading, pivot = center) {
-                        val compassLabels = listOf("N", "NE", "E", "SE", "S", "SW", "W", "NW")
+                        // Detailed 360° Tick Marks: Major every 30°, Fine ticks every 5°
+                        for (angleDeg in 0 until 360 step 5) {
+                            val isMainCardinal = (angleDeg % 90 == 0)
+                            val isSubCardinal = (angleDeg % 45 == 0 && !isMainCardinal)
+                            val isMajor30 = (angleDeg % 30 == 0)
+                            val isMedium15 = (angleDeg % 15 == 0 && !isMajor30)
 
-                        for (i in 0 until 16) {
-                            val angleDeg = i * 22.5f
                             val angleRad = Math.toRadians((angleDeg - 90.0)).toFloat()
 
-                            val isMainCardinal = i % 4 == 0
-                            val isSubCardinal = i % 2 == 0
+                            val tickLength = when {
+                                isMainCardinal -> 14.dp.toPx()
+                                isMajor30 -> 10.dp.toPx()
+                                isMedium15 -> 7.dp.toPx()
+                                else -> 4.dp.toPx() // 5 degree fine tick
+                            }
 
-                            val innerR = radius - (if (isMainCardinal) 12.dp.toPx() else if (isSubCardinal) 8.dp.toPx() else 5.dp.toPx())
-                            val outerR = radius - 4.dp.toPx()
+                            val tickOuterR = outerRadius - 6.dp.toPx()
+                            val tickInnerR = tickOuterR - tickLength
 
-                            val start = Offset(
-                                x = center.x + innerR * cos(angleRad),
-                                y = center.y + innerR * sin(angleRad)
+                            val startPos = Offset(
+                                x = center.x + tickInnerR * cos(angleRad),
+                                y = center.y + tickInnerR * sin(angleRad)
                             )
-                            val end = Offset(
-                                x = center.x + outerR * cos(angleRad),
-                                y = center.y + outerR * sin(angleRad)
+                            val endPos = Offset(
+                                x = center.x + tickOuterR * cos(angleRad),
+                                y = center.y + tickOuterR * sin(angleRad)
                             )
+
+                            // North Halo / Glowing Accent at 0° North
+                            if (angleDeg == 0) {
+                                val northHaloCenter = Offset(
+                                    x = center.x + (outerRadius - 16.dp.toPx()) * cos(angleRad),
+                                    y = center.y + (outerRadius - 16.dp.toPx()) * sin(angleRad)
+                                )
+                                drawCircle(
+                                    brush = Brush.radialGradient(
+                                        colors = listOf(accentCyan.copy(alpha = 0.55f), Color.Transparent),
+                                        center = northHaloCenter,
+                                        radius = 20.dp.toPx()
+                                    ),
+                                    radius = 20.dp.toPx(),
+                                    center = northHaloCenter
+                                )
+                            }
 
                             val tickColor = when {
-                                isMainCardinal -> if (i == 0) accentCyan else accentSky
-                                isSubCardinal -> textSecondary.copy(alpha = 0.8f)
-                                else -> textSecondary.copy(alpha = 0.35f)
+                                angleDeg == 0 -> accentCyan
+                                isMainCardinal -> accentSky
+                                isMajor30 -> textSecondary.copy(alpha = 0.8f)
+                                isMedium15 -> textSecondary.copy(alpha = 0.5f)
+                                else -> textSecondary.copy(alpha = 0.25f)
+                            }
+
+                            val strokeW = when {
+                                isMainCardinal -> 2.5.dp.toPx()
+                                isMajor30 -> 1.8.dp.toPx()
+                                isMedium15 -> 1.2.dp.toPx()
+                                else -> 0.8.dp.toPx()
                             }
 
                             drawLine(
                                 color = tickColor,
-                                start = start,
-                                end = end,
-                                strokeWidth = if (isMainCardinal) 3.dp.toPx() else 1.5.dp.toPx(),
+                                start = startPos,
+                                end = endPos,
+                                strokeWidth = strokeW,
                                 cap = StrokeCap.Round
                             )
 
-                            // Labels
-                            if (isMainCardinal || isSubCardinal) {
-                                val labelIndex = i / 2
-                                val label = compassLabels.getOrNull(labelIndex) ?: ""
-                                val labelR = radius - 22.dp.toPx()
+                            // 3. Dial Degree Numerals & Compass Direction Labels
+                            if (isMainCardinal || isSubCardinal || isMajor30) {
+                                val labelText = when {
+                                    angleDeg == 0 -> "N"
+                                    angleDeg == 45 -> "NE"
+                                    angleDeg == 90 -> "E"
+                                    angleDeg == 135 -> "SE"
+                                    angleDeg == 180 -> "S"
+                                    angleDeg == 225 -> "SW"
+                                    angleDeg == 270 -> "W"
+                                    angleDeg == 315 -> "NW"
+                                    else -> "$angleDeg" // 30, 60, 120, 150, 210, 240, 300, 330
+                                }
+
+                                val isNorth = (labelText == "N")
+                                val isCardinalText = isMainCardinal || isSubCardinal
+
+                                val labelR = outerRadius - (if (isCardinalText) 26.dp.toPx() else 24.dp.toPx())
                                 val labelX = center.x + labelR * cos(angleRad)
                                 val labelY = center.y + labelR * sin(angleRad)
 
-                                val isNorth = (label == "N")
                                 val style = TextStyle(
-                                    fontSize = if (isNorth) 13.sp else if (isMainCardinal) 11.sp else 9.sp,
-                                    fontWeight = if (isNorth || isMainCardinal) FontWeight.Bold else FontWeight.Medium,
-                                    color = if (isNorth) accentCyan else if (isMainCardinal) textPrimary else textSecondary
+                                    fontSize = when {
+                                        isNorth -> 15.sp
+                                        isMainCardinal -> 12.sp
+                                        isSubCardinal -> 10.sp
+                                        else -> 8.sp // Major 30 degree numbers
+                                    },
+                                    fontWeight = when {
+                                        isNorth || isMainCardinal -> FontWeight.ExtraBold
+                                        isSubCardinal -> FontWeight.Bold
+                                        else -> FontWeight.Medium
+                                    },
+                                    color = when {
+                                        isNorth -> accentCyan
+                                        isMainCardinal -> textPrimary
+                                        isSubCardinal -> textSecondary
+                                        else -> textSecondary.copy(alpha = 0.65f)
+                                    }
                                 )
-                                val textLayout = textMeasurer.measure(label, style)
+                                val textLayout = textMeasurer.measure(labelText, style)
 
-                                // Keep text upright relative to rotating rose or text center
+                                // Rotate text upright relative to device view orientation
                                 rotate(degrees = deviceHeading, pivot = Offset(labelX, labelY)) {
                                     drawText(
                                         textLayoutResult = textLayout,
@@ -966,206 +1080,343 @@ private fun CompassModeContent(
                             }
                         }
 
-                        // Glowing North Pointer Diamond on the Rose
+                        // 4. Premium Precision Navigation Needle (North pointer with soft glow & depth)
                         val northRad = Math.toRadians(-90.0).toDouble()
-                        val northTipR = radius - 2.dp.toPx()
-                        val northBaseR = radius - 26.dp.toPx()
-                        val northCenterX = (center.x + northBaseR * cos(northRad)).toFloat()
-                        val northCenterY = (center.y + northBaseR * sin(northRad)).toFloat()
+                        val northTipR = outerRadius - 3.dp.toPx()
+                        val northBaseR = outerRadius - 32.dp.toPx()
+                        val northBaseY = (center.y + northBaseR * sin(northRad)).toFloat()
 
-                        val northPath = Path().apply {
+                        // Soft Blue Halo Glow at North Tip
+                        drawCircle(
+                            brush = Brush.radialGradient(
+                                colors = listOf(accentCyan.copy(alpha = 0.7f), Color.Transparent),
+                                center = Offset(center.x, center.y - northTipR),
+                                radius = 12.dp.toPx()
+                            ),
+                            radius = 12.dp.toPx(),
+                            center = Offset(center.x, center.y - northTipR)
+                        )
+
+                        // North Needle Arrow Shape (Dual-Tone 3D Facet)
+                        val northLeftPath = Path().apply {
                             moveTo(center.x, center.y - northTipR)
-                            lineTo(center.x - 6.dp.toPx(), northCenterY)
-                            lineTo(center.x + 6.dp.toPx(), northCenterY)
+                            lineTo(center.x - 7.dp.toPx(), northBaseY)
+                            lineTo(center.x, northBaseY + 4.dp.toPx())
                             close()
                         }
                         drawPath(
-                            path = northPath,
+                            path = northLeftPath,
                             brush = Brush.verticalGradient(
-                                colors = listOf(accentCyan, accentCyan.copy(alpha = 0.3f)),
+                                colors = listOf(accentCyan, accentCyan.copy(alpha = 0.7f)),
                                 startY = center.y - northTipR,
-                                endY = northCenterY
+                                endY = northBaseY
                             )
                         )
 
-                        // Wind Marker Dot on Compass Ring
+                        val northRightPath = Path().apply {
+                            moveTo(center.x, center.y - northTipR)
+                            lineTo(center.x + 7.dp.toPx(), northBaseY)
+                            lineTo(center.x, northBaseY + 4.dp.toPx())
+                            close()
+                        }
+                        drawPath(
+                            path = northRightPath,
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.White, accentCyan.copy(alpha = 0.85f)),
+                                startY = center.y - northTipR,
+                                endY = northBaseY
+                            )
+                        )
+
+                        // South Needle Arrow Tail (Muted Depth Balance)
+                        val southTipR = outerRadius - 3.dp.toPx()
+                        val southBaseR = outerRadius - 32.dp.toPx()
+                        val southBaseY = center.y + southBaseR
+
+                        val southPath = Path().apply {
+                            moveTo(center.x, center.y + southTipR)
+                            lineTo(center.x - 5.dp.toPx(), southBaseY)
+                            lineTo(center.x + 5.dp.toPx(), southBaseY)
+                            close()
+                        }
+                        drawPath(
+                            path = southPath,
+                            color = textSecondary.copy(alpha = 0.35f)
+                        )
+
+                        // 5. Weather Wind Direction Dot on Rim
                         val windRad = Math.toRadians((windDegrees - 90.0).toDouble())
-                        val windDotR = radius - 10.dp.toPx()
+                        val windDotR = outerRadius - 8.dp.toPx()
                         val windDotX = (center.x + windDotR * cos(windRad)).toFloat()
                         val windDotY = (center.y + windDotR * sin(windRad)).toFloat()
 
                         drawCircle(
                             color = Color(0xFFFFB74D),
-                            radius = 6.dp.toPx(),
+                            radius = 5.5.dp.toPx(),
                             center = Offset(windDotX, windDotY)
                         )
                         drawCircle(
                             color = Color.White,
-                            radius = 3.dp.toPx(),
+                            radius = 2.5.dp.toPx(),
                             center = Offset(windDotX, windDotY)
                         )
                     }
 
-                    // Static Device Heading Needle (Top Indicator pointing directly forward)
-                    val topNeedlePath = Path().apply {
-                        moveTo(center.x, center.y - radius + 4.dp.toPx())
-                        lineTo(center.x - 8.dp.toPx(), center.y - radius - 10.dp.toPx())
-                        lineTo(center.x + 8.dp.toPx(), center.y - radius - 10.dp.toPx())
+                    // 6. Static Forward Heading Top Pointer Bezel Notch
+                    val topBezelPath = Path().apply {
+                        moveTo(center.x, center.y - outerRadius + 2.dp.toPx())
+                        lineTo(center.x - 7.dp.toPx(), center.y - outerRadius - 10.dp.toPx())
+                        lineTo(center.x + 7.dp.toPx(), center.y - outerRadius - 10.dp.toPx())
                         close()
                     }
                     drawPath(
-                        path = topNeedlePath,
-                        color = accentCyan
+                        path = topBezelPath,
+                        brush = Brush.verticalGradient(
+                            colors = listOf(accentCyan, accentCyan.copy(alpha = 0.6f)),
+                            startY = center.y - outerRadius - 10.dp.toPx(),
+                            endY = center.y - outerRadius + 2.dp.toPx()
+                        )
+                    )
+
+                    // Top Pointer Glow Notch Dot
+                    drawCircle(
+                        color = Color.White,
+                        radius = 2.5.dp.toPx(),
+                        center = Offset(center.x, center.y - outerRadius - 4.dp.toPx())
+                    )
+
+                    // 7. Center Hub Pivot Cap with Chrome Layers
+                    drawCircle(
+                        brush = Brush.radialGradient(
+                            colors = listOf(Color.White, accentCyan, textSecondary),
+                            center = center,
+                            radius = 12.dp.toPx()
+                        ),
+                        radius = 12.dp.toPx(),
+                        center = center
+                    )
+                    drawCircle(
+                        color = surfaceColor,
+                        radius = 6.dp.toPx(),
+                        center = center
+                    )
+                    drawCircle(
+                        color = accentCyan,
+                        radius = 3.dp.toPx(),
+                        center = center
                     )
                 }
 
-                // Center Compass Info
+                // Center Heading & Direction Display (Precision Typography)
                 Column(
                     horizontalAlignment = Alignment.CenterHorizontally,
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = "${deviceHeading.toInt()}°",
-                        style = MaterialTheme.typography.headlineMedium.copy(
-                            fontWeight = FontWeight.Bold,
+                        text = "${deviceHeading.roundToInt()}°",
+                        style = MaterialTheme.typography.displaySmall.copy(
+                            fontWeight = FontWeight.ExtraBold,
                             color = textPrimary,
-                            letterSpacing = (-0.5).sp
+                            letterSpacing = (-1).sp
                         ),
                         textAlign = TextAlign.Center
                     )
 
+                    Spacer(modifier = Modifier.height(2.dp))
+
                     Text(
-                        text = getShortDirectionName(deviceHeading),
-                        style = MaterialTheme.typography.titleMedium.copy(
-                            fontWeight = FontWeight.ExtraBold,
-                            color = accentCyan
+                        text = getDirectionName(deviceHeading),
+                        style = MaterialTheme.typography.titleSmall.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = accentCyan,
+                            fontSize = 13.sp
                         )
                     )
+
+                    Spacer(modifier = Modifier.height(2.dp))
 
                     Text(
                         text = "HEADING",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            fontSize = 9.sp,
+                            fontSize = 8.5.sp,
                             fontWeight = FontWeight.Bold,
                             color = textSecondary,
-                            letterSpacing = 1.sp
+                            letterSpacing = 1.8.sp
                         )
                     )
                 }
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(16.dp))
 
-        // Combined Information Box & Banner
+        // Premium Glassmorphism Bottom Panel
         val facingName = getDirectionName(deviceHeading)
         val windName = getDirectionName(windDegrees)
+        val (bftLevel, bftDesc) = remember(windSpeedKmH) { getBeaufortInfo(windSpeedKmH) }
 
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .background(
-                    color = trackBg.copy(alpha = 0.5f),
-                    shape = RoundedCornerShape(16.dp)
-                )
-                .padding(horizontal = 14.dp, vertical = 10.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
+        Surface(
+            modifier = Modifier.fillMaxWidth(),
+            shape = RoundedCornerShape(20.dp),
+            color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+            border = BorderStroke(1.dp, MaterialTheme.colorScheme.onSurface.copy(alpha = 0.12f))
         ) {
-            // Interactive Comparative Banner
-            Surface(
-                shape = RoundedCornerShape(10.dp),
-                color = accentCyan.copy(alpha = 0.12f),
-                modifier = Modifier.fillMaxWidth()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalAlignment = Alignment.CenterHorizontally
             ) {
-                Text(
-                    text = "You are facing $facingName. Wind is coming from $windName.",
-                    style = MaterialTheme.typography.bodySmall.copy(
-                        fontWeight = FontWeight.SemiBold,
-                        color = textPrimary,
-                        fontSize = 11.5.sp
-                    ),
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp)
-                )
-            }
-
-            Spacer(modifier = Modifier.height(8.dp))
-
-            // Footer Metrics Breakdown
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.SpaceAround,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "FACING",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = textSecondary,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold
+                // Top Heading & Wind Facing Glass Banner Pill
+                Surface(
+                    shape = RoundedCornerShape(12.dp),
+                    color = accentCyan.copy(alpha = 0.12f),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.Center
+                    ) {
+                        Icon(
+                            imageVector = SkySphereIcons.Compass,
+                            contentDescription = null,
+                            tint = accentCyan,
+                            modifier = Modifier.size(14.dp)
                         )
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "${getShortDirectionName(deviceHeading)} (${deviceHeading.toInt()}°)",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            color = accentCyan,
-                            fontWeight = FontWeight.Bold
+                        Spacer(modifier = Modifier.width(6.dp))
+                        Text(
+                            text = "Facing $facingName • Wind coming from $windName",
+                            style = MaterialTheme.typography.bodySmall.copy(
+                                fontWeight = FontWeight.SemiBold,
+                                color = textPrimary,
+                                fontSize = 11.5.sp
+                            ),
+                            textAlign = TextAlign.Center
                         )
-                    )
+                    }
                 }
 
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(22.dp)
-                        .background(textSecondary.copy(alpha = 0.2f))
-                )
+                Spacer(modifier = Modifier.height(12.dp))
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "WIND FROM",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = textSecondary,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold
+                // 3 Glassmorphic Metrics Breakdown: Wind Speed, Wind From, Beaufort Scale
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceAround,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    // Wind Speed Column
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = SkySphereIcons.Wind,
+                                contentDescription = null,
+                                tint = accentCyan,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "WIND SPEED",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = textSecondary,
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp
+                                )
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = formatWindValue(windSpeedKmH, windUnit),
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = textPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
                         )
-                    )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = "${getShortDirectionName(windDegrees)} (${windDegrees.toInt()}°)",
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            color = textPrimary,
-                            fontWeight = FontWeight.Bold
-                        )
-                    )
-                }
+                    }
 
-                Box(
-                    modifier = Modifier
-                        .width(1.dp)
-                        .height(22.dp)
-                        .background(textSecondary.copy(alpha = 0.2f))
-                )
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(26.dp)
+                            .background(textSecondary.copy(alpha = 0.2f))
+                    )
 
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Text(
-                        text = "WIND SPEED",
-                        style = MaterialTheme.typography.labelSmall.copy(
-                            color = textSecondary,
-                            fontSize = 9.sp,
-                            fontWeight = FontWeight.Bold
+                    // Wind From Column
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = SkySphereIcons.Compass,
+                                contentDescription = null,
+                                tint = accentSky,
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "WIND FROM",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = textSecondary,
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp
+                                )
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "${getShortDirectionName(windDegrees)} (${windDegrees.toInt()}°)",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = accentCyan,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 13.sp
+                            )
                         )
+                    }
+
+                    Box(
+                        modifier = Modifier
+                            .width(1.dp)
+                            .height(26.dp)
+                            .background(textSecondary.copy(alpha = 0.2f))
                     )
-                    Spacer(modifier = Modifier.height(2.dp))
-                    Text(
-                        text = formatWindValue(windSpeedKmH, windUnit),
-                        style = MaterialTheme.typography.bodyMedium.copy(
-                            color = textPrimary,
-                            fontWeight = FontWeight.Bold
+
+                    // Beaufort Scale Column
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Icon(
+                                imageVector = SkySphereIcons.Thermostat,
+                                contentDescription = null,
+                                tint = Color(0xFFFFB74D),
+                                modifier = Modifier.size(13.dp)
+                            )
+                            Text(
+                                text = "BEAUFORT",
+                                style = MaterialTheme.typography.labelSmall.copy(
+                                    color = textSecondary,
+                                    fontSize = 8.5.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    letterSpacing = 0.5.sp
+                                )
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(3.dp))
+                        Text(
+                            text = "Bft $bftLevel • $bftDesc",
+                            style = MaterialTheme.typography.bodyMedium.copy(
+                                color = textPrimary,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 12.sp
+                            )
                         )
-                    )
+                    }
                 }
             }
         }

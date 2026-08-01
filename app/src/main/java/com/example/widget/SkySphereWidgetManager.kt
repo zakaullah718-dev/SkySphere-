@@ -20,6 +20,34 @@ object SkySphereWidgetManager {
 
     private const val TAG = "SkySphereWidgetManager"
     const val ACTION_REFRESH_WIDGET = "com.example.widget.ACTION_REFRESH_WIDGET"
+    const val ACTION_CLOCK_TICK = "com.example.widget.ACTION_CLOCK_TICK"
+
+    fun scheduleNextMinuteClockUpdate(context: Context) {
+        try {
+            val alarmManager = context.getSystemService(Context.ALARM_SERVICE) as? android.app.AlarmManager ?: return
+            val intent = Intent(context, SkySphereWidget1x1Provider::class.java).apply {
+                action = ACTION_CLOCK_TICK
+            }
+            val pendingIntent = PendingIntent.getBroadcast(
+                context,
+                999,
+                intent,
+                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+            )
+
+            // Target next minute boundary (e.g. top of the next minute)
+            val now = System.currentTimeMillis()
+            val nextMinuteMs = ((now / 60000L) + 1L) * 60000L
+
+            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.M) {
+                alarmManager.setAndAllowWhileIdle(android.app.AlarmManager.RTC, nextMinuteMs, pendingIntent)
+            } else {
+                alarmManager.set(android.app.AlarmManager.RTC, nextMinuteMs, pendingIntent)
+            }
+        } catch (e: Exception) {
+            Log.e(TAG, "Error scheduling clock tick alarm", e)
+        }
+    }
 
     fun updateWidgetIdsSync(context: Context, appWidgetManager: AppWidgetManager, appWidgetIds: IntArray) {
         try {
@@ -66,6 +94,7 @@ object SkySphereWidgetManager {
                 setupWidgetPendingIntents(context, remoteViews, sizeCategory, targetCity)
                 appWidgetManager.updateAppWidget(id, remoteViews)
             }
+            scheduleNextMinuteClockUpdate(context)
         } catch (e: Exception) {
             Log.e(TAG, "Error in updateWidgetIdsSync", e)
         }
@@ -101,6 +130,7 @@ object SkySphereWidgetManager {
                 for (id in ids4x2) {
                     updateWidgetInstance(context, appWidgetManager, id, R.layout.widget_4x2, 3, repository, isCelsius, activeCity)
                 }
+                scheduleNextMinuteClockUpdate(context)
             } catch (e: Exception) {
                 Log.e(TAG, "Error updating all widgets", e)
             }

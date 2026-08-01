@@ -129,13 +129,15 @@ class FutureRadarRepository(private val context: Context? = null) {
 
     suspend fun getLatestRadarFrame(forceRefresh: Boolean = false): RadarFrame = withContext(Dispatchers.IO) {
         val now = System.currentTimeMillis()
-        if (!forceRefresh && cachedFrame != null && (now - lastFetchTime) < 120_000L) {
+        if (!forceRefresh && cachedFrame != null && (now - lastFetchTime) < 300_000L) {
             return@withContext cachedFrame!!
         }
 
         try {
+            val url = "https://api.rainviewer.com/public/weather-maps.json"
+            RadarApiTracker.logRainViewerRequest(url)
             val request = Request.Builder()
-                .url("https://api.rainviewer.com/public/weather-maps.json")
+                .url(url)
                 .header("User-Agent", "SkySphereApp/1.0")
                 .build()
 
