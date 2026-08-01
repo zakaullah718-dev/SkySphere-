@@ -19,6 +19,7 @@ import com.example.data.api.WeatherApiProvider
 import com.example.data.api.WeatherProvider
 import com.example.data.db.AppDatabase
 import com.example.data.db.CachedWeatherEntity
+import com.example.data.db.FavoriteLocationEntity
 import com.example.data.db.RecentSearchEntity
 import com.example.data.models.AirQuality
 import com.example.data.models.CityWeather
@@ -26,6 +27,7 @@ import com.example.data.models.WeatherCondition
 import com.example.data.models.WeatherDetails
 import com.example.weather.data.api.WeatherApiService
 import com.squareup.moshi.Moshi
+import com.squareup.moshi.Types
 import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -151,6 +153,7 @@ class WeatherRepository(private val context: Context) {
     private val weatherDao = database.weatherDao()
     private val recentSearchDao = database.recentSearchDao()
     val radarMetadataDao = database.radarMetadataDao()
+    private val favoriteLocationDao = database.favoriteLocationDao()
 
     // Setup network clients
     private val okHttpClient = OkHttpClient.Builder()
@@ -346,8 +349,167 @@ class WeatherRepository(private val context: Context) {
         editor.apply()
     }
 
+    private fun createFavoriteId(cityName: String, country: String? = null): String {
+        val cleanCity = cityName.trim().lowercase()
+        val cleanCountry = country?.trim()?.lowercase() ?: ""
+        return if (cleanCountry.isNotBlank()) "${cleanCity}_${cleanCountry}" else cleanCity
+    }
+
+    private suspend fun syncFavoritesBackupFromRoom() = withContext(Dispatchers.IO) {
+        try {
+            val favorites = favoriteLocationDao.getAllFavorites()
+            val listAdapter = moshi.adapter<List<FavoriteLocationEntity>>(
+                Types.newParameterizedType(List::class.java, FavoriteLocationEntity::class.java)
+            )
+            val json = listAdapter.toJson(favorites)
+            prefs.edit().putString("favorites_backup_json", json).apply()
+        } catch (e: Exception) {
+            Log.e("WeatherRepository", "Failed to sync favorites backup: ${e.message}")
+        }
+    }
+
+    private suspend fun restoreFavoritesFromBackup() = withContext(Dispatchers.IO) {
+        try {
+            val json = prefs.getString("favorites_backup_json", null)
+            if (!json.isNullOrBlank()) {
+                val listAdapter = moshi.adapter<List<FavoriteLocationEntity>>(
+                    Types.newParameterizedType(List::class.java, FavoriteLocationEntity::class.java)
+                )
+                val restoredList = listAdapter.fromJson(json)
+                if (!restoredList.isNullOrEmpty()) {
+                    for (item in restoredList) {
+                        favoriteLocationDao.insertFavorite(item)
+                    }
+                    return@withContext
+                }
+            }
+        } catch (e: Exception) {
+            Log.e("WeatherRepository", "Failed to restore favorites from backup: ${e.message}")
+        }
+        seedDefaultFavorites()
+    }
+
+    private suspend fun seedDefaultFavorites() {
+        val defaults = listOf(
+            Triple("London", "United Kingdom", "Europe/London"),
+            Triple("New York", "United States", "America/New_York"),
+            Triple("Tokyo", "Japan", "Asia/Tokyo"),
+            Triple("Paris", "France", "Europe/Paris")
+        )
+        for ((city, country, timeZone) in defaults) {
+            val normalizedId = createFavoriteId(city, country)
+            val entity = FavoriteLocationEntity(
+                id = normalizedId,
+                cityName = city,
+                country = country,
+                timeZoneId = timeZone,
+                timestamp = System.currentTimeMillis()
+            )
+            favoriteLocationDao.insertFavorite(entity)
+        }
+        syncFavoritesBackupFromRoom()
+    }
+
+    private fun updateCityInMemoryAndSelected(city: CityWeather) {
+        val updatedList = _cities.value.map {
+            if (it.cityName.equals(city.cityName, ignoreCase = true)) {
+                city
+            } else {
+                it
+            }
+        }
+        _cities.value = updatedList
+        if (_selectedCity.value.cityName.equals(city.cityName, ignoreCase = true)) {
+            updateSelectedCity(city, "SyncFavoriteState")
+        }
+    }
+
+    suspend fun addFavoriteLocation(city: CityWeather) = withContext(Dispatchers.IO) {
+        try {
+            val normalizedId = createFavoriteId(city.cityName, city.country)
+            val json = try {
+                moshi.adapter(WeatherDetails::class.java).toJson(city.weatherDetails)
+            } catch (e: Exception) { null }
+
+            val entity = FavoriteLocationEntity(
+                id = normalizedId,
+                cityName = city.cityName,
+                country = city.country,
+                region = city.region,
+                latitude = city.latitude,
+                longitude = city.longitude,
+                timeZoneId = city.timeZoneId ?: city.weatherDetails.timeZoneId,
+                timestamp = System.currentTimeMillis(),
+                weatherJson = json
+            )
+            favoriteLocationDao.insertFavorite(entity)
+            weatherDao.updateFavorite(city.cityName, true)
+
+            updateCityInMemoryAndSelected(city.copy(isFavorite = true))
+            syncFavoritesBackupFromRoom()
+        } catch (e: Exception) {
+            Log.e("WeatherRepository", "Failed to add favorite location: ${e.message}", e)
+        }
+    }
+
+    suspend fun removeFavoriteLocation(cityName: String, country: String = "") = withContext(Dispatchers.IO) {
+        try {
+            val normalizedId = createFavoriteId(cityName, country)
+            favoriteLocationDao.deleteFavorite(normalizedId, cityName, country)
+            favoriteLocationDao.deleteFavoriteByCityName(cityName)
+            weatherDao.updateFavorite(cityName, false)
+
+            val inMemory = _cities.value.find { it.cityName.equals(cityName, ignoreCase = true) }
+            if (inMemory != null) {
+                updateCityInMemoryAndSelected(inMemory.copy(isFavorite = false))
+            } else if (_selectedCity.value.cityName.equals(cityName, ignoreCase = true)) {
+                updateSelectedCity(_selectedCity.value.copy(isFavorite = false), "RemoveFavorite")
+            }
+            syncFavoritesBackupFromRoom()
+        } catch (e: Exception) {
+            Log.e("WeatherRepository", "Failed to remove favorite location: ${e.message}", e)
+        }
+    }
+
     init {
         CoroutineScope(Dispatchers.IO).launch {
+            try {
+                val dbFavorites = favoriteLocationDao.getAllFavorites()
+                if (dbFavorites.isEmpty()) {
+                    restoreFavoritesFromBackup()
+                } else {
+                    syncFavoritesBackupFromRoom()
+                }
+            } catch (e: Exception) {
+                Log.e("WeatherRepository", "Error loading favorites on init: ${e.message}", e)
+            }
+
+            launch {
+                favoriteLocationDao.getAllFavoritesFlow().collect { favEntities ->
+                    val favSet = favEntities.map { createFavoriteId(it.cityName, it.country) }.toSet()
+                    val favCityNames = favEntities.map { it.cityName.lowercase() }.toSet()
+
+                    val currentList = _cities.value
+                    if (currentList.isNotEmpty()) {
+                        val updatedList = currentList.map { city ->
+                            val isFav = favSet.contains(createFavoriteId(city.cityName, city.country)) ||
+                                        favCityNames.contains(city.cityName.lowercase())
+                            if (city.isFavorite != isFav) city.copy(isFavorite = isFav) else city
+                        }
+                        _cities.value = updatedList
+                    }
+
+                    val currentSelected = _selectedCity.value
+                    if (currentSelected.cityName != "Loading...") {
+                        val isSelectedFav = favSet.contains(createFavoriteId(currentSelected.cityName, currentSelected.country)) ||
+                                            favCityNames.contains(currentSelected.cityName.lowercase())
+                        if (currentSelected.isFavorite != isSelectedFav) {
+                            _selectedCity.value = currentSelected.copy(isFavorite = isSelectedFav)
+                        }
+                    }
+                }
+            }
+
             // Observe Room's cached weather records and stream to UI components reactively
             weatherDao.getAllCachedWeatherFlow().collect { cachedList ->
                 val mappedList = cachedList.mapNotNull { cached ->
@@ -355,10 +517,11 @@ class WeatherRepository(private val context: Context) {
                         val details = moshi.adapter(WeatherDetails::class.java).fromJson(cached.weatherJson)
                         if (details != null) {
                             val alignedDetails = alignWeatherDetailsHourly(details)
+                            val isFavInDb = favoriteLocationDao.getFavorite(createFavoriteId(cached.cityName, cached.country), cached.cityName, cached.country) != null
                             CityWeather(
                                 cityName = cached.cityName,
                                 country = cached.country,
-                                isFavorite = cached.isFavorite,
+                                isFavorite = cached.isFavorite || isFavInDb,
                                 weatherDetails = alignedDetails,
                                 localTime = null, // recalculated dynamically on load if needed
                                 region = cached.region
@@ -480,6 +643,9 @@ class WeatherRepository(private val context: Context) {
 
     private suspend fun saveCityToCache(city: CityWeather) {
         val json = moshi.adapter(WeatherDetails::class.java).toJson(city.weatherDetails)
+        val normalizedFavId = createFavoriteId(city.cityName, city.country)
+        val isFavInDb = favoriteLocationDao.getFavorite(normalizedFavId, city.cityName, city.country) != null || city.isFavorite
+
         val uniqueId = if (!city.region.isNullOrBlank()) {
             "${city.cityName.lowercase()},${city.region.lowercase()},${city.country.lowercase()}"
         } else {
@@ -490,11 +656,27 @@ class WeatherRepository(private val context: Context) {
             cityName = city.cityName,
             country = city.country,
             weatherJson = json,
-            isFavorite = city.isFavorite,
+            isFavorite = isFavInDb,
             timestamp = System.currentTimeMillis(),
             region = city.region
         )
         weatherDao.insertCachedWeather(entity)
+
+        if (isFavInDb) {
+            val favEntity = FavoriteLocationEntity(
+                id = normalizedFavId,
+                cityName = city.cityName,
+                country = city.country,
+                region = city.region,
+                latitude = city.latitude,
+                longitude = city.longitude,
+                timeZoneId = city.timeZoneId ?: city.weatherDetails.timeZoneId,
+                timestamp = System.currentTimeMillis(),
+                weatherJson = json
+            )
+            favoriteLocationDao.insertFavorite(favEntity)
+            syncFavoritesBackupFromRoom()
+        }
     }
 
     fun getCityByNameCached(cityName: String): CityWeather? {
@@ -512,8 +694,35 @@ class WeatherRepository(private val context: Context) {
 
     fun getCitiesFlow(): Flow<List<CityWeather>> = _cities.asStateFlow()
 
-    fun getFavoritesFlow(): Flow<List<CityWeather>> = _cities.map { list ->
-        list.filter { it.isFavorite }
+    fun getFavoritesFlow(): Flow<List<CityWeather>> {
+        return favoriteLocationDao.getAllFavoritesFlow().map { entities ->
+            entities.map { entity ->
+                val inMemory = _cities.value.find {
+                    it.cityName.equals(entity.cityName, ignoreCase = true) &&
+                    (entity.country.isBlank() || it.country.equals(entity.country, ignoreCase = true))
+                }
+                if (inMemory != null && inMemory.weatherDetails.currentTemp != 0) {
+                    inMemory.copy(isFavorite = true)
+                } else {
+                    val details = entity.weatherJson?.let { json ->
+                        try {
+                            moshi.adapter(WeatherDetails::class.java).fromJson(json)
+                        } catch (e: Exception) { null }
+                    } ?: defaultPlaceholder.weatherDetails
+
+                    CityWeather(
+                        cityName = entity.cityName,
+                        country = entity.country,
+                        isFavorite = true,
+                        weatherDetails = alignWeatherDetailsHourly(details),
+                        region = entity.region,
+                        latitude = entity.latitude,
+                        longitude = entity.longitude,
+                        timeZoneId = entity.timeZoneId
+                    )
+                }
+            }.distinctBy { createFavoriteId(it.cityName, it.country) }
+        }
     }
 
     // Expose Room-based Recent Searches Flow
@@ -956,20 +1165,39 @@ class WeatherRepository(private val context: Context) {
 
     fun toggleFavorite(cityName: String) {
         CoroutineScope(Dispatchers.IO).launch {
-            val updated = _cities.value.map {
-                if (it.cityName.equals(cityName, ignoreCase = true)) {
-                    val newFavState = !it.isFavorite
-                    weatherDao.updateFavorite(cityName.lowercase(), newFavState)
-                    val updatedCity = it.copy(isFavorite = newFavState)
-                    if (updatedCity.cityName == _selectedCity.value.cityName) {
-                        updateSelectedCity(updatedCity, "ToggleFavorite")
-                    }
-                    updatedCity
+            try {
+                val existingFav = favoriteLocationDao.getFavorite(createFavoriteId(cityName), cityName, "")
+                    ?: favoriteLocationDao.getAllFavorites().find { it.cityName.equals(cityName, ignoreCase = true) }
+
+                if (existingFav != null) {
+                    removeFavoriteLocation(existingFav.cityName, existingFav.country)
                 } else {
-                    it
+                    val inMemory = _cities.value.find { it.cityName.equals(cityName, ignoreCase = true) }
+                    val activeSelected = _selectedCity.value
+                    val targetCity = if (inMemory != null) {
+                        inMemory
+                    } else if (activeSelected.cityName.equals(cityName, ignoreCase = true)) {
+                        activeSelected
+                    } else {
+                        getCityByNameFromFavoritesOrApi(cityName)
+                    }
+
+                    if (targetCity != null && targetCity.cityName != "Loading...") {
+                        addFavoriteLocation(targetCity)
+                    } else {
+                        val fallbackCity = CityWeather(
+                            cityName = cityName,
+                            country = "",
+                            isFavorite = true,
+                            weatherDetails = defaultPlaceholder.weatherDetails
+                        )
+                        addFavoriteLocation(fallbackCity)
+                        fetchWeatherFromApi(cityName, forceRefresh = true)
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e("WeatherRepository", "Error in toggleFavorite: ${e.message}", e)
             }
-            _cities.value = updated
         }
     }
 

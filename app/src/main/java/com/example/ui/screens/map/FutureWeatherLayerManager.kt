@@ -95,7 +95,12 @@ class WeatherTilesOverlay(
         } else if (moduleProvider is OwmTileModuleProvider) {
             moduleProvider.currentFrame = frame
         }
-        pTileProvider.clearTileCache()
+        // Do not call clearTileCache() during active playback to prevent osmdroid pipeline teardown flicker
+        val isPlaybackActive = (moduleProvider as? RainRadarTileModuleProvider)?.isPlaybackActive == true ||
+                (moduleProvider as? OwmTileModuleProvider)?.isPlaybackActive == true
+        if (!isPlaybackActive) {
+            pTileProvider.clearTileCache()
+        }
     }
 
     fun setPlaybackActive(active: Boolean) {

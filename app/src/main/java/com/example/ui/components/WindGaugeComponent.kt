@@ -470,23 +470,33 @@ private fun WindGaugeModeContent(
                     )
                 }
 
-                // Sleek Header Compass Icon Button
+                // Sleek Header Compass Button with Icon and Label
                 Surface(
                     modifier = Modifier
-                        .clip(CircleShape)
+                        .clip(RoundedCornerShape(20.dp))
                         .clickable { onSwitchToCompass() },
-                    shape = CircleShape,
-                    color = accentCyan.copy(alpha = 0.18f)
+                    shape = RoundedCornerShape(20.dp),
+                    color = accentCyan.copy(alpha = 0.15f),
+                    border = BorderStroke(1.dp, accentCyan.copy(alpha = 0.3f))
                 ) {
-                    Box(
-                        modifier = Modifier.padding(6.dp),
-                        contentAlignment = Alignment.Center
+                    Row(
+                        modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(4.dp)
                     ) {
                         Icon(
                             imageVector = SkySphereIcons.Compass,
-                            contentDescription = "Switch to Compass",
+                            contentDescription = "Compass",
                             tint = accentCyan,
-                            modifier = Modifier.size(18.dp)
+                            modifier = Modifier.size(16.dp)
+                        )
+                        Text(
+                            text = "Compass",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                fontWeight = FontWeight.Bold,
+                                color = accentCyan,
+                                fontSize = 12.sp
+                            )
                         )
                     }
                 }
@@ -801,23 +811,33 @@ private fun CompassModeContent(
                 )
             }
 
-            // Sleek Header Wind Icon Button
+            // Sleek Header Wind Gauge Button with Icon and Label
             Surface(
                 modifier = Modifier
-                    .clip(CircleShape)
+                    .clip(RoundedCornerShape(20.dp))
                     .clickable { onSwitchToGauge() },
-                shape = CircleShape,
-                color = accentCyan.copy(alpha = 0.18f)
+                shape = RoundedCornerShape(20.dp),
+                color = accentCyan.copy(alpha = 0.15f),
+                border = BorderStroke(1.dp, accentCyan.copy(alpha = 0.3f))
             ) {
-                Box(
-                    modifier = Modifier.padding(6.dp),
-                    contentAlignment = Alignment.Center
+                Row(
+                    modifier = Modifier.padding(horizontal = 10.dp, vertical = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     Icon(
                         imageVector = SkySphereIcons.Wind,
                         contentDescription = "Switch to Wind Gauge",
                         tint = accentCyan,
-                        modifier = Modifier.size(18.dp)
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "Gauge",
+                        style = MaterialTheme.typography.labelMedium.copy(
+                            fontWeight = FontWeight.Bold,
+                            color = accentCyan,
+                            fontSize = 12.sp
+                        )
                     )
                 }
             }

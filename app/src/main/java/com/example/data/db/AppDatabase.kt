@@ -29,6 +29,19 @@ data class RadarMetadataEntity(
     val timestamp: Long
 )
 
+@Entity(tableName = "favorite_locations")
+data class FavoriteLocationEntity(
+    @PrimaryKey val id: String,
+    val cityName: String,
+    val country: String,
+    val region: String? = null,
+    val latitude: Double? = null,
+    val longitude: Double? = null,
+    val timeZoneId: String? = null,
+    val timestamp: Long = System.currentTimeMillis(),
+    val weatherJson: String? = null
+)
+
 @Dao
 interface WeatherDao {
     @Query("SELECT * FROM cached_weather WHERE id = :id OR LOWER(cityName) = LOWER(:id) ORDER BY (id = :id) DESC LIMIT 1")
@@ -80,15 +93,40 @@ interface RadarMetadataDao {
     suspend fun deleteRadarMetadata(key: String = "latest_radar_frames")
 }
 
+@Dao
+interface FavoriteLocationDao {
+    @Query("SELECT * FROM favorite_locations ORDER BY timestamp ASC")
+    fun getAllFavoritesFlow(): Flow<List<FavoriteLocationEntity>>
+
+    @Query("SELECT * FROM favorite_locations ORDER BY timestamp ASC")
+    suspend fun getAllFavorites(): List<FavoriteLocationEntity>
+
+    @Query("SELECT * FROM favorite_locations WHERE id = :id OR (LOWER(cityName) = LOWER(:cityName) AND LOWER(country) = LOWER(:country)) LIMIT 1")
+    suspend fun getFavorite(id: String, cityName: String, country: String): FavoriteLocationEntity?
+
+    @Insert(onConflict = OnConflictStrategy.REPLACE)
+    suspend fun insertFavorite(favorite: FavoriteLocationEntity)
+
+    @Query("DELETE FROM favorite_locations WHERE id = :id OR (LOWER(cityName) = LOWER(:cityName) AND LOWER(country) = LOWER(:country))")
+    suspend fun deleteFavorite(id: String, cityName: String, country: String)
+
+    @Query("DELETE FROM favorite_locations WHERE LOWER(cityName) = LOWER(:cityName)")
+    suspend fun deleteFavoriteByCityName(cityName: String)
+
+    @Query("DELETE FROM favorite_locations")
+    suspend fun clearAllFavorites()
+}
+
 @Database(
-    entities = [CachedWeatherEntity::class, RecentSearchEntity::class, RadarMetadataEntity::class],
-    version = 3,
+    entities = [CachedWeatherEntity::class, RecentSearchEntity::class, RadarMetadataEntity::class, FavoriteLocationEntity::class],
+    version = 4,
     exportSchema = false
 )
 abstract class AppDatabase : RoomDatabase() {
     abstract fun weatherDao(): WeatherDao
     abstract fun recentSearchDao(): RecentSearchDao
     abstract fun radarMetadataDao(): RadarMetadataDao
+    abstract fun favoriteLocationDao(): FavoriteLocationDao
 
     companion object {
         @Volatile

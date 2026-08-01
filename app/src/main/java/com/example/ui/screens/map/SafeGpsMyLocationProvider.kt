@@ -32,19 +32,19 @@ class SafeGpsMyLocationProvider(private val context: Context) : GpsMyLocationPro
 
         clearLocationSources()
 
-        val gpsEnabled = hasFine && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { false }
         val networkEnabled = try { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (t: Throwable) { false }
+        val gpsEnabled = hasFine && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { false }
 
-        if (!gpsEnabled && !networkEnabled) {
+        if (!networkEnabled && !gpsEnabled) {
             Log.d("SafeLocationProvider", "No active location providers enabled.")
             return false
         }
 
-        if (gpsEnabled) {
-            addLocationSource(LocationManager.GPS_PROVIDER)
-        }
         if (networkEnabled) {
             addLocationSource(LocationManager.NETWORK_PROVIDER)
+        }
+        if (gpsEnabled) {
+            addLocationSource(LocationManager.GPS_PROVIDER)
         }
 
         return try {
