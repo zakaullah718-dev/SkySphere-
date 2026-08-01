@@ -254,17 +254,68 @@ class RadarTimeLapseController(
                 return@launch
             }
 
-            // Smooth synchronized frame loop reading exclusively from preloaded RAM cache
+            // Smooth synchronized frame loop reading exclusively from preloaded RAM/Disk cache
             while (_state.value.isPlaying) {
                 val currentFrames = _state.value.frames
                 if (currentFrames.isEmpty()) break
 
                 val currentIndex = _state.value.currentFrameIndex
                 val nextIndex = (currentIndex + 1) % currentFrames.size
-                val nextFrame = currentFrames.getOrNull(nextIndex) ?: break
+                val candidateFrame = currentFrames.getOrNull(nextIndex) ?: break
 
-                _state.update { it.copy(currentFrameIndex = nextIndex) }
-                onFrameChanged(nextFrame)
+                val startTimeMs = System.currentTimeMillis()
+                val stats = RadarPreloader.checkFrameTileStats(
+                    layer = layer,
+                    frame = candidateFrame,
+                    centerLat = currentLat,
+                    centerLon = currentLon,
+                    mapZoom = currentZoom,
+                    readyStartTimeMs = startTimeMs
+                )
+
+                Log.d(
+                    "TimelapsePlayback",
+                    "Frame: ${candidateFrame.index} | Required: ${stats.requiredTiles} | Loaded: ${stats.loadedTiles} | Missing: ${stats.missingTiles} | NetReq: ${stats.networkRequests} | RAM Hits: ${stats.ramHits} | Disk Hits: ${stats.diskHits} | ReadyTime: ${stats.readyTimeMs}ms"
+                )
+
+                if (stats.isReady) {
+                    Log.d(
+                        "TimelapsePlayback",
+                        "Advancing to frame ${candidateFrame.index}: 100% visible tiles ready (${stats.loadedTiles}/${stats.requiredTiles})."
+                    )
+                    _state.update { it.copy(currentFrameIndex = nextIndex) }
+                    onFrameChanged(candidateFrame)
+                } else {
+                    Log.w(
+                        "TimelapsePlayback",
+                        "Holding back frame ${candidateFrame.index}. Reason: Missing ${stats.missingTiles} visible tiles (Loaded ${stats.loadedTiles}/${stats.requiredTiles}). Keeping previous frame $currentIndex."
+                    )
+
+                    // Attempt single frame preload in background if missing
+                    val fetchedStats = withContext(Dispatchers.IO) {
+                        RadarPreloader.preloadSingleFrame(layer, candidateFrame, currentLat, currentLon, currentZoom)
+                    }
+
+                    if (fetchedStats.isReady) {
+                        Log.d(
+                            "TimelapsePlayback",
+                            "Frame ${candidateFrame.index} became ready after fetch (${fetchedStats.loadedTiles}/${fetchedStats.requiredTiles}). Advancing."
+                        )
+                        _state.update { it.copy(currentFrameIndex = nextIndex) }
+                        onFrameChanged(candidateFrame)
+                    } else {
+                        Log.w(
+                            "TimelapsePlayback",
+                            "Provider timeout / missing tile for frame ${candidateFrame.index} (Missing ${fetchedStats.missingTiles}). Skipping frame ${candidateFrame.index} to maintain smooth animation."
+                        )
+                        val skipIndex = (nextIndex + 1) % currentFrames.size
+                        val skipFrame = currentFrames.getOrNull(skipIndex)
+                        if (skipFrame != null) {
+                            _state.update { it.copy(currentFrameIndex = skipIndex) }
+                            onFrameChanged(skipFrame)
+                        }
+                    }
+                }
 
                 val baseDelay = 750L
                 val speed = _state.value.playbackSpeed.coerceAtLeast(0.1f)

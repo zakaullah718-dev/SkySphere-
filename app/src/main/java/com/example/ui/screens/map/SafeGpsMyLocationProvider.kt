@@ -7,6 +7,7 @@ import android.location.Location
 import android.location.LocationManager
 import android.util.Log
 import androidx.core.content.ContextCompat
+import androidx.core.location.LocationManagerCompat
 import org.osmdroid.views.overlay.mylocation.GpsMyLocationProvider
 import org.osmdroid.views.overlay.mylocation.IMyLocationConsumer
 
@@ -23,13 +24,26 @@ class SafeGpsMyLocationProvider(private val context: Context) : GpsMyLocationPro
             return false
         }
 
-        clearLocationSources()
         val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        if (locationManager == null || !LocationManagerCompat.isLocationEnabled(locationManager)) {
+            Log.d("SafeLocationProvider", "Location services disabled on device.")
+            return false
+        }
 
-        if (hasFine && try { locationManager?.isProviderEnabled(LocationManager.GPS_PROVIDER) == true } catch (t: Throwable) { false }) {
+        clearLocationSources()
+
+        val gpsEnabled = hasFine && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { false }
+        val networkEnabled = try { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (t: Throwable) { false }
+
+        if (!gpsEnabled && !networkEnabled) {
+            Log.d("SafeLocationProvider", "No active location providers enabled.")
+            return false
+        }
+
+        if (gpsEnabled) {
             addLocationSource(LocationManager.GPS_PROVIDER)
         }
-        if (try { locationManager?.isProviderEnabled(LocationManager.NETWORK_PROVIDER) == true } catch (t: Throwable) { false }) {
+        if (networkEnabled) {
             addLocationSource(LocationManager.NETWORK_PROVIDER)
         }
 
@@ -68,8 +82,19 @@ class SafeGpsMyLocationProvider(private val context: Context) : GpsMyLocationPro
         val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
         if (!hasFine && !hasCoarse) return null
 
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager ?: return null
+        if (!LocationManagerCompat.isLocationEnabled(locationManager)) return null
+
         return try {
-            super.getLastKnownLocation()
+            val gpsLocation = if (hasFine && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { false }) {
+                try { locationManager.getLastKnownLocation(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { null }
+            } else null
+
+            val networkLocation = if (try { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (t: Throwable) { false }) {
+                try { locationManager.getLastKnownLocation(LocationManager.NETWORK_PROVIDER) } catch (t: Throwable) { null }
+            } else null
+
+            gpsLocation ?: networkLocation
         } catch (e: SecurityException) {
             null
         } catch (t: Throwable) {
@@ -77,4 +102,5 @@ class SafeGpsMyLocationProvider(private val context: Context) : GpsMyLocationPro
         }
     }
 }
+
 

@@ -234,6 +234,22 @@ class RainRadarTileModuleProvider(
         var frame = customRadarFrame ?: radarRepository.getLatestRadarFrameSync()
         val cacheKey = "RainViewer_Radar_${frame.time}_${clampedZoom}_${x}_${y}"
 
+        val ramHit = TileRamCache.get(cacheKey)
+        if (ramHit != null) {
+            return Pair(ramHit, "RAM Cache Hit")
+        }
+
+        val diskHit = DiskTileCache.get(cacheKey)
+        if (diskHit != null) {
+            TileRamCache.put(cacheKey, diskHit)
+            return Pair(diskHit, "Disk Cache Hit")
+        }
+
+        if (isPlaybackActive) {
+            Log.w("RainRadarTile", "Playback active: network tile fetch suppressed for missing key '$cacheKey'")
+            return Pair(null, "Suppressed during playback")
+        }
+
         val bitmap = RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             var tileUrl = frame.buildTileUrl(clampedZoom, x, y)
             RadarApiTracker.logRainViewerRequest(tileUrl)
@@ -368,6 +384,22 @@ class OwmTileModuleProvider(
     private fun fetchProviderTileBitmap(zoom: Int, x: Int, y: Int): Bitmap? {
         val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM)
         val cacheKey = "${layerEndpoint}_${clampedZoom}_${x}_${y}"
+
+        val ramHit = TileRamCache.get(cacheKey)
+        if (ramHit != null) {
+            return ramHit
+        }
+
+        val diskHit = DiskTileCache.get(cacheKey)
+        if (diskHit != null) {
+            TileRamCache.put(cacheKey, diskHit)
+            return diskHit
+        }
+
+        if (isPlaybackActive) {
+            Log.w("OwmTileModule", "Playback active: network tile fetch suppressed for missing key '$cacheKey'")
+            return null
+        }
 
         return RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             val url = "https://tile.openweathermap.org/map/$layerEndpoint/$clampedZoom/$x/$y.png?appid=$owmApiKey"

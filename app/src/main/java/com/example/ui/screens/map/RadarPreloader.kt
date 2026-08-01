@@ -17,6 +17,18 @@ import kotlin.math.cos
 import kotlin.math.ln
 import kotlin.math.tan
 
+data class FrameTileStats(
+    val frameIndex: Int,
+    val requiredTiles: Int,
+    val loadedTiles: Int,
+    val missingTiles: Int,
+    val networkRequests: Int,
+    val ramHits: Int,
+    val diskHits: Int,
+    val readyTimeMs: Long,
+    val isReady: Boolean
+)
+
 object RadarPreloader {
 
     private val client = OkHttpClient.Builder()
@@ -55,8 +67,8 @@ object RadarPreloader {
         val rad = Math.toRadians(centerLat)
         val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-        val tileXs = (centerX - 1..centerX + 1).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-        val tileYs = (centerY - 1..centerY + 1).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+        val tileXs = (centerX - 2..centerX + 2).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+        val tileYs = (centerY - 2..centerY + 2).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
 
         val keys = mutableSetOf<String>()
         if (layer == MapWeatherLayer.RAIN_RADAR) {
@@ -112,8 +124,8 @@ object RadarPreloader {
         val rad = Math.toRadians(centerLat)
         val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-        val tileXs = (centerX - 1..centerX + 1).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-        val tileYs = (centerY - 1..centerY + 1).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+        val tileXs = (centerX - 2..centerX + 2).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+        val tileYs = (centerY - 2..centerY + 2).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
 
         val tileCoords = mutableListOf<Pair<Int, Int>>()
         for (x in tileXs) {
@@ -152,6 +164,126 @@ object RadarPreloader {
         TileRamCache.retainOnly(activeKeys)
     }
 
+    fun checkFrameTileStats(
+        layer: MapWeatherLayer,
+        frame: TimeLapseFrame,
+        centerLat: Double,
+        centerLon: Double,
+        mapZoom: Int,
+        readyStartTimeMs: Long
+    ): FrameTileStats {
+        val requiredKeys = getRequiredTileKeys(layer, listOf(frame), centerLat, centerLon, mapZoom)
+        if (requiredKeys.isEmpty()) {
+            return FrameTileStats(
+                frameIndex = frame.index,
+                requiredTiles = 0,
+                loadedTiles = 0,
+                missingTiles = 0,
+                networkRequests = 0,
+                ramHits = 0,
+                diskHits = 0,
+                readyTimeMs = 0L,
+                isReady = true
+            )
+        }
+
+        var ramHits = 0
+        var diskHits = 0
+        var missing = 0
+
+        for (key in requiredKeys) {
+            if (TileRamCache.contains(key)) {
+                ramHits++
+            } else {
+                val diskTile = DiskTileCache.get(key)
+                if (diskTile != null) {
+                    diskHits++
+                    TileRamCache.put(key, diskTile)
+                } else {
+                    missing++
+                }
+            }
+        }
+
+        val loaded = ramHits + diskHits
+        val isReady = (missing == 0)
+        val readyTimeMs = if (isReady) (System.currentTimeMillis() - readyStartTimeMs).coerceAtLeast(0L) else -1L
+
+        return FrameTileStats(
+            frameIndex = frame.index,
+            requiredTiles = requiredKeys.size,
+            loadedTiles = loaded,
+            missingTiles = missing,
+            networkRequests = 0,
+            ramHits = ramHits,
+            diskHits = diskHits,
+            readyTimeMs = readyTimeMs,
+            isReady = isReady
+        )
+    }
+
+    suspend fun preloadSingleFrame(
+        layer: MapWeatherLayer,
+        frame: TimeLapseFrame,
+        centerLat: Double,
+        centerLon: Double,
+        mapZoom: Int
+    ): FrameTileStats = withContext(Dispatchers.IO) {
+        val startTime = System.currentTimeMillis()
+        val providerMaxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) {
+            FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
+        } else {
+            FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
+        }
+
+        val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
+        val numTilesDimension = 1 shl pZoom
+
+        val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+        val rad = Math.toRadians(centerLat)
+        val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+
+        val tileXs = (centerX - 2..centerX + 2).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+        val tileYs = (centerY - 2..centerY + 2).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+
+        var netRequests = 0
+        for (x in tileXs) {
+            for (y in tileYs) {
+                try {
+                    val key = if (layer == MapWeatherLayer.RAIN_RADAR) {
+                        val timestamp = frame.radarFrame?.time ?: frame.timestamp
+                        "RainViewer_Radar_${timestamp}_${pZoom}_${x}_${y}"
+                    } else {
+                        val layerEndpoint = when (layer) {
+                            MapWeatherLayer.CLOUDS -> "clouds_new"
+                            MapWeatherLayer.TEMPERATURE -> "temp_new"
+                            MapWeatherLayer.WIND -> "wind_new"
+                            MapWeatherLayer.HUMIDITY -> "humidity_new"
+                            MapWeatherLayer.PRESSURE -> "pressure_new"
+                            else -> continue
+                        }
+                        "${layerEndpoint}_${pZoom}_${x}_${y}"
+                    }
+
+                    if (!TileRamCache.contains(key)) {
+                        val diskTile = DiskTileCache.get(key)
+                        if (diskTile != null) {
+                            TileRamCache.put(key, diskTile)
+                        } else {
+                            netRequests++
+                            preloadSingleTile(layer, frame, pZoom, x, y)
+                        }
+                    }
+                } catch (e: Exception) {
+                    Log.w("RadarPreloader", "Failed single tile fetch: ${e.localizedMessage}")
+                }
+            }
+        }
+
+        val stats = checkFrameTileStats(layer, frame, centerLat, centerLon, mapZoom, startTime)
+        stats.copy(networkRequests = netRequests)
+    }
+
     fun isFrameCached(
         layer: MapWeatherLayer,
         frame: TimeLapseFrame,
@@ -162,7 +294,9 @@ object RadarPreloader {
         if (layer == MapWeatherLayer.NONE) return true
         val requiredKeys = getRequiredTileKeys(layer, listOf(frame), centerLat, centerLon, mapZoom)
         if (requiredKeys.isEmpty()) return true
-        return requiredKeys.all { TileRamCache.contains(it) }
+        return requiredKeys.all { key ->
+            TileRamCache.contains(key) || DiskTileCache.contains(key)
+        }
     }
 
     fun areAllFramesCached(
@@ -175,7 +309,9 @@ object RadarPreloader {
         if (layer == MapWeatherLayer.NONE || frames.isEmpty()) return true
         val requiredKeys = getRequiredTileKeys(layer, frames, centerLat, centerLon, mapZoom)
         if (requiredKeys.isEmpty()) return true
-        return requiredKeys.all { TileRamCache.contains(it) }
+        return requiredKeys.all { key ->
+            TileRamCache.contains(key) || DiskTileCache.contains(key)
+        }
     }
 
     private fun preloadSingleTile(
@@ -191,11 +327,19 @@ object RadarPreloader {
 
             if (TileRamCache.contains(cacheKey)) return
 
+            val diskTile = DiskTileCache.get(cacheKey)
+            if (diskTile != null) {
+                RadarApiTracker.logDiskCacheHit(cacheKey)
+                TileRamCache.put(cacheKey, diskTile)
+                return
+            }
+
             val tileUrl = frame.radarFrame?.buildTileUrl(zoom, x, y)
                 ?: "https://tilecache.rainviewer.com/v2/radar/$timestamp/256/$zoom/$x/$y/4/1_1.png"
 
             val bitmap = downloadAndDecode(tileUrl) ?: return
             TileRamCache.put(cacheKey, bitmap)
+            DiskTileCache.put(cacheKey, bitmap)
 
         } else {
             val layerEndpoint = when (layer) {
@@ -210,6 +354,13 @@ object RadarPreloader {
             val cacheKey = "${layerEndpoint}_${zoom}_${x}_${y}"
             if (TileRamCache.contains(cacheKey)) return
 
+            val diskTile = DiskTileCache.get(cacheKey)
+            if (diskTile != null) {
+                RadarApiTracker.logDiskCacheHit(cacheKey)
+                TileRamCache.put(cacheKey, diskTile)
+                return
+            }
+
             val tileUrl = "https://tile.openweathermap.org/map/$layerEndpoint/$zoom/$x/$y.png?appid=$owmApiKey"
             var bitmap = downloadAndDecode(tileUrl) ?: return
 
@@ -217,6 +368,7 @@ object RadarPreloader {
                 bitmap = applyDarkCloudStyle(bitmap)
             }
             TileRamCache.put(cacheKey, bitmap)
+            DiskTileCache.put(cacheKey, bitmap)
         }
     }
 
