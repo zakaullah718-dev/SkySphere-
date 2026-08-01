@@ -361,8 +361,7 @@ fun MapScreen(
     LaunchedEffect(activeFrame) {
         val overlay = weatherOverlayRef[0]
         if (overlay != null && activeFrame != null) {
-            overlay.updateFrame(activeFrame)
-            mapView?.postInvalidate()
+            overlay.updateFrame(activeFrame, mapView)
         }
     }
 

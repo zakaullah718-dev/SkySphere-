@@ -18,11 +18,15 @@ import org.osmdroid.tileprovider.modules.MapTileModuleProviderBase
 import org.osmdroid.tileprovider.tilesource.ITileSource
 import org.osmdroid.tileprovider.tilesource.OnlineTileSourceBase
 import org.osmdroid.util.MapTileIndex
+import org.osmdroid.views.MapView
 import org.osmdroid.views.overlay.TilesOverlay
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.FutureTask
 import java.util.concurrent.Semaphore
 import java.util.concurrent.TimeUnit
+import kotlin.math.cos
+import kotlin.math.ln
+import kotlin.math.tan
 
 object RadarTileFetcher {
     private val semaphore = Semaphore(4) // Rate limit to max 4 concurrent network tile downloads
@@ -85,22 +89,88 @@ object RadarTileFetcher {
 
 class WeatherTilesOverlay(
     val pTileProvider: MapTileProviderBase,
-    pContext: Context,
+    val pContext: Context,
     val moduleProvider: MapTileModuleProviderBase?
 ) : TilesOverlay(pTileProvider, pContext) {
 
-    fun updateFrame(frame: TimeLapseFrame?) {
+    fun updateFrame(frame: TimeLapseFrame?, mapView: MapView? = null) {
         if (moduleProvider is RainRadarTileModuleProvider) {
             moduleProvider.customRadarFrame = frame?.radarFrame
         } else if (moduleProvider is OwmTileModuleProvider) {
             moduleProvider.currentFrame = frame
         }
-        // Do not call clearTileCache() during active playback to prevent osmdroid pipeline teardown flicker
-        val isPlaybackActive = (moduleProvider as? RainRadarTileModuleProvider)?.isPlaybackActive == true ||
-                (moduleProvider as? OwmTileModuleProvider)?.isPlaybackActive == true
-        if (!isPlaybackActive) {
-            pTileProvider.clearTileCache()
+
+        val overlayId = System.identityHashCode(this)
+        val timestamp = frame?.radarFrame?.time ?: frame?.timestamp ?: 0L
+        val sampleUrl = if (moduleProvider is RainRadarTileModuleProvider && frame?.radarFrame != null) {
+            val pZoom = mapView?.zoomLevelDouble?.toInt()?.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM) ?: 5
+            frame.radarFrame.buildTileUrl(pZoom, 0, 0)
+        } else if (moduleProvider is OwmTileModuleProvider) {
+            val pZoom = mapView?.zoomLevelDouble?.toInt()?.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM) ?: 5
+            "https://tile.openweathermap.org/map/${moduleProvider.layerEndpoint}/$pZoom/0/0.png"
+        } else "N/A"
+
+        Log.d(
+            "TimelapsePipeline",
+            "FRAME_ADVANCE | FrameIndex: ${frame?.index} | Timestamp: $timestamp | TileURL: $sampleUrl | OverlayID: $overlayId | Layer: ${moduleProvider?.javaClass?.simpleName}"
+        )
+
+        // Always clear osmdroid's tile cache so the new frame's tiles are rendered rather than stale frame 0 tiles
+        pTileProvider.clearTileCache()
+
+        // Pre-populate osmdroid's tileCache for visible tiles if already present in RAM/Disk cache
+        if (frame != null && mapView != null) {
+            try {
+                val mapZoom = mapView.zoomLevelDouble.toInt()
+                val center = mapView.mapCenter
+                val centerLat = center.latitude
+                val centerLon = center.longitude
+
+                val providerMaxZoom = if (moduleProvider is RainRadarTileModuleProvider) {
+                    FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
+                } else {
+                    FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
+                }
+                val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
+                val numTilesDimension = 1 shl pZoom
+
+                val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+                val rad = Math.toRadians(centerLat)
+                val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+
+                val tileXs = (centerX - 3..centerX + 3).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+                val tileYs = (centerY - 3..centerY + 3).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+
+                for (x in tileXs) {
+                    for (y in tileYs) {
+                        val cacheKey = if (moduleProvider is RainRadarTileModuleProvider) {
+                            val time = frame.radarFrame?.time ?: frame.timestamp
+                            "RainViewer_Radar_${time}_${pZoom}_${x}_${y}"
+                        } else if (moduleProvider is OwmTileModuleProvider) {
+                            "${moduleProvider.layerEndpoint}_${pZoom}_${x}_${y}"
+                        } else null
+
+                        if (cacheKey != null) {
+                            val bitmap = TileRamCache.get(cacheKey) ?: DiskTileCache.get(cacheKey)
+                            if (bitmap != null) {
+                                val pMapTileIndex = MapTileIndex.getTileIndex(pZoom, x, y)
+                                val drawable = BitmapDrawable(pContext.resources, bitmap)
+                                pTileProvider.tileCache.putTile(pMapTileIndex, drawable)
+                            }
+                        }
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("TimelapsePipeline", "Error pre-populating osmdroid tileCache: ${e.localizedMessage}")
+            }
         }
+
+        mapView?.postInvalidate()
+
+        Log.d(
+            "TimelapsePipeline",
+            "MAP_INVALIDATE | FrameIndex: ${frame?.index} | Timestamp: $timestamp | OverlayID: $overlayId | Redraw event dispatched"
+        )
     }
 
     fun setPlaybackActive(active: Boolean) {
@@ -250,11 +320,6 @@ class RainRadarTileModuleProvider(
             return Pair(diskHit, "Disk Cache Hit")
         }
 
-        if (isPlaybackActive) {
-            Log.w("RainRadarTile", "Playback active: network tile fetch suppressed for missing key '$cacheKey'")
-            return Pair(null, "Suppressed during playback")
-        }
-
         val bitmap = RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             var tileUrl = frame.buildTileUrl(clampedZoom, x, y)
             RadarApiTracker.logRainViewerRequest(tileUrl)
@@ -361,7 +426,7 @@ class RainRadarTileModuleProvider(
 class OwmTileModuleProvider(
     pTileSource: ITileSource,
     pTileCache: IFilesystemCache?,
-    private val layerEndpoint: String,
+    val layerEndpoint: String,
     private val owmApiKey: String,
     private val isCloudsDark: Boolean = false,
     @Volatile var isPlaybackActive: Boolean = false,
@@ -399,11 +464,6 @@ class OwmTileModuleProvider(
         if (diskHit != null) {
             TileRamCache.put(cacheKey, diskHit)
             return diskHit
-        }
-
-        if (isPlaybackActive) {
-            Log.w("OwmTileModule", "Playback active: network tile fetch suppressed for missing key '$cacheKey'")
-            return null
         }
 
         return RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
