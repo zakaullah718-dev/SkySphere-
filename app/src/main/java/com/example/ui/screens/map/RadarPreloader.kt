@@ -77,9 +77,11 @@ object RadarPreloader {
                 MapWeatherLayer.PRESSURE -> "pressure_new"
                 else -> return emptySet()
             }
-            for (x in tileXs) {
-                for (y in tileYs) {
-                    keys.add("${layerEndpoint}_${pZoom}_${x}_${y}")
+            for (frame in frames) {
+                for (x in tileXs) {
+                    for (y in tileYs) {
+                        keys.add("${layerEndpoint}_${pZoom}_${x}_${y}")
+                    }
                 }
             }
         }

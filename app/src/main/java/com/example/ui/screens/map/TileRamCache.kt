@@ -7,13 +7,28 @@ import android.util.LruCache
 /**
  * Temporary RAM memory cache for preloaded weather layer tile Bitmaps.
  * Zero disk persistence.
- * Automatically cleared on layer change, location change, or screen exit.
+ * Dynamically sized based on available JVM heap with LRU byte eviction,
+ * low-end device detection, and OutOfMemory safeguards.
  */
 object TileRamCache {
-    private const val MAX_TILES = 360 // Memory footprint max (~45-50MB RAM max for all layers)
+    private const val TAG = "TileRamCache"
 
-    private val cache = object : LruCache<String, Bitmap>(MAX_TILES) {
-        override fun sizeOf(key: String, bitmap: Bitmap): Int = 1
+    // Dynamically calculate memory budget: ~15% of max JVM heap, bounded between 16MB and 48MB
+    private val maxMemoryKb: Int by lazy {
+        val maxHeapKb = (Runtime.getRuntime().maxMemory() / 1024).toInt()
+        val budgetKb = maxHeapKb / 6 // ~16.6% of heap
+        budgetKb.coerceIn(16 * 1024, 48 * 1024) // 16 MB min, 48 MB max
+    }
+
+    private val cache = object : LruCache<String, Bitmap>(maxMemoryKb) {
+        override fun sizeOf(key: String, bitmap: Bitmap): Int {
+            return (bitmap.byteCount / 1024).coerceAtLeast(1)
+        }
+    }
+
+    fun isLowMemoryDevice(): Boolean {
+        val maxHeapMb = Runtime.getRuntime().maxMemory() / (1024 * 1024)
+        return maxHeapMb <= 192
     }
 
     fun get(key: String): Bitmap? {
@@ -28,8 +43,15 @@ object TileRamCache {
 
     fun put(key: String, bitmap: Bitmap) {
         if (!bitmap.isRecycled) {
-            synchronized(cache) {
-                cache.put(key, bitmap)
+            try {
+                synchronized(cache) {
+                    cache.put(key, bitmap)
+                }
+            } catch (oom: OutOfMemoryError) {
+                Log.e(TAG, "OutOfMemoryError putting bitmap into cache. Clearing RAM cache.")
+                clear()
+            } catch (e: Exception) {
+                Log.w(TAG, "Error caching bitmap: ${e.localizedMessage}")
             }
         }
     }
@@ -57,21 +79,28 @@ object TileRamCache {
                 }
             }
             if (evicted > 0) {
-                Log.d("TileRamCache", "Retained ${validKeys.size} active tiles; evicted $evicted old tiles.")
+                Log.d(TAG, "Retained ${validKeys.size} active tiles; evicted $evicted old tiles.")
             }
         }
     }
 
-    fun size(): Int {
+    fun sizeInKb(): Int {
         synchronized(cache) {
             return cache.size()
         }
     }
 
+    fun size(): Int {
+        synchronized(cache) {
+            return cache.snapshot().size
+        }
+    }
+
     fun clear() {
         synchronized(cache) {
-            Log.d("TileRamCache", "Clearing RAM cache (${cache.size()} tiles evicted).")
+            Log.d(TAG, "Clearing RAM cache (${cache.snapshot().size} tiles evicted).")
             cache.evictAll()
         }
     }
 }
+

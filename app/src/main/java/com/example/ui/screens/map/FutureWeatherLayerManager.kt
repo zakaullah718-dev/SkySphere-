@@ -92,6 +92,8 @@ class WeatherTilesOverlay(
     fun updateFrame(frame: TimeLapseFrame?) {
         if (moduleProvider is RainRadarTileModuleProvider) {
             moduleProvider.customRadarFrame = frame?.radarFrame
+        } else if (moduleProvider is OwmTileModuleProvider) {
+            moduleProvider.currentFrame = frame
         }
         pTileProvider.clearTileCache()
     }
@@ -232,10 +234,6 @@ class RainRadarTileModuleProvider(
         var frame = customRadarFrame ?: radarRepository.getLatestRadarFrameSync()
         val cacheKey = "RainViewer_Radar_${frame.time}_${clampedZoom}_${x}_${y}"
 
-        if (isPlaybackActive) {
-            return Pair(null, "Playback active: skipped network request")
-        }
-
         val bitmap = RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             var tileUrl = frame.buildTileUrl(clampedZoom, x, y)
             RadarApiTracker.logRainViewerRequest(tileUrl)
@@ -345,7 +343,8 @@ class OwmTileModuleProvider(
     private val layerEndpoint: String,
     private val owmApiKey: String,
     private val isCloudsDark: Boolean = false,
-    @Volatile var isPlaybackActive: Boolean = false
+    @Volatile var isPlaybackActive: Boolean = false,
+    @Volatile var currentFrame: TimeLapseFrame? = null
 ) : MapTileModuleProviderBase(8, 200) {
 
     private val client = OkHttpClient.Builder()
@@ -369,10 +368,6 @@ class OwmTileModuleProvider(
     private fun fetchProviderTileBitmap(zoom: Int, x: Int, y: Int): Bitmap? {
         val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM)
         val cacheKey = "${layerEndpoint}_${clampedZoom}_${x}_${y}"
-
-        if (isPlaybackActive) {
-            return null
-        }
 
         return RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             val url = "https://tile.openweathermap.org/map/$layerEndpoint/$clampedZoom/$x/$y.png?appid=$owmApiKey"

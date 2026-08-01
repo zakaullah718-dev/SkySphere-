@@ -70,28 +70,58 @@ class RadarTimeLapseController(
         }
 
         preloadJob = scope.launch {
-            val liveRadarFrame = try {
-                radarRepository.getLatestRadarFrame()
-            } catch (e: Exception) {
-                RadarFrame()
-            }
-            val nowSec = System.currentTimeMillis() / 1000L
-            val liveTimeLapseFrame = createFrame(0, liveRadarFrame.time.takeIf { it > 0 } ?: nowSec, liveRadarFrame, nowSec)
-            val frames = listOf(liveTimeLapseFrame)
+            val frames = fetchOrGenerateFrames(layer)
+            val initialIndex = frames.indexOfLast { !it.isForecast }.coerceAtLeast(0)
 
             _state.update {
                 it.copy(
                     frames = frames,
-                    currentFrameIndex = 0,
-                    isLoading = false,
-                    isBuffering = false,
-                    isReadyToPlay = false,
-                    bufferProgress = 1.0f
+                    currentFrameIndex = initialIndex,
+                    isLoading = true,
+                    isBuffering = true,
+                    bufferProgress = 0.05f
                 )
             }
 
-            if (onFrameChanged != null) {
-                onFrameChanged(liveTimeLapseFrame)
+            val initialFrame = frames.getOrNull(initialIndex)
+            if (initialFrame != null && onFrameChanged != null) {
+                onFrameChanged(initialFrame)
+            }
+
+            // Preload current active layer frames completely into RAM
+            val orderedFrames = if (initialFrame != null) {
+                listOf(initialFrame) + frames.filter { it.index != initialIndex }
+            } else frames
+
+            RadarPreloader.preloadFrames(
+                layer = layer,
+                frames = orderedFrames,
+                centerLat = lat,
+                centerLon = lon,
+                mapZoom = zoom,
+                onProgress = { loaded, total ->
+                    val progress = if (total > 0) loaded.toFloat() / total else 1.0f
+                    _state.update { s -> s.copy(bufferProgress = progress) }
+                },
+                onFrameReady = { fIdx ->
+                    _state.update { s ->
+                        val updatedFrames = s.frames.map { f ->
+                            if (f.index == fIdx) f.copy(isReady = true) else f
+                        }
+                        s.copy(frames = updatedFrames)
+                    }
+                }
+            )
+
+            _state.update { s ->
+                val allReadyFrames = s.frames.map { f -> f.copy(isReady = true) }
+                s.copy(
+                    frames = allReadyFrames,
+                    isLoading = false,
+                    isBuffering = false,
+                    isReadyToPlay = true,
+                    bufferProgress = 1.0f
+                )
             }
         }
     }
@@ -115,23 +145,38 @@ class RadarTimeLapseController(
         }
     }
 
-    private suspend fun fetchOrGenerateFrames(): List<TimeLapseFrame> = withContext(Dispatchers.IO) {
+    private suspend fun fetchOrGenerateFrames(layer: MapWeatherLayer): List<TimeLapseFrame> = withContext(Dispatchers.IO) {
         val nowSec = System.currentTimeMillis() / 1000L
-        val radarFrames = try {
-            radarRepository.getAllRadarPastFrames()
-        } catch (e: Exception) {
-            emptyList()
-        }
 
-        if (radarFrames.isNotEmpty()) {
-            radarFrames.mapIndexed { idx, rf ->
-                createFrame(idx, rf.time, rf, nowSec)
+        if (layer == MapWeatherLayer.RAIN_RADAR) {
+            val radarFrames = try {
+                radarRepository.getAllRadarPastFrames()
+            } catch (e: Exception) {
+                emptyList()
+            }
+
+            if (radarFrames.isNotEmpty()) {
+                radarFrames.mapIndexed { idx, rf ->
+                    createFrame(idx, rf.time, rf, nowSec)
+                }
+            } else {
+                val list = mutableListOf<TimeLapseFrame>()
+                val startSec = nowSec - (3 * 3600L)
+                val interval = 900L // 15 mins
+                var idx = 0
+                for (ts in startSec..nowSec step interval) {
+                    list.add(createFrame(idx++, ts, RadarFrame(time = ts), nowSec))
+                }
+                if (list.none { it.isNow }) {
+                    list.add(createFrame(idx, nowSec, RadarFrame(time = nowSec), nowSec))
+                }
+                list
             }
         } else {
-            // Fallback 13 frames covering past 6 hours at 30-minute intervals
+            // Generates 12 timeline frames for standard weather layers (Clouds, Temp, Wind, Humidity, Pressure)
             val list = mutableListOf<TimeLapseFrame>()
-            val startSec = nowSec - (6 * 3600L)
-            val interval = 1800L
+            val startSec = nowSec - (3 * 3600L) // Past 3 hours
+            val interval = 900L // 15-minute steps
             var idx = 0
             for (ts in startSec..nowSec step interval) {
                 list.add(createFrame(idx++, ts, RadarFrame(time = ts), nowSec))
