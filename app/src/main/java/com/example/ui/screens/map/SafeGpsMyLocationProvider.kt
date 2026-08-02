@@ -74,6 +74,7 @@ class SafeGpsMyLocationProvider(private val context: Context) : GpsMyLocationPro
             Log.w("SafeLocationProvider", "Error stopping location provider: ${t.localizedMessage}")
         } finally {
             isProviderRunning = false
+            clearLocationSources()
         }
     }
 

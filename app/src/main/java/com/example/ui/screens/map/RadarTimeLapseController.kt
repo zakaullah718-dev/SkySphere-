@@ -55,6 +55,8 @@ class RadarTimeLapseController(
             return
         }
 
+        Log.d("RadarCache", "Cache Invalidation Check | Layer initialized/changed to $layer | Preserving valid cached tiles in RAM (${TileRamCache.size()} tiles) and Disk (${DiskTileCache.fileCount()} files)")
+
         currentLat = lat
         currentLon = lon
         currentZoom = zoom
@@ -141,27 +143,74 @@ class RadarTimeLapseController(
         val oldKeys = RadarPreloader.getRequiredTileKeys(layer, frames, currentLat, currentLon, currentZoom)
         val newKeys = RadarPreloader.getRequiredTileKeys(layer, frames, lat, lon, zoom)
 
-        if (oldKeys == newKeys && currentZoom == zoom) {
+        if (oldKeys == newKeys) {
+            currentLat = lat
+            currentLon = lon
+            currentZoom = zoom
+            Log.d("RadarCache", "VIEWPORT_CHANGED_NOOP | Zoom: $zoom ($lat, $lon) | Tile key set unchanged.")
             return // Required tile set has not changed for current viewport
         }
 
-        Log.d(
-            "TimelapsePipeline",
-            "VIEWPORT_CHANGED | Zoom: $zoom | Center: ($lat, $lon) | RequiredTiles: ${newKeys.size}"
-        )
-
-        pause()
-        preloadJob?.cancel()
+        val missingKeys = newKeys.filter { !TileRamCache.contains(it) && !DiskTileCache.contains(it) }
+        val cachedCount = newKeys.size - missingKeys.size
+        val wasPlaying = _state.value.isPlaying
 
         currentLat = lat
         currentLon = lon
         currentZoom = zoom
 
+        if (missingKeys.isEmpty()) {
+            Log.d(
+                "RadarCache",
+                "VIEWPORT_CHANGED_ALL_CACHED | Zoom: $zoom ($lat, $lon) | All ${newKeys.size} required tiles are already cached in RAM/Disk! Zero network downloads needed."
+            )
+            preloadJob?.cancel()
+            _state.update {
+                it.copy(
+                    isBuffering = false,
+                    isReadyToPlay = true,
+                    bufferProgress = 1.0f
+                )
+            }
+            // Ensure disk-cached tiles are promoted to RAM Cache in background
+            preloadJob = scope.launch {
+                RadarPreloader.preloadFrames(
+                    layer = layer,
+                    frames = frames,
+                    centerLat = lat,
+                    centerLon = lon,
+                    mapZoom = zoom,
+                    onProgress = { _, _ -> },
+                    onFrameReady = { fIdx ->
+                        _state.update { s ->
+                            val updatedFrames = s.frames.map { f ->
+                                if (f.index == fIdx) f.copy(isReady = true) else f
+                            }
+                            s.copy(frames = updatedFrames)
+                        }
+                    }
+                )
+                if (wasPlaying && !_state.value.isPlaying) {
+                    onFrameChanged?.let { cb -> play(cb) }
+                }
+            }
+            return
+        }
+
+        pause()
+        preloadJob?.cancel()
+
+        val initialProgress = if (newKeys.isNotEmpty()) cachedCount.toFloat() / newKeys.size.toFloat() else 0f
+        Log.d(
+            "RadarCache",
+            "VIEWPORT_CHANGED_PRELOAD_MISSING | Zoom: $zoom ($lat, $lon) | Total required: ${newKeys.size} | Cached: $cachedCount | Downloading missing: ${missingKeys.size}"
+        )
+
         _state.update {
             it.copy(
                 isBuffering = true,
                 isReadyToPlay = false,
-                bufferProgress = 0f
+                bufferProgress = initialProgress
             )
         }
 
@@ -193,7 +242,7 @@ class RadarTimeLapseController(
 
             val allCached = RadarPreloader.areAllFramesCached(layer, frames, lat, lon, zoom)
             Log.d(
-                "TimelapsePipeline",
+                "RadarCache",
                 "BUFFER_READY | Zoom: $zoom | RequiredTiles: ${newKeys.size} | AllCached: $allCached | Completion: 100%"
             )
 
@@ -209,6 +258,9 @@ class RadarTimeLapseController(
             }
 
             currentFrame?.let { onFrameChanged?.invoke(it) }
+            if (wasPlaying) {
+                onFrameChanged?.let { cb -> play(cb) }
+            }
         }
     }
 
@@ -460,6 +512,6 @@ class RadarTimeLapseController(
         pause()
         preloadJob?.cancel()
         preloadJob = null
-        TileRamCache.clear()
+        Log.d("RadarCache", "Controller paused and destroyed. RAM Cache preserved (${TileRamCache.size()} tiles).")
     }
 }

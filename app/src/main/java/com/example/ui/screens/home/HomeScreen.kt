@@ -124,77 +124,7 @@ fun HomeScreen(
 
     LaunchedEffect(isGpsActive) {
         if (isGpsActive) {
-            val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-            val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-            if ((fineGranted || coarseGranted) && try { LocationManagerCompat.isLocationEnabled(locationManager) } catch (t: Throwable) { false }) {
-                val isGpsEnabled = fineGranted && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { false }
-                val isNetworkEnabled = (fineGranted || coarseGranted) && try { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (t: Throwable) { false }
-                val provider = when {
-                    isGpsEnabled -> LocationManager.GPS_PROVIDER
-                    isNetworkEnabled -> LocationManager.NETWORK_PROVIDER
-                    else -> null
-                }
-                if (provider != null) {
-                    try {
-                        val lastKnown = locationManager.getLastKnownLocation(provider)
-                        if (lastKnown != null) {
-                            viewModel.loadWeatherForCurrentLocation(lastKnown.latitude, lastKnown.longitude)
-                        }
-                    } catch (t: Throwable) {
-                        // Silent catch for background location refresh
-                    }
-                }
-            }
-        }
-    }
-
-    DisposableEffect(isGpsActive) {
-        var isRegistered = false
-        var activeListener: LocationListener? = null
-        if (isGpsActive) {
-            val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-            val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-            if ((hasFine || hasCoarse) && try { LocationManagerCompat.isLocationEnabled(locationManager) } catch (t: Throwable) { false }) {
-                val isGpsEnabled = hasFine && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { false }
-                val isNetworkEnabled = (hasFine || hasCoarse) && try { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (t: Throwable) { false }
-                val provider = when {
-                    isGpsEnabled -> LocationManager.GPS_PROVIDER
-                    isNetworkEnabled -> LocationManager.NETWORK_PROVIDER
-                    else -> null
-                }
-                if (provider != null) {
-                    val listener = object : LocationListener {
-                        override fun onLocationChanged(location: Location) {
-                            viewModel.loadWeatherForCurrentLocation(location.latitude, location.longitude)
-                        }
-                        override fun onProviderEnabled(p: String) {}
-                        override fun onProviderDisabled(p: String) {}
-                        override fun onStatusChanged(p: String?, s: Int, e: Bundle?) {}
-                    }
-                    activeListener = listener
-                    try {
-                        locationManager.requestLocationUpdates(
-                            provider,
-                            60000L,
-                            500f,
-                            listener,
-                            android.os.Looper.getMainLooper()
-                        )
-                        isRegistered = true
-                    } catch (t: Throwable) {
-                        // ignore
-                    }
-                }
-            }
-        }
-        onDispose {
-            if (isRegistered && activeListener != null) {
-                try {
-                    locationManager.removeUpdates(activeListener!!)
-                } catch (t: Throwable) {
-                    // Silent catch for AppOps/LocationManager cleanup
-                }
-            }
+            fetchGpsLocation(context, locationManager, viewModel)
         }
     }
 

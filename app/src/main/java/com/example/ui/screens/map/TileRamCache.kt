@@ -24,6 +24,12 @@ object TileRamCache {
         override fun sizeOf(key: String, bitmap: Bitmap): Int {
             return (bitmap.byteCount / 1024).coerceAtLeast(1)
         }
+
+        override fun entryRemoved(evicted: Boolean, key: String, oldValue: Bitmap, newValue: Bitmap?) {
+            if (evicted) {
+                Log.d("RadarCache", "Cache Eviction (RAM LRU Limit Reached) | Key: $key | Remaining: ${size()} tiles (${sizeInKb()} KB)")
+            }
+        }
     }
 
     fun isLowMemoryDevice(): Boolean {
@@ -35,6 +41,7 @@ object TileRamCache {
         synchronized(cache) {
             val bitmap = cache.get(key)
             if (bitmap != null && !bitmap.isRecycled) {
+                Log.d("RadarCache", "RAM Cache Hit | Key: $key | Current RAM Cache Size: ${cache.snapshot().size} tiles (${cache.size()} KB / $maxMemoryKb KB)")
                 return bitmap
             }
             return null
@@ -46,10 +53,11 @@ object TileRamCache {
             try {
                 synchronized(cache) {
                     cache.put(key, bitmap)
+                    Log.d("RadarCache", "RAM Cache Put | Key: $key | Current RAM Cache Size: ${cache.snapshot().size} tiles (${cache.size()} KB / $maxMemoryKb KB)")
                 }
             } catch (oom: OutOfMemoryError) {
-                Log.e(TAG, "OutOfMemoryError putting bitmap into cache. Clearing RAM cache.")
-                clear()
+                Log.e("RadarCache", "Cache Eviction (OutOfMemoryError) | Clearing RAM cache completely.")
+                clear("OutOfMemoryError safeguard")
             } catch (e: Exception) {
                 Log.w(TAG, "Error caching bitmap: ${e.localizedMessage}")
             }
@@ -60,27 +68,6 @@ object TileRamCache {
         synchronized(cache) {
             val bitmap = cache.get(key)
             return bitmap != null && !bitmap.isRecycled
-        }
-    }
-
-    /**
-     * Retains only specified keys, evicting any old or stale tile bitmaps from RAM.
-     * Called when animation finishes, layer changes, or playback pauses.
-     */
-    fun retainOnly(validKeys: Set<String>) {
-        if (validKeys.isEmpty()) return
-        synchronized(cache) {
-            val snapshot = cache.snapshot()
-            var evicted = 0
-            for (key in snapshot.keys) {
-                if (key !in validKeys) {
-                    cache.remove(key)
-                    evicted++
-                }
-            }
-            if (evicted > 0) {
-                Log.d(TAG, "Retained ${validKeys.size} active tiles; evicted $evicted old tiles.")
-            }
         }
     }
 
@@ -96,9 +83,10 @@ object TileRamCache {
         }
     }
 
-    fun clear() {
+    fun clear(reason: String = "Explicit clear requested") {
         synchronized(cache) {
-            Log.d(TAG, "Clearing RAM cache (${cache.snapshot().size} tiles evicted).")
+            val count = cache.snapshot().size
+            Log.d("RadarCache", "Cache Eviction (RAM Cache Cleared) | Evicted $count tiles | Reason: $reason")
             cache.evictAll()
         }
     }

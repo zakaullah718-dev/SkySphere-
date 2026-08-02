@@ -1142,7 +1142,14 @@ class WeatherRepository(private val context: Context) {
             if (hasFine || hasCoarse) {
                 val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
                 if (locationManager != null && try { LocationManagerCompat.isLocationEnabled(locationManager) } catch (t: Throwable) { false }) {
-                    val providers = listOf(LocationManager.GPS_PROVIDER, LocationManager.NETWORK_PROVIDER, LocationManager.PASSIVE_PROVIDER)
+                    val providers = mutableListOf<String>()
+                    if (hasFine) {
+                        providers.add(LocationManager.GPS_PROVIDER)
+                        providers.add(LocationManager.PASSIVE_PROVIDER)
+                    }
+                    if (hasFine || hasCoarse) {
+                        providers.add(LocationManager.NETWORK_PROVIDER)
+                    }
                     for (provider in providers) {
                         try {
                             if (try { locationManager.isProviderEnabled(provider) } catch (t: Throwable) { false }) {

@@ -35,14 +35,23 @@ object DiskTileCache {
         return File(dir, safeFileName)
     }
 
+    fun fileCount(): Int {
+        val dir = cacheDir ?: return 0
+        return dir.listFiles()?.size ?: 0
+    }
+
     fun get(key: String): Bitmap? {
         val file = getFileForKey(key) ?: return null
         if (!file.exists() || file.length() == 0L) return null
 
         return try {
-            BitmapFactory.decodeFile(file.absolutePath)
+            val bitmap = BitmapFactory.decodeFile(file.absolutePath)
+            if (bitmap != null) {
+                Log.d("RadarCache", "Disk Cache Hit | Key: $key | Disk Cache File Count: ${fileCount()}")
+            }
+            bitmap
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to decode disk-cached tile for key '$key': ${e.localizedMessage}")
+            Log.w("RadarCache", "Failed to decode disk-cached tile for key '$key': ${e.localizedMessage}")
             file.delete()
             null
         }
@@ -56,8 +65,9 @@ object DiskTileCache {
             FileOutputStream(file).use { out ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
             }
+            Log.d("RadarCache", "Disk Cache Put | Key: $key | Disk Cache File Count: ${fileCount()}")
         } catch (e: Exception) {
-            Log.w(TAG, "Failed to save tile to disk cache for key '$key': ${e.localizedMessage}")
+            Log.w("RadarCache", "Failed to save tile to disk cache for key '$key': ${e.localizedMessage}")
         }
     }
 
@@ -66,13 +76,14 @@ object DiskTileCache {
         return file.exists() && file.length() > 0L
     }
 
-    fun clear() {
+    fun clear(reason: String = "Explicit clear requested") {
         val dir = cacheDir ?: return
         try {
+            val count = dir.listFiles()?.size ?: 0
             dir.listFiles()?.forEach { it.delete() }
-            Log.d(TAG, "DiskTileCache cleared.")
+            Log.d("RadarCache", "Cache Eviction (Disk Cache Cleared) | Evicted $count tile files | Reason: $reason")
         } catch (e: Exception) {
-            Log.w(TAG, "Error clearing DiskTileCache: ${e.localizedMessage}")
+            Log.w("RadarCache", "Error clearing DiskTileCache: ${e.localizedMessage}")
         }
     }
 }

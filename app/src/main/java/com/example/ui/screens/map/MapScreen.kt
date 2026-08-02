@@ -330,16 +330,16 @@ fun MapScreen(
                     if (hasLocationPermission) {
                         try {
                             enableMyLocation()
+                            runOnFirstFix {
+                                val loc = myLocation
+                                if (loc != null) {
+                                    coroutineScope.launch {
+                                        centerOnLocation(this@mapApply, loc.latitude, loc.longitude, 11.0)
+                                    }
+                                }
+                            }
                         } catch (e: Exception) {
                             Log.w("MapEngine", "Could not enable location overlay: ${e.localizedMessage}")
-                        }
-                    }
-                    runOnFirstFix {
-                        val loc = myLocation
-                        if (loc != null) {
-                            coroutineScope.launch {
-                                centerOnLocation(this@mapApply, loc.latitude, loc.longitude, 11.0)
-                            }
                         }
                     }
                 }
@@ -363,6 +363,7 @@ fun MapScreen(
 
         // Remove previous weather layer overlay
         weatherOverlayRef[0]?.let { oldOverlay ->
+            Log.d("RadarCache", "TileOverlay Recreation | Detaching previous WeatherTilesOverlay")
             mapView.overlays.remove(oldOverlay)
             try {
                 oldOverlay.onDetach(mapView)
@@ -374,6 +375,7 @@ fun MapScreen(
 
         // Attach new weather layer overlay if enabled
         if (mapState.selectedLayer != MapWeatherLayer.NONE) {
+            Log.d("RadarCache", "TileOverlay Recreation | Attaching new WeatherTilesOverlay for layer ${mapState.selectedLayer}")
             val newOverlay = weatherLayerManager.createTilesOverlay(
                 context = context,
                 layer = mapState.selectedLayer,

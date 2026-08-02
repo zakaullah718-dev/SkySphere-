@@ -211,6 +211,7 @@ class FutureWeatherLayerManager(
         }
 
         DiskTileCache.init(context)
+        Log.d("RadarCache", "TileProvider Recreation | Creating TileProvider & Module for Layer = $layer, Timestamp = ${customRadarFrame?.time ?: radarTimestamp}")
 
         if (layer == MapWeatherLayer.RAIN_RADAR) {
             val dummyTileSource = object : OnlineTileSourceBase(

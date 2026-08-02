@@ -139,12 +139,53 @@ object RadarPreloader {
         val totalTasks = frames.size * tileCoords.size
         if (totalTasks == 0) return@withContext
 
-        var loadedCount = 0
+        // Identify which tiles are already in RAM or Disk cache vs missing
+        val missingTasks = mutableListOf<Triple<TimeLapseFrame, Int, Int>>()
+        var alreadyCachedCount = 0
+
+        for (frame in frames) {
+            val timestamp = frame.radarFrame?.time ?: frame.timestamp
+            for ((x, y) in tileCoords) {
+                val cacheKey = if (layer == MapWeatherLayer.RAIN_RADAR) {
+                    "RainViewer_Radar_${timestamp}_${pZoom}_${x}_${y}"
+                } else {
+                    val layerEndpoint = when (layer) {
+                        MapWeatherLayer.CLOUDS -> "clouds_new"
+                        MapWeatherLayer.TEMPERATURE -> "temp_new"
+                        MapWeatherLayer.WIND -> "wind_new"
+                        MapWeatherLayer.HUMIDITY -> "humidity_new"
+                        MapWeatherLayer.PRESSURE -> "pressure_new"
+                        else -> "unknown"
+                    }
+                    "${layerEndpoint}_${pZoom}_${x}_${y}"
+                }
+
+                if (TileRamCache.contains(cacheKey) || DiskTileCache.contains(cacheKey)) {
+                    alreadyCachedCount++
+                } else {
+                    missingTasks.add(Triple(frame, x, y))
+                }
+            }
+        }
+
+        if (missingTasks.isEmpty()) {
+            Log.d("RadarCache", "Cache Hit (All Tiles Cached) | All $totalTasks tiles for zoom $pZoom are already available. No network downloads needed.")
+            onProgress(totalTasks, totalTasks)
+            frames.forEach { onFrameReady?.invoke(it.index) }
+            return@withContext
+        }
+
+        Log.d("RadarCache", "Preload Starting | Total Tiles Needed: $totalTasks | Already Cached: $alreadyCachedCount | Missing to Download: ${missingTasks.size}")
+        onProgress(alreadyCachedCount, totalTasks)
+
+        var loadedCount = alreadyCachedCount
 
         coroutineScope {
-            val jobs = frames.map { frame ->
+            // Group missing tasks by frame to notify onFrameReady
+            val tasksByFrame = missingTasks.groupBy { it.first }
+            val jobs = tasksByFrame.map { (frame, frameTasks) ->
                 async(Dispatchers.IO) {
-                    for ((x, y) in tileCoords) {
+                    for ((_, x, y) in frameTasks) {
                         try {
                             preloadSingleTile(layer, frame, pZoom, x, y)
                         } catch (e: Exception) {
@@ -163,10 +204,7 @@ object RadarPreloader {
             }
             jobs.awaitAll()
         }
-
-        // Clean up any stale RAM tiles not in current frame set
-        val activeKeys = getRequiredTileKeys(layer, frames, centerLat, centerLon, mapZoom)
-        TileRamCache.retainOnly(activeKeys)
+        Log.d("RadarCache", "Preload complete for $totalTasks tile tasks (RAM Cache Size: ${TileRamCache.size()} tiles, Disk Cache Size: ${DiskTileCache.fileCount()} files)")
     }
 
     fun checkFrameTileStats(
@@ -331,7 +369,10 @@ object RadarPreloader {
             val timestamp = frame.radarFrame?.time ?: frame.timestamp
             val cacheKey = "RainViewer_Radar_${timestamp}_${zoom}_${x}_${y}"
 
-            if (TileRamCache.contains(cacheKey)) return
+            if (TileRamCache.contains(cacheKey)) {
+                Log.d("RadarCache", "RAM Cache Hit | Key: $cacheKey")
+                return
+            }
 
             val diskTile = DiskTileCache.get(cacheKey)
             if (diskTile != null) {
@@ -343,6 +384,7 @@ object RadarPreloader {
             val tileUrl = frame.radarFrame?.buildTileUrl(zoom, x, y)
                 ?: "https://tilecache.rainviewer.com/v2/radar/$timestamp/256/$zoom/$x/$y/4/1_1.png"
 
+            Log.d("RadarCache", "Cache Miss | Key: $cacheKey -> Downloading from network...")
             val bitmap = downloadAndDecode(tileUrl) ?: return
             TileRamCache.put(cacheKey, bitmap)
             DiskTileCache.put(cacheKey, bitmap)
