@@ -64,11 +64,12 @@ object RadarPreloader {
         val numTilesDimension = 1 shl pZoom
 
         val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-        val rad = Math.toRadians(centerLat)
+        val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
+        val rad = Math.toRadians(clampedLat)
         val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-        val tileXs = (centerX - 2..centerX + 2).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-        val tileYs = (centerY - 2..centerY + 2).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+        val tileXs = (centerX - 3..centerX + 3).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+        val tileYs = (centerY - 3..centerY + 3).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
 
         val keys = mutableSetOf<String>()
         if (layer == MapWeatherLayer.RAIN_RADAR) {
@@ -121,11 +122,12 @@ object RadarPreloader {
         val numTilesDimension = 1 shl pZoom
 
         val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-        val rad = Math.toRadians(centerLat)
+        val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
+        val rad = Math.toRadians(clampedLat)
         val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-        val tileXs = (centerX - 2..centerX + 2).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-        val tileYs = (centerY - 2..centerY + 2).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+        val tileXs = (centerX - 3..centerX + 3).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+        val tileYs = (centerY - 3..centerY + 3).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
 
         val tileCoords = mutableListOf<Pair<Int, Int>>()
         for (x in tileXs) {
@@ -148,10 +150,13 @@ object RadarPreloader {
                         } catch (e: Exception) {
                             Log.w("RadarPreloader", "Failed to preload tile: ${e.localizedMessage}")
                         }
-                        synchronized(this@RadarPreloader) {
+                        val currentLoaded = synchronized(this@RadarPreloader) {
                             loadedCount++
-                            onProgress(loadedCount, totalTasks)
+                            loadedCount
                         }
+                        val pct = if (totalTasks > 0) (currentLoaded.toFloat() / totalTasks.toFloat() * 100f).toInt() else 100
+                        Log.d("TimelapsePipeline", "PRELOAD_PROGRESS | Zoom: $pZoom | Required: $totalTasks | Loaded: $currentLoaded | Completion: $pct%")
+                        onProgress(currentLoaded, totalTasks)
                     }
                     onFrameReady?.invoke(frame.index)
                 }
@@ -240,11 +245,12 @@ object RadarPreloader {
         val numTilesDimension = 1 shl pZoom
 
         val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-        val rad = Math.toRadians(centerLat)
+        val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
+        val rad = Math.toRadians(clampedLat)
         val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-        val tileXs = (centerX - 2..centerX + 2).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-        val tileYs = (centerY - 2..centerY + 2).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+        val tileXs = (centerX - 3..centerX + 3).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+        val tileYs = (centerY - 3..centerY + 3).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
 
         var netRequests = 0
         for (x in tileXs) {

@@ -135,7 +135,8 @@ class WeatherTilesOverlay(
                 val numTilesDimension = 1 shl pZoom
 
                 val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-                val rad = Math.toRadians(centerLat)
+                val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
+                val rad = Math.toRadians(clampedLat)
                 val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
                 val tileXs = (centerX - 3..centerX + 3).map { (it + numTilesDimension) % numTilesDimension }.distinct()

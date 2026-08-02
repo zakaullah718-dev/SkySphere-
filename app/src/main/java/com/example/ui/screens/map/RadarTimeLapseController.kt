@@ -126,23 +126,99 @@ class RadarTimeLapseController(
         }
     }
 
+    fun onViewportChanged(
+        lat: Double,
+        lon: Double,
+        zoom: Int,
+        onFrameChanged: ((TimeLapseFrame) -> Unit)? = null
+    ) {
+        val layer = _state.value.activeLayer
+        if (layer == MapWeatherLayer.NONE) return
+
+        val frames = _state.value.frames
+        if (frames.isEmpty()) return
+
+        val oldKeys = RadarPreloader.getRequiredTileKeys(layer, frames, currentLat, currentLon, currentZoom)
+        val newKeys = RadarPreloader.getRequiredTileKeys(layer, frames, lat, lon, zoom)
+
+        if (oldKeys == newKeys && currentZoom == zoom) {
+            return // Required tile set has not changed for current viewport
+        }
+
+        Log.d(
+            "TimelapsePipeline",
+            "VIEWPORT_CHANGED | Zoom: $zoom | Center: ($lat, $lon) | RequiredTiles: ${newKeys.size}"
+        )
+
+        pause()
+        preloadJob?.cancel()
+
+        currentLat = lat
+        currentLon = lon
+        currentZoom = zoom
+
+        _state.update {
+            it.copy(
+                isBuffering = true,
+                isReadyToPlay = false,
+                bufferProgress = 0f
+            )
+        }
+
+        preloadJob = scope.launch {
+            val currentFrame = _state.value.currentFrame
+            val orderedFrames = if (currentFrame != null) {
+                listOf(currentFrame) + frames.filter { it.index != currentFrame.index }
+            } else frames
+
+            RadarPreloader.preloadFrames(
+                layer = layer,
+                frames = orderedFrames,
+                centerLat = lat,
+                centerLon = lon,
+                mapZoom = zoom,
+                onProgress = { loaded, total ->
+                    val progress = if (total > 0) loaded.toFloat() / total else 1.0f
+                    _state.update { s -> s.copy(bufferProgress = progress) }
+                },
+                onFrameReady = { fIdx ->
+                    _state.update { s ->
+                        val updatedFrames = s.frames.map { f ->
+                            if (f.index == fIdx) f.copy(isReady = true) else f
+                        }
+                        s.copy(frames = updatedFrames)
+                    }
+                }
+            )
+
+            val allCached = RadarPreloader.areAllFramesCached(layer, frames, lat, lon, zoom)
+            Log.d(
+                "TimelapsePipeline",
+                "BUFFER_READY | Zoom: $zoom | RequiredTiles: ${newKeys.size} | AllCached: $allCached | Completion: 100%"
+            )
+
+            _state.update { s ->
+                val allReadyFrames = s.frames.map { f -> f.copy(isReady = true) }
+                s.copy(
+                    frames = allReadyFrames,
+                    isLoading = false,
+                    isBuffering = false,
+                    isReadyToPlay = true,
+                    bufferProgress = 1.0f
+                )
+            }
+
+            currentFrame?.let { onFrameChanged?.invoke(it) }
+        }
+    }
+
     fun onLocationChanged(
         lat: Double,
         lon: Double,
         zoom: Int = currentZoom,
         onFrameChanged: ((TimeLapseFrame) -> Unit)? = null
     ) {
-        val distSq = (lat - currentLat) * (lat - currentLat) + (lon - currentLon) * (lon - currentLon)
-        if (distSq > 0.05) { // significant map shift
-            currentLat = lat
-            currentLon = lon
-            currentZoom = zoom
-            TileRamCache.clear()
-            val layer = _state.value.activeLayer
-            if (layer != MapWeatherLayer.NONE) {
-                initializeForLayer(layer, lat, lon, zoom, onFrameChanged)
-            }
-        }
+        onViewportChanged(lat, lon, zoom, onFrameChanged)
     }
 
     private suspend fun fetchOrGenerateFrames(layer: MapWeatherLayer): List<TimeLapseFrame> = withContext(Dispatchers.IO) {
@@ -241,9 +317,21 @@ class RadarTimeLapseController(
     }
 
     fun play(onFrameChanged: (TimeLapseFrame) -> Unit) {
-        if (!_state.value.isReadyToPlay) return
+        if (!_state.value.isReadyToPlay || _state.value.isBuffering) {
+            Log.w("TimelapsePipeline", "PLAY_ATTEMPT_BLOCKED | Preload running or buffer not ready for zoom $currentZoom")
+            return
+        }
         pause()
         _state.update { it.copy(isPlaying = true) }
+
+        val layer = _state.value.activeLayer
+        val frames = _state.value.frames
+        val reqKeys = RadarPreloader.getRequiredTileKeys(layer, frames, currentLat, currentLon, currentZoom)
+
+        Log.d(
+            "TimelapsePipeline",
+            "PLAYBACK_STARTED | Zoom: $currentZoom | TotalFrames: ${frames.size} | RequiredTiles: ${reqKeys.size}"
+        )
 
         playbackJob = scope.launch {
             val layer = _state.value.activeLayer

@@ -2,6 +2,8 @@ package com.example.ui.screens.map
 
 import android.Manifest
 import android.content.pm.PackageManager
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import android.util.Log
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -275,10 +277,41 @@ fun MapScreen(
                 minZoomLevel = 2.0
                 maxZoomLevel = 20.0
 
+                setVerticalMapRepetitionEnabled(false)
+                setHorizontalMapRepetitionEnabled(true)
+                setScrollableAreaLimitLatitude(
+                    85.05112878,
+                    -85.05112878,
+                    0
+                )
+
                 addMapListener(object : org.osmdroid.events.MapListener {
-                    override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean = false
+                    private var viewportJob: Job? = null
+
+                    private fun handleViewportChange() {
+                        viewportJob?.cancel()
+                        viewportJob = coroutineScope.launch {
+                            delay(250)
+                            val center = mapCenter ?: return@launch
+                            val zoom = zoomLevelDouble.toInt()
+                            timeLapseController.onViewportChanged(
+                                lat = center.latitude,
+                                lon = center.longitude,
+                                zoom = zoom
+                            ) { frame ->
+                                weatherOverlayRef[0]?.updateFrame(frame, this@mapApply)
+                            }
+                        }
+                    }
+
+                    override fun onScroll(event: org.osmdroid.events.ScrollEvent?): Boolean {
+                        handleViewportChange()
+                        return false
+                    }
+
                     override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
                         postInvalidate()
+                        handleViewportChange()
                         return false
                     }
                 })

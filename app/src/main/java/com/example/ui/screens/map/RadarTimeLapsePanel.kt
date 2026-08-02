@@ -280,13 +280,14 @@ fun RadarTimeLapsePanel(
                     }
 
                     // Main Play / Pause Button
+                    val isPlayDisabled = !state.isReadyToPlay || state.isBuffering
                     Surface(
                         shape = CircleShape,
-                        color = if (state.isPlaying) Color(0xFFE53935) else Color(0xFF319795),
+                        color = if (isPlayDisabled && !state.isPlaying) Color(0x66319795) else if (state.isPlaying) Color(0xFFE53935) else Color(0xFF319795),
                         modifier = Modifier
                             .size(38.dp)
                             .clip(CircleShape)
-                            .clickable {
+                            .clickable(enabled = !isPlayDisabled || state.isPlaying) {
                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                 onTogglePlayPause()
                             }
@@ -296,12 +297,20 @@ fun RadarTimeLapsePanel(
                             contentAlignment = Alignment.Center,
                             modifier = Modifier.fillMaxSize()
                         ) {
-                            Icon(
-                                imageVector = if (state.isPlaying) SkySphereIcons.Pause else SkySphereIcons.Play,
-                                contentDescription = if (state.isPlaying) "Pause Timelapse" else "Play Timelapse",
-                                tint = Color.White,
-                                modifier = Modifier.size(22.dp)
-                            )
+                            if (state.isBuffering) {
+                                CircularProgressIndicator(
+                                    color = Color.White,
+                                    strokeWidth = 2.dp,
+                                    modifier = Modifier.size(20.dp)
+                                )
+                            } else {
+                                Icon(
+                                    imageVector = if (state.isPlaying) SkySphereIcons.Pause else SkySphereIcons.Play,
+                                    contentDescription = if (state.isPlaying) "Pause Timelapse" else "Play Timelapse",
+                                    tint = Color.White,
+                                    modifier = Modifier.size(22.dp)
+                                )
+                            }
                         }
                     }
 
