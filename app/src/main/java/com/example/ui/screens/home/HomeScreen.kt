@@ -204,8 +204,8 @@ private fun fetchGpsLocation(context: Context, locationManager: LocationManager,
             val isGpsEnabled = hasFine && locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER)
             val isNetworkEnabled = (hasFine || hasCoarse) && locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER)
             val provider = when {
-                isGpsEnabled -> LocationManager.GPS_PROVIDER
                 isNetworkEnabled -> LocationManager.NETWORK_PROVIDER
+                isGpsEnabled -> LocationManager.GPS_PROVIDER
                 else -> null
             }
             if (provider != null) {

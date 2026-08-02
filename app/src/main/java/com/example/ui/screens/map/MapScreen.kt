@@ -265,7 +265,6 @@ fun MapScreen(
 
     val mapView = remember {
         try {
-            Configuration.getInstance().userAgentValue = context.packageName
             controller.onMapInitialized()
 
             MapView(context).apply mapApply@{

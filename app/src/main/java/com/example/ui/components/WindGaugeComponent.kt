@@ -5,6 +5,8 @@ import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.util.Log
+import java.util.concurrent.atomic.AtomicInteger
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -133,6 +135,8 @@ fun getShortDirectionName(degrees: Float): String {
     }
 }
 
+private val activeSensorListenersCount = AtomicInteger(0)
+
 @Composable
 fun WindGaugeCard(
     windSpeedKmH: Double,
@@ -222,7 +226,7 @@ fun WindGaugeCard(
         label = "AnimatedCompassHeading"
     )
 
-    // Sensor Listener lifecycle: paused when Compass Mode is closed or off-screen
+    // Sensor Listener lifecycle: registered ONLY ONCE when Compass Mode is active
     DisposableEffect(isCompassMode, sensorManager, isCompassAvailable) {
         if (!isCompassMode || sensorManager == null || !isCompassAvailable) return@DisposableEffect onDispose {}
 
@@ -240,6 +244,8 @@ fun WindGaugeCard(
         var hasMag = false
 
         val listener = object : SensorEventListener {
+            private var lastSensorTimestampNs = 0L
+
             override fun onSensorChanged(event: SensorEvent?) {
                 if (event == null) return
                 var azimuthDeg: Float? = null
@@ -268,18 +274,38 @@ fun WindGaugeCard(
                     }
                 }
 
-                azimuthDeg?.let { target ->
-                    // Shortest-path angle delta calculation to avoid 360 -> 0 jump glitch
-                    var diff = (target - currentFiltered) % 360f
+                azimuthDeg?.let { targetAzimuth ->
+                    val nowNs = event.timestamp
+                    val timeDiffSec = if (lastSensorTimestampNs > 0L) (nowNs - lastSensorTimestampNs) / 1_000_000_000f else 0f
+                    val frequencyHz = if (timeDiffSec > 0f) 1f / timeDiffSec else 0f
+                    lastSensorTimestampNs = nowNs
+
+                    // Calculate current normalized heading (0..360) for diff calculation
+                    val currentNormalized = (currentFiltered % 360f + 360f) % 360f
+
+                    // Shortest-path angle delta calculation (-180..+180) to avoid full 360° spinning
+                    var diff = (targetAzimuth - currentNormalized) % 360f
                     if (diff < -180f) diff += 360f
                     if (diff > 180f) diff -= 360f
 
-                    // Deadband threshold: ignore minor noise < 0.3 degrees when stationary to prevent jitter
-                    if (abs(diff) > 0.3f) {
-                        // Dynamic Low-Pass Filter factor: fast reaction for large turns, extra smooth for small drifts
-                        val filterAlpha = if (abs(diff) > 15f) 0.35f else 0.12f
-                        currentFiltered = (currentFiltered + filterAlpha * diff + 360f) % 360f
+                    // Meaningful change deadband threshold: only update if heading changes by >= 2.0 degrees
+                    if (abs(diff) >= 2.0f) {
+                        val previousHeading = currentNormalized
+                        // Exponential low-pass filter: smooths rotation and ignores minor sensor noise
+                        val filterAlpha = if (abs(diff) > 15f) 0.35f else 0.15f
+                        currentFiltered += diff * filterAlpha
                         filteredHeadingDegrees = currentFiltered
+
+                        val newHeading = (currentFiltered % 360f + 360f) % 360f
+
+                        Log.d(
+                            "CompassSensor",
+                            "Current heading: ${String.format("%.1f", newHeading)}° | " +
+                            "Previous heading: ${String.format("%.1f", previousHeading)}° | " +
+                            "Rotation angle: ${String.format("%.1f", diff)}° | " +
+                            "Sensor update frequency: ${String.format("%.1f", frequencyHz)} Hz | " +
+                            "Active listeners: ${activeSensorListenersCount.get()}"
+                        )
                     }
                 }
             }
@@ -291,21 +317,27 @@ fun WindGaugeCard(
             }
         }
 
+        val activeListeners = activeSensorListenersCount.incrementAndGet()
+        Log.d("CompassSensor", "Registering compass sensor listener. Active listeners: $activeListeners")
+
         if (rotationVectorSensor != null) {
-            sensorManager.registerListener(listener, rotationVectorSensor, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager.registerListener(listener, rotationVectorSensor, SensorManager.SENSOR_DELAY_UI)
         } else if (accelSensor != null && magSensor != null) {
-            sensorManager.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_GAME)
-            sensorManager.registerListener(listener, magSensor, SensorManager.SENSOR_DELAY_GAME)
+            sensorManager.registerListener(listener, accelSensor, SensorManager.SENSOR_DELAY_UI)
+            sensorManager.registerListener(listener, magSensor, SensorManager.SENSOR_DELAY_UI)
         }
 
         onDispose {
             sensorManager.unregisterListener(listener)
+            val remainingListeners = activeSensorListenersCount.decrementAndGet()
+            Log.d("CompassSensor", "Unregistering compass sensor listener. Active listeners: $remainingListeners")
         }
     }
 
     // Light Haptic pulse when compass aligns near North (within 3.0 degrees)
+    val normHeading = (filteredHeadingDegrees % 360f + 360f) % 360f
     var wasNearNorth by remember { mutableStateOf(false) }
-    val isNearNorth = (filteredHeadingDegrees <= 3.0f || filteredHeadingDegrees >= 357.0f)
+    val isNearNorth = (normHeading <= 3.0f || normHeading >= 357.0f)
     LaunchedEffect(isNearNorth, isCompassMode) {
         if (isCompassMode && isNearNorth && !wasNearNorth) {
             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
@@ -773,6 +805,8 @@ private fun CompassModeContent(
     accentSky: Color,
     textMeasurer: TextMeasurer
 ) {
+    val normalizedHeading = (deviceHeading % 360f + 360f) % 360f
+
     Column(
         modifier = Modifier.fillMaxWidth(),
         horizontalAlignment = Alignment.CenterHorizontally
@@ -1233,7 +1267,7 @@ private fun CompassModeContent(
                     verticalArrangement = Arrangement.Center
                 ) {
                     Text(
-                        text = "${deviceHeading.roundToInt()}°",
+                        text = "${normalizedHeading.roundToInt() % 360}°",
                         style = MaterialTheme.typography.displaySmall.copy(
                             fontWeight = FontWeight.ExtraBold,
                             color = textPrimary,
@@ -1245,7 +1279,7 @@ private fun CompassModeContent(
                     Spacer(modifier = Modifier.height(2.dp))
 
                     Text(
-                        text = getDirectionName(deviceHeading),
+                        text = getDirectionName(normalizedHeading),
                         style = MaterialTheme.typography.titleSmall.copy(
                             fontWeight = FontWeight.Bold,
                             color = accentCyan,
@@ -1271,7 +1305,7 @@ private fun CompassModeContent(
         Spacer(modifier = Modifier.height(16.dp))
 
         // Premium Glassmorphism Bottom Panel
-        val facingName = getDirectionName(deviceHeading)
+        val facingName = getDirectionName(normalizedHeading)
         val windName = getDirectionName(windDegrees)
         val (bftLevel, bftDesc) = remember(windSpeedKmH) { getBeaufortInfo(windSpeedKmH) }
 

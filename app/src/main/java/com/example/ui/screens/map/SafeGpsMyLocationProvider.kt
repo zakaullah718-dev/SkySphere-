@@ -14,8 +14,13 @@ import org.osmdroid.views.overlay.mylocation.IMyLocationConsumer
 class SafeGpsMyLocationProvider(private val context: Context) : GpsMyLocationProvider(context) {
 
     private var isProviderRunning = false
+    private val registeredProviders = HashSet<String>()
 
     override fun startLocationProvider(myLocationConsumer: IMyLocationConsumer?): Boolean {
+        if (isProviderRunning && registeredProviders.isNotEmpty()) {
+            return true
+        }
+
         val hasFine = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
         val hasCoarse = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
 
@@ -30,7 +35,7 @@ class SafeGpsMyLocationProvider(private val context: Context) : GpsMyLocationPro
             return false
         }
 
-        clearLocationSources()
+        registeredProviders.clear()
 
         val networkEnabled = try { locationManager.isProviderEnabled(LocationManager.NETWORK_PROVIDER) } catch (t: Throwable) { false }
         val gpsEnabled = hasFine && try { locationManager.isProviderEnabled(LocationManager.GPS_PROVIDER) } catch (t: Throwable) { false }
@@ -40,42 +45,55 @@ class SafeGpsMyLocationProvider(private val context: Context) : GpsMyLocationPro
             return false
         }
 
-        if (networkEnabled) {
-            addLocationSource(LocationManager.NETWORK_PROVIDER)
-        }
-        if (gpsEnabled) {
-            addLocationSource(LocationManager.GPS_PROVIDER)
+        val providerToUse = when {
+            networkEnabled -> LocationManager.NETWORK_PROVIDER
+            gpsEnabled -> LocationManager.GPS_PROVIDER
+            else -> null
         }
 
-        return try {
-            val started = super.startLocationProvider(myLocationConsumer)
-            isProviderRunning = started
-            started
-        } catch (e: SecurityException) {
-            Log.w("SafeLocationProvider", "SecurityException starting location provider: ${e.localizedMessage}")
-            isProviderRunning = false
-            false
-        } catch (t: Throwable) {
-            Log.w("SafeLocationProvider", "Error starting location provider: ${t.localizedMessage}")
-            isProviderRunning = false
-            false
+        var startedAny = false
+
+        if (providerToUse != null) {
+            try {
+                locationManager.requestLocationUpdates(
+                    providerToUse,
+                    locationUpdateMinTime,
+                    locationUpdateMinDistance,
+                    this
+                )
+                registeredProviders.add(providerToUse)
+                startedAny = true
+            } catch (e: SecurityException) {
+                Log.w("SafeLocationProvider", "SecurityException requesting updates for $providerToUse: ${e.localizedMessage}")
+            } catch (t: Throwable) {
+                Log.w("SafeLocationProvider", "Error requesting updates for $providerToUse: ${t.localizedMessage}")
+            }
         }
+
+        isProviderRunning = startedAny
+        return startedAny
     }
 
     override fun stopLocationProvider() {
-        if (!isProviderRunning) {
+        if (!isProviderRunning || registeredProviders.isEmpty()) {
+            isProviderRunning = false
+            registeredProviders.clear()
             return
         }
-        try {
-            super.stopLocationProvider()
-        } catch (e: SecurityException) {
-            Log.w("SafeLocationProvider", "SecurityException stopping location provider: ${e.localizedMessage}")
-        } catch (t: Throwable) {
-            Log.w("SafeLocationProvider", "Error stopping location provider: ${t.localizedMessage}")
-        } finally {
-            isProviderRunning = false
-            clearLocationSources()
+
+        val locationManager = context.getSystemService(Context.LOCATION_SERVICE) as? LocationManager
+        if (locationManager != null) {
+            try {
+                locationManager.removeUpdates(this)
+            } catch (e: SecurityException) {
+                Log.w("SafeLocationProvider", "SecurityException stopping location provider: ${e.localizedMessage}")
+            } catch (t: Throwable) {
+                Log.w("SafeLocationProvider", "Error stopping location provider: ${t.localizedMessage}")
+            }
         }
+
+        isProviderRunning = false
+        registeredProviders.clear()
     }
 
     override fun getLastKnownLocation(): Location? {

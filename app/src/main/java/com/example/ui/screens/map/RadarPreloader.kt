@@ -5,13 +5,17 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.util.Log
 import com.example.BuildConfig
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
-import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.math.cos
 import kotlin.math.ln
@@ -31,6 +35,14 @@ data class FrameTileStats(
 
 object RadarPreloader {
 
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private val pipelineMutex = Mutex()
+
+    private var currentActiveLayer: MapWeatherLayer = MapWeatherLayer.NONE
+    private var currentRequiredKeys: Set<String> = emptySet()
+    private val activeTileJobs = ConcurrentHashMap<String, Job>()
+    private var completedLogEmitted = false
+
     private val client = OkHttpClient.Builder()
         .connectTimeout(4, TimeUnit.SECONDS)
         .readTimeout(4, TimeUnit.SECONDS)
@@ -42,6 +54,22 @@ object RadarPreloader {
             if (!key.isNullOrBlank() && key != "PLACEholder_WEATHER_API_KEY") key else "f0308472599cabe4521d65850bb6ba22"
         } catch (e: Exception) {
             "f0308472599cabe4521d65850bb6ba22"
+        }
+    }
+
+    fun stopAll(reason: String = "Application destroyed or resetting") {
+        scope.launch {
+            pipelineMutex.withLock {
+                val cancelCount = activeTileJobs.size
+                activeTileJobs.values.forEach { it.cancel() }
+                activeTileJobs.clear()
+                currentActiveLayer = MapWeatherLayer.NONE
+                currentRequiredKeys = emptySet()
+                completedLogEmitted = false
+                if (cancelCount > 0) {
+                    Log.d("RadarPreloader", "PRELOAD CANCEL | Reason: $reason (Cancelled $cancelCount obsolete tile tasks)")
+                }
+            }
         }
     }
 
@@ -110,7 +138,66 @@ object RadarPreloader {
         onProgress: (loaded: Int, total: Int) -> Unit,
         onFrameReady: ((frameIndex: Int) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
-        if (layer == MapWeatherLayer.NONE || frames.isEmpty()) return@withContext
+        if (layer == MapWeatherLayer.NONE || frames.isEmpty()) {
+            pipelineMutex.withLock {
+                if (currentRequiredKeys.isNotEmpty() || activeTileJobs.isNotEmpty()) {
+                    val cancelCount = activeTileJobs.size
+                    activeTileJobs.values.forEach { it.cancel() }
+                    activeTileJobs.clear()
+                    Log.d("RadarPreloader", "PRELOAD CANCEL | Reason: Layer disabled or empty frames (Cancelled $cancelCount obsolete tile tasks)")
+                }
+                currentActiveLayer = MapWeatherLayer.NONE
+                currentRequiredKeys = emptySet()
+            }
+            return@withContext
+        }
+
+        val newRequiredKeys = getRequiredTileKeys(layer, frames, centerLat, centerLon, mapZoom)
+        if (newRequiredKeys.isEmpty()) return@withContext
+
+        var missingKeysToStart = emptyList<String>()
+
+        pipelineMutex.withLock {
+            val oldRequiredKeys = currentRequiredKeys
+            val obsoleteKeys = oldRequiredKeys - newRequiredKeys
+            val addedKeys = newRequiredKeys - oldRequiredKeys
+            val keptKeys = oldRequiredKeys intersect newRequiredKeys
+
+            if (currentActiveLayer != layer) {
+                val cancelCount = activeTileJobs.size
+                activeTileJobs.values.forEach { it.cancel() }
+                activeTileJobs.clear()
+                if (cancelCount > 0) {
+                    Log.d("RadarPreloader", "PRELOAD CANCEL | Reason: Active layer changed to $layer (Cancelled $cancelCount obsolete tile tasks)")
+                }
+                Log.d("RadarPreloader", "PRELOAD START | Layer: $layer | Zoom: $mapZoom | Required tiles: ${newRequiredKeys.size}")
+                currentActiveLayer = layer
+                completedLogEmitted = false
+            } else {
+                if (obsoleteKeys.isNotEmpty()) {
+                    var cancelledCount = 0
+                    obsoleteKeys.forEach { key ->
+                        activeTileJobs.remove(key)?.let { job ->
+                            job.cancel()
+                            cancelledCount++
+                        }
+                    }
+                    if (cancelledCount > 0) {
+                        Log.d("RadarPreloader", "PRELOAD CANCEL | Reason: Viewport/Zoom change (Cancelled $cancelledCount obsolete tile tasks)")
+                    }
+                }
+
+                if (addedKeys.isNotEmpty() || keptKeys.isNotEmpty()) {
+                    Log.d("RadarPreloader", "PRELOAD RESUME | Reason: Viewport update to Zoom $mapZoom | Reusing ${keptKeys.size} valid tiles | Adding ${addedKeys.size} new tiles")
+                }
+            }
+
+            currentRequiredKeys = newRequiredKeys
+
+            missingKeysToStart = newRequiredKeys.filter { key ->
+                !TileRamCache.contains(key) && !DiskTileCache.contains(key) && !activeTileJobs.containsKey(key)
+            }
+        }
 
         val providerMaxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) {
             FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
@@ -129,82 +216,84 @@ object RadarPreloader {
         val tileXs = (centerX - 3..centerX + 3).map { (it + numTilesDimension) % numTilesDimension }.distinct()
         val tileYs = (centerY - 3..centerY + 3).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
 
-        val tileCoords = mutableListOf<Pair<Int, Int>>()
-        for (x in tileXs) {
-            for (y in tileYs) {
-                tileCoords.add(Pair(x, y))
-            }
-        }
-
-        val totalTasks = frames.size * tileCoords.size
-        if (totalTasks == 0) return@withContext
-
-        // Identify which tiles are already in RAM or Disk cache vs missing
-        val missingTasks = mutableListOf<Triple<TimeLapseFrame, Int, Int>>()
-        var alreadyCachedCount = 0
-
+        val keyToInfoMap = mutableMapOf<String, Triple<TimeLapseFrame, Int, Int>>()
         for (frame in frames) {
             val timestamp = frame.radarFrame?.time ?: frame.timestamp
-            for ((x, y) in tileCoords) {
-                val cacheKey = if (layer == MapWeatherLayer.RAIN_RADAR) {
-                    "RainViewer_Radar_${timestamp}_${pZoom}_${x}_${y}"
-                } else {
-                    val layerEndpoint = when (layer) {
-                        MapWeatherLayer.CLOUDS -> "clouds_new"
-                        MapWeatherLayer.TEMPERATURE -> "temp_new"
-                        MapWeatherLayer.WIND -> "wind_new"
-                        MapWeatherLayer.HUMIDITY -> "humidity_new"
-                        MapWeatherLayer.PRESSURE -> "pressure_new"
-                        else -> "unknown"
+            for (x in tileXs) {
+                for (y in tileYs) {
+                    val key = if (layer == MapWeatherLayer.RAIN_RADAR) {
+                        "RainViewer_Radar_${timestamp}_${pZoom}_${x}_${y}"
+                    } else {
+                        val layerEndpoint = when (layer) {
+                            MapWeatherLayer.CLOUDS -> "clouds_new"
+                            MapWeatherLayer.TEMPERATURE -> "temp_new"
+                            MapWeatherLayer.WIND -> "wind_new"
+                            MapWeatherLayer.HUMIDITY -> "humidity_new"
+                            MapWeatherLayer.PRESSURE -> "pressure_new"
+                            else -> "unknown"
+                        }
+                        "${layerEndpoint}_${pZoom}_${x}_${y}"
                     }
-                    "${layerEndpoint}_${pZoom}_${x}_${y}"
-                }
-
-                if (TileRamCache.contains(cacheKey) || DiskTileCache.contains(cacheKey)) {
-                    alreadyCachedCount++
-                } else {
-                    missingTasks.add(Triple(frame, x, y))
+                    keyToInfoMap[key] = Triple(frame, x, y)
                 }
             }
         }
 
-        if (missingTasks.isEmpty()) {
-            Log.d("RadarCache", "Cache Hit (All Tiles Cached) | All $totalTasks tiles for zoom $pZoom are already available. No network downloads needed.")
-            onProgress(totalTasks, totalTasks)
+        val snapshotKeys = newRequiredKeys
+        val totalTasks = snapshotKeys.size
+        val loadedCount = snapshotKeys.count { TileRamCache.contains(it) || DiskTileCache.contains(it) }
+
+        onProgress(loadedCount, totalTasks)
+
+        if (loadedCount == totalTasks) {
+            pipelineMutex.withLock {
+                if (!completedLogEmitted && currentActiveLayer == layer) {
+                    completedLogEmitted = true
+                    Log.d("RadarPreloader", "PRELOAD COMPLETE | Loaded $totalTasks/$totalTasks tiles (100%) for Zoom $pZoom")
+                }
+            }
             frames.forEach { onFrameReady?.invoke(it.index) }
             return@withContext
         }
 
-        Log.d("RadarCache", "Preload Starting | Total Tiles Needed: $totalTasks | Already Cached: $alreadyCachedCount | Missing to Download: ${missingTasks.size}")
-        onProgress(alreadyCachedCount, totalTasks)
+        missingKeysToStart.forEach { key ->
+            val info = keyToInfoMap[key]
+            if (info != null) {
+                val (frame, x, y) = info
+                val job = scope.launch(Dispatchers.IO) {
+                    try {
+                        preloadSingleTile(layer, frame, pZoom, x, y)
+                    } catch (e: Exception) {
+                        Log.w("RadarPreloader", "Failed tile download $key: ${e.localizedMessage}")
+                    } finally {
+                        activeTileJobs.remove(key)
+                        val currRequired = currentRequiredKeys
+                        val curLoaded = currRequired.count { TileRamCache.contains(it) || DiskTileCache.contains(it) }
+                        val curTotal = currRequired.size
+                        if (curTotal > 0) {
+                            val pct = (curLoaded.toFloat() / curTotal.toFloat() * 100f).toInt()
+                            Log.d("TimelapsePipeline", "PRELOAD_PROGRESS | Zoom: $pZoom | Required: $curTotal | Loaded: $curLoaded | Completion: $pct%")
+                            onProgress(curLoaded, curTotal)
 
-        var loadedCount = alreadyCachedCount
+                            if (curLoaded == curTotal) {
+                                pipelineMutex.withLock {
+                                    if (!completedLogEmitted && currentActiveLayer == layer) {
+                                        completedLogEmitted = true
+                                        Log.d("RadarPreloader", "PRELOAD COMPLETE | Loaded $curTotal/$curTotal tiles (100%) for Zoom $pZoom")
+                                    }
+                                }
+                            }
+                        }
 
-        coroutineScope {
-            // Group missing tasks by frame to notify onFrameReady
-            val tasksByFrame = missingTasks.groupBy { it.first }
-            val jobs = tasksByFrame.map { (frame, frameTasks) ->
-                async(Dispatchers.IO) {
-                    for ((_, x, y) in frameTasks) {
-                        try {
-                            preloadSingleTile(layer, frame, pZoom, x, y)
-                        } catch (e: Exception) {
-                            Log.w("RadarPreloader", "Failed to preload tile: ${e.localizedMessage}")
+                        val frameKeys = currRequired.filter { it.contains("_${frame.timestamp}_") }
+                        if (frameKeys.isNotEmpty() && frameKeys.all { TileRamCache.contains(it) || DiskTileCache.contains(it) }) {
+                            onFrameReady?.invoke(frame.index)
                         }
-                        val currentLoaded = synchronized(this@RadarPreloader) {
-                            loadedCount++
-                            loadedCount
-                        }
-                        val pct = if (totalTasks > 0) (currentLoaded.toFloat() / totalTasks.toFloat() * 100f).toInt() else 100
-                        Log.d("TimelapsePipeline", "PRELOAD_PROGRESS | Zoom: $pZoom | Required: $totalTasks | Loaded: $currentLoaded | Completion: $pct%")
-                        onProgress(currentLoaded, totalTasks)
                     }
-                    onFrameReady?.invoke(frame.index)
                 }
+                activeTileJobs[key] = job
             }
-            jobs.awaitAll()
         }
-        Log.d("RadarCache", "Preload complete for $totalTasks tile tasks (RAM Cache Size: ${TileRamCache.size()} tiles, Disk Cache Size: ${DiskTileCache.fileCount()} files)")
     }
 
     fun checkFrameTileStats(
