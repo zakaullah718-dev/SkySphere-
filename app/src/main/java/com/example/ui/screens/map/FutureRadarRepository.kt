@@ -23,15 +23,27 @@ data class RadarFrame(
     val path: String = "",
     val host: String = "https://tilecache.rainviewer.com"
 ) {
-    fun buildTileUrl(zoom: Int, x: Int, y: Int, palette: Int = 4): String {
+    fun buildTileUrl(zoom: Int, x: Int, y: Int): String {
         val clampedZoom = zoom.coerceIn(1, 12)
         val cleanHost = host.trimEnd('/')
-        val cleanPath = if (path.startsWith("/")) path else if (path.isNotBlank()) "/$path" else ""
-        return if (cleanPath.isNotBlank() && cleanPath != "/") {
-            "$cleanHost$cleanPath/256/$clampedZoom/$x/$y/$palette/1_1.png"
+        val tsInSeconds = if (time > 10_000_000_000L) {
+            time / 1000L
+        } else if (time > 0L) {
+            time
         } else {
-            val fallbackTs = if (time > 0L) time else ((System.currentTimeMillis() - 600_000L) / 600_000L) * 600L
-            "$cleanHost/v2/radar/$fallbackTs/256/$clampedZoom/$x/$y/$palette/1_1.png"
+            (System.currentTimeMillis() - 600_000L) / 1000L
+        }
+
+        val cleanPath = if (path.startsWith("/")) path else if (path.isNotBlank()) "/$path" else ""
+        val isValidPath = cleanPath.isNotBlank() && 
+                          cleanPath != "/" && 
+                          !cleanPath.contains("@") && 
+                          cleanPath.startsWith("/v2/")
+
+        return if (isValidPath) {
+            "$cleanHost$cleanPath/256/$clampedZoom/$x/$y.png"
+        } else {
+            "$cleanHost/v2/radar/$tsInSeconds/256/$clampedZoom/$x/$y.png"
         }
     }
 }

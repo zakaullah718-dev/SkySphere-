@@ -349,7 +349,10 @@ class RadarTimeLapseController(
             )
             
             if (!frameReady) {
-                Log.w("RadarLoop", "Frame ${nextFrame.timestamp} not ready, skipping")
+                Log.w("RadarLoop", "Frame ${nextFrame.timestamp} tile download failed (non-200 or timeout). Pausing timeline to retry frame.")
+                _state.update { it.copy(isBuffering = true) }
+                preloadFrameIfNeeded(nextFrame, currentZoom)
+                delay(1000L)
                 continue
             }
             

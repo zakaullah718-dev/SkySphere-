@@ -291,7 +291,8 @@ object RadarPreloader {
                             }
                         }
 
-                        val frameKeys = currRequired.filter { it.contains("_${frame.timestamp}_") }
+                        val frameTimestamp = frame.radarFrame?.time ?: frame.timestamp
+                        val frameKeys = currRequired.filter { it.contains("_${frameTimestamp}_") }
                         if (frameKeys.isNotEmpty() && frameKeys.all { TileRamCache.contains(it) || DiskTileCache.contains(it) }) {
                             onFrameReady?.invoke(frame.index)
                         }
@@ -478,16 +479,23 @@ object RadarPreloader {
                 return
             }
 
-            val tileUrl = frame.radarFrame?.buildTileUrl(zoom, x, y)
-                ?: "https://tilecache.rainviewer.com/v2/radar/$timestamp/256/$zoom/$x/$y/4/1_1.png"
+            val tsInSec = if (timestamp > 10_000_000_000L) {
+                timestamp / 1000L
+            } else if (timestamp > 0L) {
+                timestamp
+            } else {
+                (System.currentTimeMillis() - 600_000L) / 1000L
+            }
 
-            Log.d("RadarDebug", "ZOOM=$zoom | X=$x | Y=$y | TIMESTAMP=$timestamp")
+            val tileUrl = frame.radarFrame?.buildTileUrl(zoom, x, y)
+                ?: "https://tilecache.rainviewer.com/v2/radar/$tsInSec/256/$zoom/$x/$y.png"
+
+            Log.d("RadarDebug", "ZOOM=$zoom | X=$x | Y=$y | TIMESTAMP=$tsInSec")
             Log.d("RadarDebug", "URL: $tileUrl")
             Log.d("RadarCache", "Cache Miss | Key: $cacheKey -> Downloading from network... URL: $tileUrl")
-            val downloadedBitmap = downloadAndDecode(tileUrl)
-            val bitmap = downloadedBitmap ?: emptyTransparentBitmap
-            TileRamCache.put(cacheKey, bitmap)
-            DiskTileCache.put(cacheKey, bitmap)
+            val downloadedBitmap = downloadAndDecode(tileUrl) ?: emptyTransparentBitmap
+            TileRamCache.put(cacheKey, downloadedBitmap)
+            DiskTileCache.put(cacheKey, downloadedBitmap)
 
         } else {
             val layerEndpoint = when (layer) {
@@ -533,22 +541,26 @@ object RadarPreloader {
                         val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                         if (bmp != null) {
                             Log.d("RadarPreloader", "Successfully downloaded tile (${bytes.size} bytes): $url")
+                            bmp
                         } else {
-                            Log.w("RadarPreloader", "Failed to decode PNG bytes (${bytes.size} bytes): $url")
+                            Log.w("RadarPreloader", "Failed to decode PNG bytes (${bytes.size} bytes): $url -> using transparent fallback")
+                            emptyTransparentBitmap
                         }
-                        bmp
                     } else {
-                        Log.w("RadarPreloader", "Empty response body (0 bytes): $url")
-                        null
+                        Log.d("RadarPreloader", "Empty response body (0 bytes / 204 No Content): $url -> using transparent tile")
+                        emptyTransparentBitmap
                     }
+                } else if (response.code == 404 || response.code == 204 || response.code == 410) {
+                    Log.d("RadarPreloader", "HTTP ${response.code} (No radar precipitation on tile): $url -> using transparent tile")
+                    emptyTransparentBitmap
                 } else {
-                    Log.w("RadarPreloader", "HTTP ${response.code} ${response.message} for tile URL: $url")
-                    null
+                    Log.w("RadarPreloader", "HTTP ${response.code} ${response.message} for tile URL: $url -> using transparent fallback")
+                    emptyTransparentBitmap
                 }
             }
         } catch (e: Exception) {
-            Log.e("RadarPreloader", "Exception downloading tile $url: ${e.localizedMessage}")
-            null
+            Log.e("RadarPreloader", "Exception downloading tile $url: ${e.localizedMessage} -> using transparent fallback")
+            emptyTransparentBitmap
         }
     }
 
