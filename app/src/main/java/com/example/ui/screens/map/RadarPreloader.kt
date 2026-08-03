@@ -124,9 +124,9 @@ object RadarPreloader {
         val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
         val numTilesDimension = 1 shl pZoom
 
-        val tileXs: List<Int>
-        val tileYs: List<Int>
-        if (pZoom <= 4) {
+        var tileXs: List<Int>
+        var tileYs: List<Int>
+        if (pZoom <= 1) {
             tileXs = (0 until numTilesDimension).toList()
             tileYs = (0 until numTilesDimension).toList()
         } else {
@@ -135,10 +135,15 @@ object RadarPreloader {
             val rad = Math.toRadians(clampedLat)
             val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-            val radius = 4
+            val radius = 2
             tileXs = (centerX - radius..centerX + radius).map { (it + numTilesDimension) % numTilesDimension }.distinct()
             tileYs = (centerY - radius..centerY + radius).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
         }
+
+        if (tileXs.isEmpty()) tileXs = listOf(0)
+        if (tileYs.isEmpty()) tileYs = listOf(0)
+
+        Log.d("RadarDebug", "getRequiredTileKeys | pZoom=$pZoom, tileXs=$tileXs, tileYs=$tileYs")
 
         val keys = mutableSetOf<String>()
         for (frame in frames) {
@@ -158,7 +163,7 @@ object RadarPreloader {
         centerLat: Double = 37.7749,
         centerLon: Double = -122.4194,
         mapZoom: Int = 5,
-        onProgress: (loaded: Int, total: Int) -> Unit,
+        onProgress: (loaded: Int, total: Int) -> Unit = { _, _ -> },
         onFrameReady: ((frameIndex: Int) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
         if (isDownloading) {
@@ -239,7 +244,7 @@ object RadarPreloader {
 
             val tileXs: List<Int>
             val tileYs: List<Int>
-            if (pZoom <= 4) {
+            if (pZoom <= 1) {
                 tileXs = (0 until numTilesDimension).toList()
                 tileYs = (0 until numTilesDimension).toList()
             } else {
@@ -248,7 +253,7 @@ object RadarPreloader {
                 val rad = Math.toRadians(clampedLat)
                 val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-                val radius = 4
+                val radius = 2
                 tileXs = (centerX - radius..centerX + radius).map { (it + numTilesDimension) % numTilesDimension }.distinct()
                 tileYs = (centerY - radius..centerY + radius).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
             }
@@ -394,10 +399,6 @@ object RadarPreloader {
         mapZoom: Int
     ): FrameTileStats = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
-        if (isDownloading) {
-            return@withContext checkFrameTileStats(layer, frame, centerLat, centerLon, mapZoom, startTime)
-        }
-        isDownloading = true
         try {
             val providerMaxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) {
                 FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
@@ -410,7 +411,7 @@ object RadarPreloader {
 
             val tileXs: List<Int>
             val tileYs: List<Int>
-            if (pZoom <= 4) {
+            if (pZoom <= 1) {
                 tileXs = (0 until numTilesDimension).toList()
                 tileYs = (0 until numTilesDimension).toList()
             } else {
@@ -419,12 +420,13 @@ object RadarPreloader {
                 val rad = Math.toRadians(clampedLat)
                 val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-                val radius = 4
+                val radius = 2
                 tileXs = (centerX - radius..centerX + radius).map { (it + numTilesDimension) % numTilesDimension }.distinct()
                 tileYs = (centerY - radius..centerY + radius).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
             }
 
             var netRequests = 0
+            val jobs = mutableListOf<Job>()
             for (x in tileXs) {
                 for (y in tileYs) {
                     try {
@@ -437,7 +439,9 @@ object RadarPreloader {
                                 TileRamCache.put(key, diskTile)
                             } else {
                                 netRequests++
-                                preloadSingleTile(layer, frame, pZoom, x, y)
+                                jobs.add(launch {
+                                    preloadSingleTile(layer, frame, pZoom, x, y)
+                                })
                             }
                         }
                     } catch (e: Exception) {
@@ -445,11 +449,12 @@ object RadarPreloader {
                     }
                 }
             }
+            jobs.joinAll()
 
             val stats = checkFrameTileStats(layer, frame, centerLat, centerLon, mapZoom, startTime)
             stats.copy(networkRequests = netRequests)
-        } finally {
-            isDownloading = false
+        } catch (e: Exception) {
+            checkFrameTileStats(layer, frame, centerLat, centerLon, mapZoom, startTime)
         }
     }
 
@@ -515,7 +520,7 @@ object RadarPreloader {
             }
 
             val tileUrl = frame.radarFrame?.buildTileUrl(zoom, x, y)
-                ?: "https://tilecache.rainviewer.com/v2/radar/$tsInSec/256/$zoom/$x/$y.png"
+                ?: "https://tilecache.rainviewer.com/v2/radar/$tsInSec/256/$zoom/$x/$y/2/1_1.png"
 
             Log.d("RadarDebug", "ZOOM=$zoom | X=$x | Y=$y | TIMESTAMP=$tsInSec")
             Log.d("RadarDebug", "URL: $tileUrl")

@@ -77,19 +77,25 @@ class RadarTimeLapseController(
             val frames = fetchOrGenerateFrames(layer)
             val initialIndex = frames.indexOfLast { !it.isForecast }.coerceAtLeast(0)
 
+            val initialFrame = frames.getOrNull(initialIndex)
             _state.update {
                 it.copy(
                     frames = frames,
                     currentFrameIndex = initialIndex,
-                    isLoading = true,
-                    isBuffering = true,
-                    bufferProgress = 0.05f
+                    isLoading = false,
+                    isBuffering = false,
+                    isReadyToPlay = true,
+                    bufferProgress = 0.2f
                 )
             }
 
-            val initialFrame = frames.getOrNull(initialIndex)
             if (initialFrame != null && onFrameChanged != null) {
                 onFrameChanged(initialFrame)
+            }
+
+            // Quick-fetch initial frame tiles first
+            if (initialFrame != null) {
+                RadarPreloader.preloadSingleFrame(layer, initialFrame, lat, lon, zoom)
             }
 
             val orderedFrames = if (initialFrame != null) {
@@ -275,15 +281,12 @@ class RadarTimeLapseController(
     }
 
     fun play(onFrameChanged: (TimeLapseFrame) -> Unit) {
-        if (!_state.value.isReadyToPlay || _state.value.isBuffering) {
-            Log.w("TimelapsePipeline", "PLAY_ATTEMPT_BLOCKED | Preload running or buffer not ready for zoom $currentZoom")
-            return
-        }
+        val frames = _state.value.frames
+        if (frames.isEmpty()) return
         pause()
-        _state.update { it.copy(isPlaying = true) }
+        _state.update { it.copy(isPlaying = true, isReadyToPlay = true, isBuffering = false) }
 
         val layer = _state.value.activeLayer
-        val frames = _state.value.frames
         val reqKeys = RadarPreloader.getRequiredTileKeys(layer, frames, currentLat, currentLon, currentZoom)
 
         Log.d(
@@ -343,21 +346,13 @@ class RadarTimeLapseController(
             val cached = isFrameCached(nextFrame, currentZoom)
             _state.update { it.copy(isBuffering = !cached) }
 
-            // WAIT until tiles are preloaded for this frame
-            val frameReady = waitForFramePreload(
+            // Short wait for tiles, then proceed smoothly
+            waitForFramePreload(
                 layer = layer,
                 frame = nextFrame,
                 zoom = currentZoom,
-                timeoutMs = 5000L
+                timeoutMs = 600L
             )
-            
-            if (!frameReady) {
-                Log.w("RadarLoop", "Frame ${nextFrame.timestamp} tile download failed (non-200 or timeout). Pausing timeline to retry frame.")
-                _state.update { it.copy(isBuffering = true) }
-                preloadFrameIfNeeded(nextFrame, currentZoom)
-                delay(1000L)
-                continue
-            }
             
             _state.update { 
                 it.copy(
@@ -376,13 +371,13 @@ class RadarTimeLapseController(
         layer: MapWeatherLayer,
         frame: TimeLapseFrame,
         zoom: Int,
-        timeoutMs: Long = 5000L
+        timeoutMs: Long = 600L
     ): Boolean = withContext(Dispatchers.IO) {
         val requiredKeys = RadarPreloader.getRequiredTileKeys(layer, listOf(frame), currentLat, currentLon, zoom)
         if (requiredKeys.isEmpty()) return@withContext true
 
         var attempts = 0
-        val maxAttempts = (timeoutMs / 200).toInt().coerceAtLeast(1)
+        val maxAttempts = (timeoutMs / 150).toInt().coerceAtLeast(1)
         
         while (_state.value.isPlaying && attempts < maxAttempts) {
             val allCached = requiredKeys.all { key ->
@@ -400,10 +395,10 @@ class RadarTimeLapseController(
             }
             
             if (allCached) return@withContext true
-            delay(200)
+            delay(150)
             attempts++
         }
-        return@withContext false
+        return@withContext true
     }
 
     fun pause() {

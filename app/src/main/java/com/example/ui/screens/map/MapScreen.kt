@@ -125,6 +125,7 @@ fun MapScreen(
             val centerLat = mapState.userLatitude ?: 37.7749
             val centerLon = mapState.userLongitude ?: -122.4194
             timeLapseController.initializeForLayer(mapState.selectedLayer, centerLat, centerLon, 5)
+            timeLapseController.togglePlayPause { frame -> controller.setRadarTimestamp(frame.timestamp) }
         } else {
             timeLapseController.pause()
         }
@@ -353,15 +354,16 @@ fun MapScreen(
     // Dynamic Weather Overlay Manager
     val activeFrame = timeLapseState.currentFrame
 
-    LaunchedEffect(activeFrame, mapState.selectedLayer, mapView) {
-        if (mapView == null) return@LaunchedEffect
+    // Create/swap weather overlay ONLY when selectedLayer or mapView changes
+    LaunchedEffect(mapState.selectedLayer, mapView) {
+        val currentMapView = mapView ?: return@LaunchedEffect
 
         // Remove previous weather layer overlay
         weatherOverlayRef[0]?.let { oldOverlay ->
             Log.d("RadarCache", "TileOverlay Recreation | Detaching previous WeatherTilesOverlay")
-            mapView.overlays.remove(oldOverlay)
+            currentMapView.overlays.remove(oldOverlay)
             try {
-                oldOverlay.onDetach(mapView)
+                oldOverlay.onDetach(currentMapView)
             } catch (e: Exception) {
                 Log.w("WeatherRadar", "Error detaching old weather overlay: ${e.localizedMessage}")
             }
@@ -371,24 +373,33 @@ fun MapScreen(
         // Attach new weather layer overlay if enabled
         if (mapState.selectedLayer != MapWeatherLayer.NONE) {
             Log.d("RadarCache", "TileOverlay Recreation | Attaching new WeatherTilesOverlay for layer ${mapState.selectedLayer}")
+            val currentFrame = timeLapseState.currentFrame
             val newOverlay = weatherLayerManager.createTilesOverlay(
                 context = context,
                 layer = mapState.selectedLayer,
-                radarTimestamp = activeFrame?.timestamp ?: radarRepository.getFallbackTimestamp(),
-                customRadarFrame = activeFrame?.radarFrame
+                radarTimestamp = currentFrame?.timestamp ?: radarRepository.getFallbackTimestamp(),
+                customRadarFrame = currentFrame?.radarFrame
             )
             if (newOverlay != null) {
                 // Insert weather overlay underneath the location marker overlay
-                val insertIndex = if (mapView.overlays.isNotEmpty()) mapView.overlays.size - 1 else 0
-                mapView.overlays.add(insertIndex, newOverlay)
+                val insertIndex = if (currentMapView.overlays.isNotEmpty()) currentMapView.overlays.size - 1 else 0
+                currentMapView.overlays.add(insertIndex, newOverlay)
                 weatherOverlayRef[0] = newOverlay
-                if (activeFrame != null) {
-                    newOverlay.updateFrame(activeFrame, mapView)
+                if (currentFrame != null) {
+                    newOverlay.updateFrame(currentFrame, currentMapView)
                 }
             }
         }
 
-        mapView.postInvalidate()
+        currentMapView.postInvalidate()
+    }
+
+    // Smoothly update frame on the existing overlay when activeFrame changes during timelapse
+    LaunchedEffect(activeFrame) {
+        val overlay = weatherOverlayRef[0]
+        if (overlay != null && activeFrame != null) {
+            overlay.updateFrame(activeFrame, mapView)
+        }
     }
 
     LaunchedEffect(timeLapseState.isPlaying) {

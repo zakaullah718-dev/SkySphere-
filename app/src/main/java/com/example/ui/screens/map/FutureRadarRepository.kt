@@ -41,9 +41,9 @@ data class RadarFrame(
                           cleanPath.startsWith("/v2/")
 
         return if (isValidPath) {
-            "$cleanHost$cleanPath/256/$clampedZoom/$x/$y.png"
+            "$cleanHost$cleanPath/256/$clampedZoom/$x/$y/2/1_1.png"
         } else {
-            "$cleanHost/v2/radar/$tsInSeconds/256/$clampedZoom/$x/$y.png"
+            "$cleanHost/v2/radar/$tsInSeconds/256/$clampedZoom/$x/$y/2/1_1.png"
         }
     }
 }
