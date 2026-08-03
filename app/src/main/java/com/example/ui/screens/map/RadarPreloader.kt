@@ -78,6 +78,30 @@ object RadarPreloader {
         }
     }
 
+    fun buildTileKey(layer: MapWeatherLayer, timestamp: Long, zoom: Int, x: Int, y: Int): String {
+        return if (layer == MapWeatherLayer.RAIN_RADAR) {
+            "RainViewer_Radar_${timestamp}_${zoom}_${x}_${y}"
+        } else {
+            val layerEndpoint = when (layer) {
+                MapWeatherLayer.CLOUDS -> "clouds_new"
+                MapWeatherLayer.TEMPERATURE -> "temp_new"
+                MapWeatherLayer.WIND -> "wind_new"
+                MapWeatherLayer.HUMIDITY -> "humidity_new"
+                MapWeatherLayer.PRESSURE -> "pressure_new"
+                else -> "unknown"
+            }
+            "${layerEndpoint}_${zoom}_${x}_${y}"
+        }
+    }
+
+    fun evictOldFrameCache(currentFrameIndex: Int, frames: List<TimeLapseFrame>) {
+        if (frames.size <= 2) return
+        val targetIndex = (currentFrameIndex - 2 + frames.size) % frames.size
+        val oldFrame = frames[targetIndex]
+        val timestamp = oldFrame.radarFrame?.time ?: oldFrame.timestamp
+        TileRamCache.evictFrameByTimestamp(timestamp)
+    }
+
     fun getRequiredTileKeys(
         layer: MapWeatherLayer,
         frames: List<TimeLapseFrame>,
@@ -96,38 +120,28 @@ object RadarPreloader {
         val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
         val numTilesDimension = 1 shl pZoom
 
-        val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-        val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
-        val rad = Math.toRadians(clampedLat)
-        val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+        val tileXs: List<Int>
+        val tileYs: List<Int>
+        if (pZoom <= 4) {
+            tileXs = (0 until numTilesDimension).toList()
+            tileYs = (0 until numTilesDimension).toList()
+        } else {
+            val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+            val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
+            val rad = Math.toRadians(clampedLat)
+            val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-        val tileXs = (centerX - 3..centerX + 3).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-        val tileYs = (centerY - 3..centerY + 3).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+            val radius = 4
+            tileXs = (centerX - radius..centerX + radius).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+            tileYs = (centerY - radius..centerY + radius).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+        }
 
         val keys = mutableSetOf<String>()
-        if (layer == MapWeatherLayer.RAIN_RADAR) {
-            for (frame in frames) {
-                val timestamp = frame.radarFrame?.time ?: frame.timestamp
-                for (x in tileXs) {
-                    for (y in tileYs) {
-                        keys.add("RainViewer_Radar_${timestamp}_${pZoom}_${x}_${y}")
-                    }
-                }
-            }
-        } else {
-            val layerEndpoint = when (layer) {
-                MapWeatherLayer.CLOUDS -> "clouds_new"
-                MapWeatherLayer.TEMPERATURE -> "temp_new"
-                MapWeatherLayer.WIND -> "wind_new"
-                MapWeatherLayer.HUMIDITY -> "humidity_new"
-                MapWeatherLayer.PRESSURE -> "pressure_new"
-                else -> return emptySet()
-            }
-            for (frame in frames) {
-                for (x in tileXs) {
-                    for (y in tileYs) {
-                        keys.add("${layerEndpoint}_${pZoom}_${x}_${y}")
-                    }
+        for (frame in frames) {
+            val timestamp = frame.radarFrame?.time ?: frame.timestamp
+            for (x in tileXs) {
+                for (y in tileYs) {
+                    keys.add(buildTileKey(layer, timestamp, pZoom, x, y))
                 }
             }
         }
@@ -213,32 +227,28 @@ object RadarPreloader {
         val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
         val numTilesDimension = 1 shl pZoom
 
-        val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-        val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
-        val rad = Math.toRadians(clampedLat)
-        val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+        val tileXs: List<Int>
+        val tileYs: List<Int>
+        if (pZoom <= 4) {
+            tileXs = (0 until numTilesDimension).toList()
+            tileYs = (0 until numTilesDimension).toList()
+        } else {
+            val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+            val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
+            val rad = Math.toRadians(clampedLat)
+            val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-        val tileXs = (centerX - 3..centerX + 3).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-        val tileYs = (centerY - 3..centerY + 3).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+            val radius = 4
+            tileXs = (centerX - radius..centerX + radius).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+            tileYs = (centerY - radius..centerY + radius).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+        }
 
         val keyToInfoMap = mutableMapOf<String, Triple<TimeLapseFrame, Int, Int>>()
         for (frame in frames) {
             val timestamp = frame.radarFrame?.time ?: frame.timestamp
             for (x in tileXs) {
                 for (y in tileYs) {
-                    val key = if (layer == MapWeatherLayer.RAIN_RADAR) {
-                        "RainViewer_Radar_${timestamp}_${pZoom}_${x}_${y}"
-                    } else {
-                        val layerEndpoint = when (layer) {
-                            MapWeatherLayer.CLOUDS -> "clouds_new"
-                            MapWeatherLayer.TEMPERATURE -> "temp_new"
-                            MapWeatherLayer.WIND -> "wind_new"
-                            MapWeatherLayer.HUMIDITY -> "humidity_new"
-                            MapWeatherLayer.PRESSURE -> "pressure_new"
-                            else -> "unknown"
-                        }
-                        "${layerEndpoint}_${pZoom}_${x}_${y}"
-                    }
+                    val key = buildTileKey(layer, timestamp, pZoom, x, y)
                     keyToInfoMap[key] = Triple(frame, x, y)
                 }
             }
@@ -380,32 +390,28 @@ object RadarPreloader {
         val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
         val numTilesDimension = 1 shl pZoom
 
-        val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-        val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
-        val rad = Math.toRadians(clampedLat)
-        val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+        val tileXs: List<Int>
+        val tileYs: List<Int>
+        if (pZoom <= 4) {
+            tileXs = (0 until numTilesDimension).toList()
+            tileYs = (0 until numTilesDimension).toList()
+        } else {
+            val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+            val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
+            val rad = Math.toRadians(clampedLat)
+            val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
 
-        val tileXs = (centerX - 3..centerX + 3).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-        val tileYs = (centerY - 3..centerY + 3).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+            val radius = 4
+            tileXs = (centerX - radius..centerX + radius).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+            tileYs = (centerY - radius..centerY + radius).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+        }
 
         var netRequests = 0
         for (x in tileXs) {
             for (y in tileYs) {
                 try {
-                    val key = if (layer == MapWeatherLayer.RAIN_RADAR) {
-                        val timestamp = frame.radarFrame?.time ?: frame.timestamp
-                        "RainViewer_Radar_${timestamp}_${pZoom}_${x}_${y}"
-                    } else {
-                        val layerEndpoint = when (layer) {
-                            MapWeatherLayer.CLOUDS -> "clouds_new"
-                            MapWeatherLayer.TEMPERATURE -> "temp_new"
-                            MapWeatherLayer.WIND -> "wind_new"
-                            MapWeatherLayer.HUMIDITY -> "humidity_new"
-                            MapWeatherLayer.PRESSURE -> "pressure_new"
-                            else -> continue
-                        }
-                        "${layerEndpoint}_${pZoom}_${x}_${y}"
-                    }
+                    val timestamp = frame.radarFrame?.time ?: frame.timestamp
+                    val key = buildTileKey(layer, timestamp, pZoom, x, y)
 
                     if (!TileRamCache.contains(key)) {
                         val diskTile = DiskTileCache.get(key)
@@ -463,10 +469,10 @@ object RadarPreloader {
         x: Int,
         y: Int
     ) {
-        if (layer == MapWeatherLayer.RAIN_RADAR) {
-            val timestamp = frame.radarFrame?.time ?: frame.timestamp
-            val cacheKey = "RainViewer_Radar_${timestamp}_${zoom}_${x}_${y}"
+        val timestamp = frame.radarFrame?.time ?: frame.timestamp
+        val cacheKey = buildTileKey(layer, timestamp, zoom, x, y)
 
+        if (layer == MapWeatherLayer.RAIN_RADAR) {
             if (TileRamCache.contains(cacheKey)) {
                 Log.d("RadarCache", "RAM Cache Hit | Key: $cacheKey")
                 return

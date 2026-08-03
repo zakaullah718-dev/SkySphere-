@@ -323,6 +323,9 @@ class RadarTimeLapseController(
             val nextIndex = (currentState.currentFrameIndex + 1) % frames.size
             val nextFrame = frames[nextIndex]
 
+            // Clear RAM cache of oldest frame (FrameIndex - 2) to free memory for incoming tiles
+            RadarPreloader.evictOldFrameCache(currentState.currentFrameIndex, frames)
+
             // Preload the frame AFTER next too (lookahead)
             val nextNextIndex = (nextIndex + 1) % frames.size
             val nextNextFrame = frames[nextNextIndex]

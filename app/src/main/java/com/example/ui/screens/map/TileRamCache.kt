@@ -13,12 +13,10 @@ import android.util.LruCache
 object TileRamCache {
     private const val TAG = "TileRamCache"
 
-    // Dynamically calculate memory budget: ~15% of max JVM heap, bounded between 16MB and 48MB
-    private val maxMemoryKb: Int by lazy {
-        val maxHeapKb = (Runtime.getRuntime().maxMemory() / 1024).toInt()
-        val budgetKb = maxHeapKb / 6 // ~16.6% of heap
-        budgetKb.coerceIn(16 * 1024, 48 * 1024) // 16 MB min, 48 MB max
-    }
+    // Fixed maximum RAM cache budget: 20 MB (20,000 KB) to prevent RAM cache overflow
+    private const val MAX_MEMORY_KB = 20_000
+
+    private val maxMemoryKb: Int = MAX_MEMORY_KB
 
     private val cache = object : LruCache<String, Bitmap>(maxMemoryKb) {
         override fun sizeOf(key: String, bitmap: Bitmap): Int {
@@ -80,6 +78,19 @@ object TileRamCache {
     fun size(): Int {
         synchronized(cache) {
             return cache.snapshot().size
+        }
+    }
+
+    fun evictFrameByTimestamp(timestamp: Long) {
+        synchronized(cache) {
+            val prefix = "_${timestamp}_"
+            val keysToRemove = cache.snapshot().keys.filter { it.contains(prefix) }
+            keysToRemove.forEach { key ->
+                cache.remove(key)
+            }
+            if (keysToRemove.isNotEmpty()) {
+                Log.d("RadarCache", "Evicted ${keysToRemove.size} tiles for frame $timestamp from RAM Cache. Remaining: ${size()} tiles (${sizeInKb()} KB)")
+            }
         }
     }
 
