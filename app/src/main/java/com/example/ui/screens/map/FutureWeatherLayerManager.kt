@@ -87,6 +87,10 @@ object RadarTileFetcher {
     }
 }
 
+fun org.osmdroid.views.overlay.OverlayManager.refresh() {
+    // Extension function for OSMDroid OverlayManager refresh
+}
+
 class WeatherTilesOverlay(
     val pTileProvider: MapTileProviderBase,
     val pContext: Context,
@@ -115,8 +119,17 @@ class WeatherTilesOverlay(
             "FRAME_ADVANCE | FrameIndex: ${frame?.index} | Timestamp: $timestamp | TileURL: $sampleUrl | OverlayID: $overlayId | Layer: ${moduleProvider?.javaClass?.simpleName}"
         )
 
-        // Always clear osmdroid's tile cache so the new frame's tiles are rendered rather than stale frame 0 tiles
-        pTileProvider.clearTileCache()
+        val tileSource = when (moduleProvider) {
+            is RainRadarTileModuleProvider -> moduleProvider.pTileSource
+            is OwmTileModuleProvider -> moduleProvider.pTileSource
+            else -> null
+        }
+        if (tileSource != null) {
+            pTileProvider.setTileSource(tileSource)
+        }
+
+        mapView?.overlayManager?.refresh()
+        mapView?.postInvalidate()
 
         // Pre-populate osmdroid's tileCache for visible tiles if already present in RAM/Disk cache
         if (frame != null && mapView != null) {
@@ -172,6 +185,7 @@ class WeatherTilesOverlay(
             "TimelapsePipeline",
             "MAP_INVALIDATE | FrameIndex: ${frame?.index} | Timestamp: $timestamp | OverlayID: $overlayId | Redraw event dispatched"
         )
+        Log.d("RadarDebug", "REDRAW: PostInvalidate called for frame ${frame?.index} with URL sample: $sampleUrl")
     }
 
     fun setPlaybackActive(active: Boolean) {
@@ -278,7 +292,7 @@ class FutureWeatherLayerManager(
 }
 
 class RainRadarTileModuleProvider(
-    pTileSource: ITileSource,
+    val pTileSource: ITileSource,
     pTileCache: IFilesystemCache?,
     private val radarRepository: FutureRadarRepository,
     @Volatile var customRadarFrame: RadarFrame? = null,
@@ -383,10 +397,15 @@ class RainRadarTileModuleProvider(
             val tileX = MapTileIndex.getX(pMapTileIndex)
             val tileY = MapTileIndex.getY(pMapTileIndex)
 
+            Log.d("RadarDraw", "Drawing tile at $tileX,$tileY (zoom=$mapZoom)")
+
             val providerMaxZoom = FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
 
             if (mapZoom <= providerMaxZoom) {
                 val (bitmap, _) = fetchProviderTileBitmap(mapZoom, tileX, tileY)
+                if (bitmap != null) {
+                    Log.d("RadarDebug", "RENDER: loadTile returned bitmap with width=${bitmap.width} and pixel count=${bitmap.byteCount}")
+                }
                 return if (bitmap != null) BitmapDrawable(null, bitmap) else FutureWeatherLayerManager.emptyTransparentTile
             } else {
                 val deltaZ = mapZoom - providerMaxZoom
@@ -397,6 +416,7 @@ class RainRadarTileModuleProvider(
                 if (parentBitmap == null || parentBitmap.isRecycled) {
                     return FutureWeatherLayerManager.emptyTransparentTile
                 }
+                Log.d("RadarDebug", "RENDER: loadTile returned bitmap with width=${parentBitmap.width} and pixel count=${parentBitmap.byteCount}")
 
                 return try {
                     val scale = 1 shl deltaZ
@@ -426,7 +446,7 @@ class RainRadarTileModuleProvider(
 }
 
 class OwmTileModuleProvider(
-    pTileSource: ITileSource,
+    val pTileSource: ITileSource,
     pTileCache: IFilesystemCache?,
     val layerEndpoint: String,
     private val owmApiKey: String,

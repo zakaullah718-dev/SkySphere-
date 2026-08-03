@@ -581,19 +581,23 @@ object RadarPreloader {
                             if (bytes != null && bytes.isNotEmpty()) {
                                 val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                                 if (bmp != null) {
-                                    Log.d("RadarPreloader", "Successfully downloaded tile (${bytes.size} bytes): $url")
+                                    Log.d("RadarPreloader", "SUCCESS: downloaded tile (${bytes.size} bytes): $url")
+                                    Log.d("RadarDebug", "SUCCESS: Decoded real tile with dimensions ${bmp.width}x${bmp.height} and pixel count ${bmp.byteCount}")
                                     bmp
                                 } else {
                                     Log.w("RadarPreloader", "Failed to decode PNG bytes (${bytes.size} bytes): $url -> using transparent fallback")
+                                    Log.d("RadarDebug", "FALLBACK: Using transparent bitmap for URL")
                                     emptyTransparentBitmap
                                 }
                             } else {
                                 Log.d("RadarPreloader", "Empty response body (0 bytes / 204 No Content): $url -> using transparent tile")
+                                Log.d("RadarDebug", "FALLBACK: Using transparent bitmap for URL")
                                 emptyTransparentBitmap
                             }
                         }
                         response.code == 404 || response.code == 204 || response.code == 410 -> {
                             Log.d("RadarPreloader", "HTTP ${response.code} (No radar precipitation on tile): $url -> using transparent tile")
+                            Log.d("RadarDebug", "FALLBACK: Using transparent bitmap for URL")
                             emptyTransparentBitmap
                         }
                         response.code == 429 -> {

@@ -285,12 +285,8 @@ fun MapScreen(
                 )
 
                 addMapListener(object : org.osmdroid.events.MapListener {
-                    private var viewportJob: Job? = null
-
                     private fun handleViewportChange() {
-                        viewportJob?.cancel()
-                        viewportJob = coroutineScope.launch {
-                            delay(250)
+                        coroutineScope.launch {
                             val center = mapCenter ?: return@launch
                             val zoom = zoomLevelDouble.toInt()
                             timeLapseController.onViewportChanged(
@@ -357,7 +353,7 @@ fun MapScreen(
     // Dynamic Weather Overlay Manager
     val activeFrame = timeLapseState.currentFrame
 
-    LaunchedEffect(mapState.selectedLayer, mapView) {
+    LaunchedEffect(activeFrame, mapState.selectedLayer, mapView) {
         if (mapView == null) return@LaunchedEffect
 
         // Remove previous weather layer overlay
@@ -386,17 +382,13 @@ fun MapScreen(
                 val insertIndex = if (mapView.overlays.isNotEmpty()) mapView.overlays.size - 1 else 0
                 mapView.overlays.add(insertIndex, newOverlay)
                 weatherOverlayRef[0] = newOverlay
+                if (activeFrame != null) {
+                    newOverlay.updateFrame(activeFrame, mapView)
+                }
             }
         }
 
         mapView.postInvalidate()
-    }
-
-    LaunchedEffect(activeFrame) {
-        val overlay = weatherOverlayRef[0]
-        if (overlay != null && activeFrame != null) {
-            overlay.updateFrame(activeFrame, mapView)
-        }
     }
 
     LaunchedEffect(timeLapseState.isPlaying) {
