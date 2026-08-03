@@ -9,6 +9,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -55,6 +56,10 @@ object RadarPreloader {
         } catch (e: Exception) {
             "f0308472599cabe4521d65850bb6ba22"
         }
+    }
+
+    private val emptyTransparentBitmap: Bitmap by lazy {
+        Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
     }
 
     fun stopAll(reason: String = "Application destroyed or resetting") {
@@ -256,6 +261,7 @@ object RadarPreloader {
             return@withContext
         }
 
+        val launchedJobs = mutableListOf<Job>()
         missingKeysToStart.forEach { key ->
             val info = keyToInfoMap[key]
             if (info != null) {
@@ -292,8 +298,10 @@ object RadarPreloader {
                     }
                 }
                 activeTileJobs[key] = job
+                launchedJobs.add(job)
             }
         }
+        launchedJobs.joinAll()
     }
 
     fun checkFrameTileStats(
@@ -473,8 +481,11 @@ object RadarPreloader {
             val tileUrl = frame.radarFrame?.buildTileUrl(zoom, x, y)
                 ?: "https://tilecache.rainviewer.com/v2/radar/$timestamp/256/$zoom/$x/$y/4/1_1.png"
 
-            Log.d("RadarCache", "Cache Miss | Key: $cacheKey -> Downloading from network...")
-            val bitmap = downloadAndDecode(tileUrl) ?: return
+            Log.d("RadarDebug", "ZOOM=$zoom | X=$x | Y=$y | TIMESTAMP=$timestamp")
+            Log.d("RadarDebug", "URL: $tileUrl")
+            Log.d("RadarCache", "Cache Miss | Key: $cacheKey -> Downloading from network... URL: $tileUrl")
+            val downloadedBitmap = downloadAndDecode(tileUrl)
+            val bitmap = downloadedBitmap ?: emptyTransparentBitmap
             TileRamCache.put(cacheKey, bitmap)
             DiskTileCache.put(cacheKey, bitmap)
 
@@ -499,9 +510,9 @@ object RadarPreloader {
             }
 
             val tileUrl = "https://tile.openweathermap.org/map/$layerEndpoint/$zoom/$x/$y.png?appid=$owmApiKey"
-            var bitmap = downloadAndDecode(tileUrl) ?: return
+            var bitmap = downloadAndDecode(tileUrl) ?: emptyTransparentBitmap
 
-            if (layer == MapWeatherLayer.CLOUDS) {
+            if (layer == MapWeatherLayer.CLOUDS && bitmap != emptyTransparentBitmap) {
                 bitmap = applyDarkCloudStyle(bitmap)
             }
             TileRamCache.put(cacheKey, bitmap)
@@ -519,11 +530,24 @@ object RadarPreloader {
                 if (response.isSuccessful) {
                     val bytes = response.body?.bytes()
                     if (bytes != null && bytes.isNotEmpty()) {
-                        BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
-                    } else null
-                } else null
+                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bmp != null) {
+                            Log.d("RadarPreloader", "Successfully downloaded tile (${bytes.size} bytes): $url")
+                        } else {
+                            Log.w("RadarPreloader", "Failed to decode PNG bytes (${bytes.size} bytes): $url")
+                        }
+                        bmp
+                    } else {
+                        Log.w("RadarPreloader", "Empty response body (0 bytes): $url")
+                        null
+                    }
+                } else {
+                    Log.w("RadarPreloader", "HTTP ${response.code} ${response.message} for tile URL: $url")
+                    null
+                }
             }
         } catch (e: Exception) {
+            Log.e("RadarPreloader", "Exception downloading tile $url: ${e.localizedMessage}")
             null
         }
     }

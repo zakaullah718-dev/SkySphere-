@@ -22,6 +22,8 @@ class RadarTimeLapseController(
     private val scope = CoroutineScope(Dispatchers.Main + Job())
     private var playbackJob: Job? = null
     private var preloadJob: Job? = null
+    private var lookaheadJob: Job? = null
+    private var viewportJob: Job? = null
 
     private val _state = MutableStateFlow(TimeLapseState())
     val state: StateFlow<TimeLapseState> = _state.asStateFlow()
@@ -139,29 +141,16 @@ class RadarTimeLapseController(
         val frames = _state.value.frames
         if (frames.isEmpty()) return
 
-        val oldKeys = RadarPreloader.getRequiredTileKeys(layer, frames, currentLat, currentLon, currentZoom)
-        val newKeys = RadarPreloader.getRequiredTileKeys(layer, frames, lat, lon, zoom)
-
-        if (oldKeys == newKeys) {
-            currentLat = lat
-            currentLon = lon
-            currentZoom = zoom
-            return
-        }
-
         currentLat = lat
         currentLon = lon
         currentZoom = zoom
 
-        preloadJob = scope.launch {
-            val currentFrame = _state.value.currentFrame
-            val orderedFrames = if (currentFrame != null) {
-                listOf(currentFrame) + frames.filter { it.index != currentFrame.index }
-            } else frames
-
+        viewportJob?.cancel()
+        viewportJob = scope.launch(Dispatchers.IO) {
+            delay(150)
             RadarPreloader.preloadFrames(
                 layer = layer,
-                frames = orderedFrames,
+                frames = frames,
                 centerLat = lat,
                 centerLon = lon,
                 mapZoom = zoom,
@@ -178,17 +167,6 @@ class RadarTimeLapseController(
                     }
                 }
             )
-
-            _state.update { s ->
-                val allReadyFrames = s.frames.map { f -> f.copy(isReady = true) }
-                s.copy(
-                    frames = allReadyFrames,
-                    isLoading = false,
-                    isBuffering = false,
-                    isReadyToPlay = true,
-                    bufferProgress = 1.0f
-                )
-            }
         }
     }
 
@@ -314,88 +292,121 @@ class RadarTimeLapseController(
         )
 
         playbackJob = scope.launch {
-            val layer = _state.value.activeLayer
-            val frames = _state.value.frames
+            runFrameLoop(onFrameChanged)
+        }
+    }
 
-            if (frames.isEmpty() || layer == MapWeatherLayer.NONE) {
-                _state.update { it.copy(isPlaying = false) }
-                return@launch
+    private suspend fun isFrameCached(frame: TimeLapseFrame, zoom: Int): Boolean = withContext(Dispatchers.IO) {
+        val layer = _state.value.activeLayer
+        if (layer == MapWeatherLayer.NONE) return@withContext true
+        val requiredKeys = RadarPreloader.getRequiredTileKeys(layer, listOf(frame), currentLat, currentLon, zoom)
+        if (requiredKeys.isEmpty()) return@withContext true
+        requiredKeys.all { key ->
+            TileRamCache.contains(key) || DiskTileCache.contains(key)
+        }
+    }
+
+    private suspend fun preloadFrameIfNeeded(frame: TimeLapseFrame, zoom: Int) {
+        val layer = _state.value.activeLayer
+        if (layer == MapWeatherLayer.NONE) return
+        withContext(Dispatchers.IO) {
+            RadarPreloader.preloadSingleFrame(layer, frame, currentLat, currentLon, zoom)
+        }
+    }
+
+    private suspend fun runFrameLoop(onFrameChanged: (TimeLapseFrame) -> Unit) {
+        while (_state.value.isPlaying) {
+            val currentState = _state.value
+            val frames = currentState.frames
+            if (frames.isEmpty()) break
+            
+            val nextIndex = (currentState.currentFrameIndex + 1) % frames.size
+            val nextFrame = frames[nextIndex]
+
+            // Preload the frame AFTER next too (lookahead)
+            val nextNextIndex = (nextIndex + 1) % frames.size
+            val nextNextFrame = frames[nextNextIndex]
+
+            // Start preloading future frames in background after canceling obsolete lookahead
+            lookaheadJob?.cancel()
+            lookaheadJob = scope.launch(Dispatchers.IO) {
+                preloadFrameIfNeeded(nextFrame, currentZoom)
+                preloadFrameIfNeeded(nextNextFrame, currentZoom)
             }
+            
+            val layer = currentState.activeLayer
 
-            // Smooth synchronized frame loop reading exclusively from preloaded RAM/Disk cache
-            while (_state.value.isPlaying) {
-                val currentFrames = _state.value.frames
-                if (currentFrames.isEmpty()) break
+            // Before calling onFrameChanged check if frame is cached to update buffering state
+            val cached = isFrameCached(nextFrame, currentZoom)
+            _state.update { it.copy(isBuffering = !cached) }
 
-                val currentIndex = _state.value.currentFrameIndex
-                val nextIndex = (currentIndex + 1) % currentFrames.size
-                val candidateFrame = currentFrames.getOrNull(nextIndex) ?: break
-
-                val startTimeMs = System.currentTimeMillis()
-                val stats = RadarPreloader.checkFrameTileStats(
-                    layer = layer,
-                    frame = candidateFrame,
-                    centerLat = currentLat,
-                    centerLon = currentLon,
-                    mapZoom = currentZoom,
-                    readyStartTimeMs = startTimeMs
+            // WAIT until tiles are preloaded for this frame
+            val frameReady = waitForFramePreload(
+                layer = layer,
+                frame = nextFrame,
+                zoom = currentZoom,
+                timeoutMs = 5000L
+            )
+            
+            if (!frameReady) {
+                Log.w("RadarLoop", "Frame ${nextFrame.timestamp} not ready, skipping")
+                continue
+            }
+            
+            _state.update { 
+                it.copy(
+                    isBuffering = false,
+                    currentFrameIndex = nextIndex
                 )
+            }
+            onFrameChanged(nextFrame)
+            
+            val delayMs = currentState.delayMs
+            delay(delayMs)
+        }
+    }
 
-                Log.d(
-                    "TimelapsePlayback",
-                    "Frame: ${candidateFrame.index} | Required: ${stats.requiredTiles} | Loaded: ${stats.loadedTiles} | Missing: ${stats.missingTiles} | NetReq: ${stats.networkRequests} | RAM Hits: ${stats.ramHits} | Disk Hits: ${stats.diskHits} | ReadyTime: ${stats.readyTimeMs}ms"
-                )
+    private suspend fun waitForFramePreload(
+        layer: MapWeatherLayer,
+        frame: TimeLapseFrame,
+        zoom: Int,
+        timeoutMs: Long = 5000L
+    ): Boolean = withContext(Dispatchers.IO) {
+        val requiredKeys = RadarPreloader.getRequiredTileKeys(layer, listOf(frame), currentLat, currentLon, zoom)
+        if (requiredKeys.isEmpty()) return@withContext true
 
-                if (stats.isReady) {
-                    Log.d(
-                        "TimelapsePlayback",
-                        "Advancing to frame ${candidateFrame.index}: 100% visible tiles ready (${stats.loadedTiles}/${stats.requiredTiles})."
-                    )
-                    _state.update { it.copy(currentFrameIndex = nextIndex) }
-                    onFrameChanged(candidateFrame)
+        var attempts = 0
+        val maxAttempts = (timeoutMs / 200).toInt().coerceAtLeast(1)
+        
+        while (_state.value.isPlaying && attempts < maxAttempts) {
+            val allCached = requiredKeys.all { key ->
+                if (TileRamCache.contains(key)) {
+                    true
                 } else {
-                    Log.w(
-                        "TimelapsePlayback",
-                        "Holding back frame ${candidateFrame.index}. Reason: Missing ${stats.missingTiles} visible tiles (Loaded ${stats.loadedTiles}/${stats.requiredTiles}). Keeping previous frame $currentIndex."
-                    )
-
-                    // Attempt single frame preload in background if missing
-                    val fetchedStats = withContext(Dispatchers.IO) {
-                        RadarPreloader.preloadSingleFrame(layer, candidateFrame, currentLat, currentLon, currentZoom)
-                    }
-
-                    if (fetchedStats.isReady) {
-                        Log.d(
-                            "TimelapsePlayback",
-                            "Frame ${candidateFrame.index} became ready after fetch (${fetchedStats.loadedTiles}/${fetchedStats.requiredTiles}). Advancing."
-                        )
-                        _state.update { it.copy(currentFrameIndex = nextIndex) }
-                        onFrameChanged(candidateFrame)
+                    val diskBitmap = DiskTileCache.get(key)
+                    if (diskBitmap != null) {
+                        TileRamCache.put(key, diskBitmap)
+                        true
                     } else {
-                        Log.w(
-                            "TimelapsePlayback",
-                            "Provider timeout / missing tile for frame ${candidateFrame.index} (Missing ${fetchedStats.missingTiles}). Skipping frame ${candidateFrame.index} to maintain smooth animation."
-                        )
-                        val skipIndex = (nextIndex + 1) % currentFrames.size
-                        val skipFrame = currentFrames.getOrNull(skipIndex)
-                        if (skipFrame != null) {
-                            _state.update { it.copy(currentFrameIndex = skipIndex) }
-                            onFrameChanged(skipFrame)
-                        }
+                        false
                     }
                 }
-
-                val baseDelay = 750L
-                val speed = _state.value.playbackSpeed.coerceAtLeast(0.1f)
-                val delayTime = (baseDelay / speed).toLong()
-                delay(delayTime)
             }
+            
+            if (allCached) return@withContext true
+            delay(200)
+            attempts++
         }
+        return@withContext false
     }
 
     fun pause() {
         playbackJob?.cancel()
         playbackJob = null
+        lookaheadJob?.cancel()
+        lookaheadJob = null
+        viewportJob?.cancel()
+        viewportJob = null
         _state.update { it.copy(isPlaying = false, isBuffering = false) }
     }
 

@@ -45,4 +45,11 @@ data class TimeLapseState(
                 else -> "Past $mins Mins"
             }
         }
+
+    val delayMs: Long
+        get() {
+            val baseDelay = 750L
+            val speed = playbackSpeed.coerceAtLeast(0.1f)
+            return (baseDelay / speed).toLong()
+        }
 }

@@ -189,9 +189,9 @@ class FutureWeatherLayerManager(
 
     companion object {
         const val PROVIDER_MIN_ZOOM = 1
-        const val RAIN_RADAR_PROVIDER_MAX_ZOOM = 7
+        const val RAIN_RADAR_PROVIDER_MAX_ZOOM = 12
         const val OWM_PROVIDER_MAX_ZOOM = 12
-        const val PROVIDER_MAX_ZOOM = 7
+        const val PROVIDER_MAX_ZOOM = 12
         const val OVERLAY_MAX_ZOOM = 20
 
         val emptyTransparentTile: Drawable by lazy {

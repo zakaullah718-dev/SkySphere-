@@ -24,7 +24,7 @@ data class RadarFrame(
     val host: String = "https://tilecache.rainviewer.com"
 ) {
     fun buildTileUrl(zoom: Int, x: Int, y: Int, palette: Int = 4): String {
-        val clampedZoom = zoom.coerceIn(1, 7)
+        val clampedZoom = zoom.coerceIn(1, 12)
         val cleanHost = host.trimEnd('/')
         val cleanPath = if (path.startsWith("/")) path else if (path.isNotBlank()) "/$path" else ""
         return if (cleanPath.isNotBlank() && cleanPath != "/") {
@@ -220,6 +220,7 @@ class FutureRadarRepository(private val context: Context? = null) {
                         }
 
                         if (resultList.isNotEmpty()) {
+                            saveRadarMetadataToRoom(host, resultList)
                             Log.d("RainRadarRepo", "Fetched ${resultList.size} time-lapse frames from RainViewer.")
                             return@withContext resultList
                         }
@@ -228,6 +229,12 @@ class FutureRadarRepository(private val context: Context? = null) {
             }
         } catch (e: Exception) {
             Log.w("RainRadarRepo", "Error fetching RainViewer time-lapse frames: ${e.localizedMessage}")
+        }
+
+        val roomCached = loadRadarMetadataFromRoom()
+        if (roomCached.isNotEmpty()) {
+            Log.d("RainRadarRepo", "Using ${roomCached.size} cached radar frames from Room DB.")
+            return@withContext roomCached
         }
 
         // Fallback frames covering past 6 hours in 30-min steps
