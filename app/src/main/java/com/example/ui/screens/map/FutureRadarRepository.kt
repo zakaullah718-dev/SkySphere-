@@ -259,17 +259,27 @@ class FutureRadarRepository(private val context: Context? = null) {
         fallbackList
     }
 
+    private val frameFetchLock = Any()
+
     fun getLatestRadarFrameSync(forceRefresh: Boolean = false): RadarFrame {
         val now = System.currentTimeMillis()
-        if (!forceRefresh && cachedFrame != null && (now - lastFetchTime) < 120_000L) {
-            return cachedFrame!!
+        val current = cachedFrame
+        if (!forceRefresh && current != null && (now - lastFetchTime) < 120_000L) {
+            return current
         }
-        return try {
-            runBlocking(Dispatchers.IO) {
-                getLatestRadarFrame(forceRefresh)
+        synchronized(frameFetchLock) {
+            val latestNow = System.currentTimeMillis()
+            val latestCurrent = cachedFrame
+            if (!forceRefresh && latestCurrent != null && (latestNow - lastFetchTime) < 120_000L) {
+                return latestCurrent
             }
-        } catch (e: Exception) {
-            cachedFrame ?: RadarFrame(time = ((now - 600_000L) / 600_000L) * 600L)
+            return try {
+                runBlocking(Dispatchers.IO) {
+                    getLatestRadarFrame(forceRefresh)
+                }
+            } catch (e: Exception) {
+                cachedFrame ?: RadarFrame(time = ((latestNow - 600_000L) / 600_000L) * 600L)
+            }
         }
     }
 

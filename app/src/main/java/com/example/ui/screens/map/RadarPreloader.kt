@@ -13,10 +13,13 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.osmdroid.views.MapView
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import kotlin.math.cos
@@ -62,7 +65,7 @@ object RadarPreloader {
         }
     }
 
-    private val emptyTransparentBitmap: Bitmap by lazy {
+    val emptyTransparentBitmap: Bitmap by lazy {
         Bitmap.createBitmap(256, 256, Bitmap.Config.ARGB_8888)
     }
 
@@ -106,12 +109,61 @@ object RadarPreloader {
         TileRamCache.evictFrameByTimestamp(timestamp)
     }
 
+    fun computeViewportTileBounds(
+        mapView: MapView?,
+        centerLat: Double,
+        centerLon: Double,
+        pZoom: Int
+    ): Pair<List<Int>, List<Int>> {
+        val numTilesDimension = 1 shl pZoom
+
+        if (pZoom <= 3) {
+            return Pair((0 until numTilesDimension).toList(), (0 until numTilesDimension).toList())
+        }
+
+        if (mapView != null) {
+            try {
+                val bbox = mapView.boundingBox
+                if (bbox != null) {
+                    val minX = ((bbox.lonWest + 180.0) / 360.0 * numTilesDimension).toInt() - 1
+                    val maxX = ((bbox.lonEast + 180.0) / 360.0 * numTilesDimension).toInt() + 1
+
+                    val radNorth = Math.toRadians(bbox.latNorth.coerceIn(-85.05112878, 85.05112878))
+                    val minY = ((1.0 - ln(tan(radNorth) + 1.0 / cos(radNorth)) / Math.PI) / 2.0 * numTilesDimension).toInt() - 1
+
+                    val radSouth = Math.toRadians(bbox.latSouth.coerceIn(-85.05112878, 85.05112878))
+                    val maxY = ((1.0 - ln(tan(radSouth) + 1.0 / cos(radSouth)) / Math.PI) / 2.0 * numTilesDimension).toInt() + 1
+
+                    val xs = (minX..maxX).map { (it % numTilesDimension + numTilesDimension) % numTilesDimension }.distinct()
+                    val ys = (minY..maxY).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+
+                    if (xs.isNotEmpty() && ys.isNotEmpty()) {
+                        return Pair(xs, ys)
+                    }
+                }
+            } catch (e: Exception) {
+                Log.w("RadarPreloader", "Failed to compute bounding box from MapView: ${e.localizedMessage}")
+            }
+        }
+
+        val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+        val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
+        val rad = Math.toRadians(clampedLat)
+        val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+
+        val radius = 3
+        val xs = (centerX - radius..centerX + radius).map { (it + numTilesDimension) % numTilesDimension }.distinct()
+        val ys = (centerY - radius..centerY + radius).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+        return Pair(xs, ys)
+    }
+
     fun getRequiredTileKeys(
         layer: MapWeatherLayer,
         frames: List<TimeLapseFrame>,
         centerLat: Double,
         centerLon: Double,
-        mapZoom: Int
+        mapZoom: Int,
+        mapView: MapView? = null
     ): Set<String> {
         if (layer == MapWeatherLayer.NONE || frames.isEmpty()) return emptySet()
 
@@ -122,26 +174,7 @@ object RadarPreloader {
         }
 
         val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
-        val numTilesDimension = 1 shl pZoom
-
-        var tileXs: List<Int>
-        var tileYs: List<Int>
-        if (pZoom <= 1) {
-            tileXs = (0 until numTilesDimension).toList()
-            tileYs = (0 until numTilesDimension).toList()
-        } else {
-            val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-            val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
-            val rad = Math.toRadians(clampedLat)
-            val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-
-            val radius = 2
-            tileXs = (centerX - radius..centerX + radius).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-            tileYs = (centerY - radius..centerY + radius).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
-        }
-
-        if (tileXs.isEmpty()) tileXs = listOf(0)
-        if (tileYs.isEmpty()) tileYs = listOf(0)
+        val (tileXs, tileYs) = computeViewportTileBounds(mapView, centerLat, centerLon, pZoom)
 
         Log.d("RadarDebug", "getRequiredTileKeys | pZoom=$pZoom, tileXs=$tileXs, tileYs=$tileYs")
 
@@ -157,20 +190,18 @@ object RadarPreloader {
         return keys
     }
 
+    private val preloaderSemaphore = Semaphore(5)
+
     suspend fun preloadFrames(
         layer: MapWeatherLayer,
         frames: List<TimeLapseFrame>,
         centerLat: Double = 37.7749,
         centerLon: Double = -122.4194,
         mapZoom: Int = 5,
+        mapView: MapView? = null,
         onProgress: (loaded: Int, total: Int) -> Unit = { _, _ -> },
         onFrameReady: ((frameIndex: Int) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
-        if (isDownloading) {
-            Log.d("RadarPreloader", "Preload skipped: isDownloading is true")
-            return@withContext
-        }
-        isDownloading = true
         try {
             if (layer == MapWeatherLayer.NONE || frames.isEmpty()) {
                 pipelineMutex.withLock {
@@ -186,7 +217,7 @@ object RadarPreloader {
                 return@withContext
             }
 
-            val newRequiredKeys = getRequiredTileKeys(layer, frames, centerLat, centerLon, mapZoom)
+            val newRequiredKeys = getRequiredTileKeys(layer, frames, centerLat, centerLon, mapZoom, mapView)
             if (newRequiredKeys.isEmpty()) return@withContext
 
             var missingKeysToStart = emptyList<String>()
@@ -240,23 +271,7 @@ object RadarPreloader {
             }
 
             val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
-            val numTilesDimension = 1 shl pZoom
-
-            val tileXs: List<Int>
-            val tileYs: List<Int>
-            if (pZoom <= 1) {
-                tileXs = (0 until numTilesDimension).toList()
-                tileYs = (0 until numTilesDimension).toList()
-            } else {
-                val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-                val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
-                val rad = Math.toRadians(clampedLat)
-                val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-
-                val radius = 2
-                tileXs = (centerX - radius..centerX + radius).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-                tileYs = (centerY - radius..centerY + radius).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
-            }
+            val (tileXs, tileYs) = computeViewportTileBounds(mapView, centerLat, centerLon, pZoom)
 
             val keyToInfoMap = mutableMapOf<String, Triple<TimeLapseFrame, Int, Int>>()
             for (frame in frames) {
@@ -292,34 +307,36 @@ object RadarPreloader {
                 if (info != null) {
                     val (frame, x, y) = info
                     val job = scope.launch(Dispatchers.IO) {
-                        try {
-                            preloadSingleTile(layer, frame, pZoom, x, y)
-                        } catch (e: Exception) {
-                            Log.w("RadarPreloader", "Failed tile download $key: ${e.localizedMessage}")
-                        } finally {
-                            activeTileJobs.remove(key)
-                            val currRequired = currentRequiredKeys
-                            val curLoaded = currRequired.count { TileRamCache.contains(it) || DiskTileCache.contains(it) }
-                            val curTotal = currRequired.size
-                            if (curTotal > 0) {
-                                val pct = (curLoaded.toFloat() / curTotal.toFloat() * 100f).toInt()
-                                Log.d("TimelapsePipeline", "PRELOAD_PROGRESS | Zoom: $pZoom | Required: $curTotal | Loaded: $curLoaded | Completion: $pct%")
-                                onProgress(curLoaded, curTotal)
+                        preloaderSemaphore.withPermit {
+                            try {
+                                preloadSingleTile(layer, frame, pZoom, x, y)
+                            } catch (e: Exception) {
+                                Log.w("RadarPreloader", "Failed tile download $key: ${e.localizedMessage}")
+                            } finally {
+                                activeTileJobs.remove(key)
+                                val currRequired = currentRequiredKeys
+                                val curLoaded = currRequired.count { TileRamCache.contains(it) || DiskTileCache.contains(it) }
+                                val curTotal = currRequired.size
+                                if (curTotal > 0) {
+                                    val pct = (curLoaded.toFloat() / curTotal.toFloat() * 100f).toInt()
+                                    Log.d("TimelapsePipeline", "PRELOAD_PROGRESS | Zoom: $pZoom | Required: $curTotal | Loaded: $curLoaded | Completion: $pct%")
+                                    onProgress(curLoaded, curTotal)
 
-                                if (curLoaded == curTotal) {
-                                    pipelineMutex.withLock {
-                                        if (!completedLogEmitted && currentActiveLayer == layer) {
-                                            completedLogEmitted = true
-                                            Log.d("RadarPreloader", "PRELOAD COMPLETE | Loaded $curTotal/$curTotal tiles (100%) for Zoom $pZoom")
+                                    if (curLoaded == curTotal) {
+                                        pipelineMutex.withLock {
+                                            if (!completedLogEmitted && currentActiveLayer == layer) {
+                                                completedLogEmitted = true
+                                                Log.d("RadarPreloader", "PRELOAD COMPLETE | Loaded $curTotal/$curTotal tiles (100%) for Zoom $pZoom")
+                                            }
                                         }
                                     }
                                 }
-                            }
 
-                            val frameTimestamp = frame.radarFrame?.time ?: frame.timestamp
-                            val frameKeys = currRequired.filter { it.contains("_${frameTimestamp}_") }
-                            if (frameKeys.isNotEmpty() && frameKeys.all { TileRamCache.contains(it) || DiskTileCache.contains(it) }) {
-                                onFrameReady?.invoke(frame.index)
+                                val frameTimestamp = frame.radarFrame?.time ?: frame.timestamp
+                                val frameKeys = currRequired.filter { it.contains("_${frameTimestamp}_") }
+                                if (frameKeys.isNotEmpty() && frameKeys.all { TileRamCache.contains(it) || DiskTileCache.contains(it) }) {
+                                    onFrameReady?.invoke(frame.index)
+                                }
                             }
                         }
                     }
@@ -396,7 +413,8 @@ object RadarPreloader {
         frame: TimeLapseFrame,
         centerLat: Double,
         centerLon: Double,
-        mapZoom: Int
+        mapZoom: Int,
+        mapView: MapView? = null
     ): FrameTileStats = withContext(Dispatchers.IO) {
         val startTime = System.currentTimeMillis()
         try {
@@ -407,23 +425,7 @@ object RadarPreloader {
             }
 
             val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
-            val numTilesDimension = 1 shl pZoom
-
-            val tileXs: List<Int>
-            val tileYs: List<Int>
-            if (pZoom <= 1) {
-                tileXs = (0 until numTilesDimension).toList()
-                tileYs = (0 until numTilesDimension).toList()
-            } else {
-                val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-                val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
-                val rad = Math.toRadians(clampedLat)
-                val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-
-                val radius = 2
-                tileXs = (centerX - radius..centerX + radius).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-                tileYs = (centerY - radius..centerY + radius).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
-            }
+            val (tileXs, tileYs) = computeViewportTileBounds(mapView, centerLat, centerLon, pZoom)
 
             var netRequests = 0
             val jobs = mutableListOf<Job>()
@@ -569,10 +571,9 @@ object RadarPreloader {
     }
 
     private suspend fun downloadAndDecode(url: String): Bitmap? {
-        val maxAttempts = 3
+        val maxAttempts = 2
         for (attempt in 1..maxAttempts) {
-            // Rate limit: 50ms delay BEFORE every single HTTP download request
-            delay(50L)
+            delay(30L)
             try {
                 val req = Request.Builder()
                     .url(url)
@@ -587,26 +588,26 @@ object RadarPreloader {
                                 val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                                 if (bmp != null) {
                                     Log.d("RadarPreloader", "SUCCESS: downloaded tile (${bytes.size} bytes): $url")
-                                    Log.d("RadarDebug", "SUCCESS: Decoded real tile with dimensions ${bmp.width}x${bmp.height} and pixel count ${bmp.byteCount}")
                                     bmp
                                 } else {
-                                    Log.w("RadarPreloader", "Failed to decode PNG bytes (${bytes.size} bytes): $url -> using transparent fallback")
-                                    Log.d("RadarDebug", "FALLBACK: Using transparent bitmap for URL")
-                                    emptyTransparentBitmap
+                                    Log.w("RadarPreloader", "Failed to decode PNG bytes (${bytes.size} bytes): $url")
+                                    null
                                 }
                             } else {
-                                Log.d("RadarPreloader", "Empty response body (0 bytes / 204 No Content): $url -> using transparent tile")
-                                Log.d("RadarDebug", "FALLBACK: Using transparent bitmap for URL")
+                                Log.d("RadarPreloader", "Empty response body (0 bytes / 204 No Content): $url -> transparent tile")
                                 emptyTransparentBitmap
                             }
                         }
-                        response.code == 404 || response.code == 204 || response.code == 410 -> {
-                            Log.d("RadarPreloader", "HTTP ${response.code} (No radar precipitation on tile): $url -> using transparent tile")
-                            Log.d("RadarDebug", "FALLBACK: Using transparent bitmap for URL")
+                        response.code == 404 || response.code == 204 -> {
+                            Log.d("RadarPreloader", "HTTP ${response.code} (No radar data on tile): $url -> transparent tile")
                             emptyTransparentBitmap
                         }
+                        response.code == 410 -> {
+                            Log.w("RadarPreloader", "HTTP 410 Frame Expired for $url")
+                            null
+                        }
                         response.code == 429 -> {
-                            Log.w("RadarPreloader", "HTTP 429 Too Many Requests for $url. Rate limit hit! Waiting 1s before retry (Attempt $attempt/$maxAttempts)...")
+                            Log.w("RadarPreloader", "HTTP 429 Rate limited for $url (Attempt $attempt/$maxAttempts)...")
                             null
                         }
                         else -> {
@@ -621,12 +622,12 @@ object RadarPreloader {
                 }
 
                 if (attempt < maxAttempts) {
-                    delay(1000L)
+                    delay(300L)
                 }
             } catch (e: Exception) {
                 Log.e("RadarPreloader", "Exception downloading tile $url (Attempt $attempt/$maxAttempts): ${e.localizedMessage}")
                 if (attempt < maxAttempts) {
-                    delay(1000L)
+                    delay(300L)
                 }
             }
         }

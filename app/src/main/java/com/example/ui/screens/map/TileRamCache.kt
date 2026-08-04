@@ -13,10 +13,11 @@ import android.util.LruCache
 object TileRamCache {
     private const val TAG = "TileRamCache"
 
-    // Fixed maximum RAM cache budget: 20 MB (20,000 KB) to prevent RAM cache overflow
-    private const val MAX_MEMORY_KB = 20_000
-
-    private val maxMemoryKb: Int = MAX_MEMORY_KB
+    // Dynamic maximum RAM cache budget based on available JVM heap (120MB - 250MB)
+    private val maxMemoryKb: Int by lazy {
+        val maxHeapKb = (Runtime.getRuntime().maxMemory() / 1024).toInt()
+        (maxHeapKb * 0.35).toInt().coerceIn(120_000, 250_000)
+    }
 
     private val cache = object : LruCache<String, Bitmap>(maxMemoryKb) {
         override fun sizeOf(key: String, bitmap: Bitmap): Int {

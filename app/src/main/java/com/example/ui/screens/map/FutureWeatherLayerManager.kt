@@ -134,6 +134,9 @@ class WeatherTilesOverlay(
         mapView?.overlayManager?.refresh()
         mapView?.postInvalidate()
 
+        // Clear osmdroid's tileCache so old frame tiles are not retained
+        pTileProvider.clearTileCache()
+
         // Pre-populate osmdroid's tileCache for visible tiles if already present in RAM/Disk cache
         if (frame != null && mapView != null) {
             try {
@@ -148,15 +151,7 @@ class WeatherTilesOverlay(
                     FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
                 }
                 val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
-                val numTilesDimension = 1 shl pZoom
-
-                val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-                val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
-                val rad = Math.toRadians(clampedLat)
-                val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
-
-                val tileXs = (centerX - 3..centerX + 3).map { (it + numTilesDimension) % numTilesDimension }.distinct()
-                val tileYs = (centerY - 3..centerY + 3).map { it.coerceIn(0, numTilesDimension - 1) }.distinct()
+                val (tileXs, tileYs) = RadarPreloader.computeViewportTileBounds(mapView, centerLat, centerLon, pZoom)
 
                 for (x in tileXs) {
                     for (y in tileYs) {
@@ -353,9 +348,6 @@ class RainRadarTileModuleProvider(
     }
 
     private fun fetchProviderTileBitmap(zoom: Int, x: Int, y: Int): Pair<Bitmap?, String> {
-        if (zoom < FutureWeatherLayerManager.PROVIDER_MIN_ZOOM || zoom > FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM) {
-            return Pair(null, "Unsupported provider zoom level")
-        }
         val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM)
         var frame = customRadarFrame ?: radarRepository.getLatestRadarFrameSync()
         val cacheKey = "RainViewer_Radar_${frame.time}_${clampedZoom}_${x}_${y}"
@@ -394,6 +386,7 @@ class RainRadarTileModuleProvider(
                             .header("User-Agent", "SkySphereApp/1.0")
                             .build()
                         client.newCall(retryReq).execute().use { retryResp ->
+                            httpCode = retryResp.code
                             if (retryResp.isSuccessful) {
                                 tileBytes = retryResp.body?.bytes()
                             }
@@ -406,12 +399,17 @@ class RainRadarTileModuleProvider(
                 Log.e("RainRadarTile", "Network error fetching provider tile [Z=$clampedZoom, X=$x, Y=$y]: ${e.localizedMessage}")
             }
 
-            if (tileBytes != null && tileBytes!!.isNotEmpty()) {
+            if (httpCode == 404 || httpCode == 204) {
+                RadarPreloader.emptyTransparentBitmap
+            } else if (tileBytes != null && tileBytes!!.isNotEmpty()) {
                 try {
-                    BitmapFactory.decodeByteArray(tileBytes, 0, tileBytes!!.size)
+                    val bmp = BitmapFactory.decodeByteArray(tileBytes, 0, tileBytes!!.size)
+                    bmp ?: RadarPreloader.emptyTransparentBitmap
                 } catch (e: Exception) {
-                    null
+                    RadarPreloader.emptyTransparentBitmap
                 }
+            } else if (httpCode == 200 && (tileBytes == null || tileBytes!!.isEmpty())) {
+                RadarPreloader.emptyTransparentBitmap
             } else null
         }
 
@@ -439,9 +437,8 @@ class RainRadarTileModuleProvider(
             val drawableResult: Drawable? = if (mapZoom <= providerMaxZoom) {
                 val (bitmap, _) = fetchProviderTileBitmap(mapZoom, tileX, tileY)
                 if (bitmap != null) {
-                    Log.d("RadarDebug", "RENDER: loadTile returned bitmap with width=${bitmap.width} and pixel count=${bitmap.byteCount}")
-                }
-                if (bitmap != null) BitmapDrawable(null, bitmap) else FutureWeatherLayerManager.emptyTransparentTile
+                    BitmapDrawable(null, bitmap)
+                } else null
             } else {
                 val parentZoom = providerMaxZoom
                 val deltaZ = mapZoom - parentZoom
@@ -450,7 +447,9 @@ class RainRadarTileModuleProvider(
 
                 val (parentBitmap, _) = fetchProviderTileBitmap(parentZoom, parentX, parentY)
                 if (parentBitmap == null || parentBitmap.isRecycled) {
-                    FutureWeatherLayerManager.emptyTransparentTile
+                    null
+                } else if (parentBitmap == RadarPreloader.emptyTransparentBitmap) {
+                    BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
                 } else {
                     Log.d("RadarDebug", "RENDER: loadTile returned bitmap with width=${parentBitmap.width} and pixel count=${parentBitmap.byteCount}")
 
@@ -464,7 +463,7 @@ class RainRadarTileModuleProvider(
                         val cropHeight = minOf(subSize, parentBitmap.height - offsetY)
 
                         if (cropWidth <= 0 || cropHeight <= 0) {
-                            FutureWeatherLayerManager.emptyTransparentTile
+                            BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
                         } else {
                             val cropped = Bitmap.createBitmap(parentBitmap, offsetX, offsetY, cropWidth, cropHeight)
                             val scaledBitmap = Bitmap.createScaledBitmap(cropped, 256, 256, true)
@@ -472,7 +471,7 @@ class RainRadarTileModuleProvider(
                         }
                     } catch (e: Exception) {
                         Log.e("RainRadarZoom", "Error cropping/scaling radar tile [MapZoom=$mapZoom, X=$tileX, Y=$tileY]: ${e.localizedMessage}")
-                        FutureWeatherLayerManager.emptyTransparentTile
+                        BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
                     }
                 }
             }
@@ -530,6 +529,7 @@ class OwmTileModuleProvider(
             val url = "https://tile.openweathermap.org/map/$layerEndpoint/$clampedZoom/$x/$y.png?appid=$owmApiKey"
             RadarApiTracker.logOpenWeatherRequest(url)
             var tileBytes: ByteArray? = null
+            var httpCode = 0
 
             try {
                 val req = Request.Builder()
@@ -537,6 +537,7 @@ class OwmTileModuleProvider(
                     .header("User-Agent", "SkySphereApp/1.0")
                     .build()
                 client.newCall(req).execute().use { response ->
+                    httpCode = response.code
                     if (response.isSuccessful) {
                         tileBytes = response.body?.bytes()
                     }
@@ -545,20 +546,22 @@ class OwmTileModuleProvider(
                 Log.e("OwmTile", "Network error fetching OWM tile [$layerEndpoint Z=$clampedZoom X=$x Y=$y]: ${e.localizedMessage}")
             }
 
-            if (tileBytes == null || tileBytes!!.isEmpty()) {
-                null
-            } else {
+            if (httpCode == 404 || httpCode == 204) {
+                RadarPreloader.emptyTransparentBitmap
+            } else if (tileBytes != null && tileBytes!!.isNotEmpty()) {
                 try {
                     var bitmap = BitmapFactory.decodeByteArray(tileBytes, 0, tileBytes!!.size)
                     if (bitmap != null && isCloudsDark) {
                         bitmap = applyDarkCloudStyle(bitmap)
                     }
-                    bitmap
+                    bitmap ?: RadarPreloader.emptyTransparentBitmap
                 } catch (e: Exception) {
                     Log.e("OwmTile", "Decode error for OWM tile: ${e.localizedMessage}")
-                    null
+                    RadarPreloader.emptyTransparentBitmap
                 }
-            }
+            } else if (httpCode == 200 && (tileBytes == null || tileBytes!!.isEmpty())) {
+                RadarPreloader.emptyTransparentBitmap
+            } else null
         }
     }
 
@@ -601,7 +604,7 @@ class OwmTileModuleProvider(
 
             if (mapZoom <= providerMaxZoom) {
                 val bitmap = fetchProviderTileBitmap(mapZoom, tileX, tileY)
-                return if (bitmap != null) BitmapDrawable(null, bitmap) else FutureWeatherLayerManager.emptyTransparentTile
+                return if (bitmap != null) BitmapDrawable(null, bitmap) else null
             } else {
                 val deltaZ = mapZoom - providerMaxZoom
                 val parentX = tileX shr deltaZ
@@ -609,7 +612,9 @@ class OwmTileModuleProvider(
 
                 val parentBitmap = fetchProviderTileBitmap(providerMaxZoom, parentX, parentY)
                 if (parentBitmap == null || parentBitmap.isRecycled) {
-                    return FutureWeatherLayerManager.emptyTransparentTile
+                    return null
+                } else if (parentBitmap == RadarPreloader.emptyTransparentBitmap) {
+                    return BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
                 }
 
                 return try {
@@ -621,7 +626,7 @@ class OwmTileModuleProvider(
                     val cropWidth = minOf(subSize, parentBitmap.width - offsetX)
                     val cropHeight = minOf(subSize, parentBitmap.height - offsetY)
 
-                    if (cropWidth <= 0 || cropHeight <= 0) return FutureWeatherLayerManager.emptyTransparentTile
+                    if (cropWidth <= 0 || cropHeight <= 0) return BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
 
                     val cropped = Bitmap.createBitmap(parentBitmap, offsetX, offsetY, cropWidth, cropHeight)
                     val scaledBitmap = Bitmap.createScaledBitmap(cropped, 256, 256, true)
@@ -629,7 +634,7 @@ class OwmTileModuleProvider(
                     BitmapDrawable(null, scaledBitmap)
                 } catch (e: Exception) {
                     Log.e("OwmTileZoom", "Error cropping OWM tile: ${e.localizedMessage}")
-                    FutureWeatherLayerManager.emptyTransparentTile
+                    BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
                 }
             }
         }
