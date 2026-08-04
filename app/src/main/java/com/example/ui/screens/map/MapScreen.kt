@@ -296,6 +296,9 @@ fun MapScreen(
                     }
 
                     override fun onZoom(event: org.osmdroid.events.ZoomEvent?): Boolean {
+                        val newZoom = event?.zoomLevel ?: zoomLevelDouble
+                        RadarDiag.logZoomEvent("MapListener.onZoom", zoomLevelDouble, newZoom)
+                        RadarDiag.logMapInvalidate("MapScreen.onZoom")
                         postInvalidate()
                         handleViewportChange()
                         return false

@@ -40,9 +40,11 @@ object TileRamCache {
         synchronized(cache) {
             val bitmap = cache.get(key)
             if (bitmap != null && !bitmap.isRecycled) {
+                RadarDiag.logRamCacheHit(key)
                 Log.d("RadarCache", "RAM Cache Hit | Key: $key | Current RAM Cache Size: ${cache.snapshot().size} tiles (${cache.size()} KB / $maxMemoryKb KB)")
                 return bitmap
             }
+            RadarDiag.logRamCacheMiss(key)
             return null
         }
     }
@@ -90,6 +92,7 @@ object TileRamCache {
                 cache.remove(key)
             }
             if (keysToRemove.isNotEmpty()) {
+                RadarDiag.logEvictFrame(timestamp, keysToRemove.size)
                 Log.d("RadarCache", "Evicted ${keysToRemove.size} tiles for frame $timestamp from RAM Cache. Remaining: ${size()} tiles (${sizeInKb()} KB)")
             }
         }
@@ -98,6 +101,7 @@ object TileRamCache {
     fun clear(reason: String = "Explicit clear requested") {
         synchronized(cache) {
             val count = cache.snapshot().size
+            RadarDiag.logCacheClear("RAM Cache", reason, count)
             Log.d("RadarCache", "Cache Eviction (RAM Cache Cleared) | Evicted $count tiles | Reason: $reason")
             cache.evictAll()
         }

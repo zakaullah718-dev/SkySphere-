@@ -183,7 +183,9 @@ object RadarPreloader {
             val timestamp = frame.radarFrame?.time ?: frame.timestamp
             for (x in tileXs) {
                 for (y in tileYs) {
-                    keys.add(buildTileKey(layer, timestamp, pZoom, x, y))
+                    val k = buildTileKey(layer, timestamp, pZoom, x, y)
+                    keys.add(k)
+                    RadarDiag.logVisibleTileRequested(pZoom, k, x, y)
                 }
             }
         }
@@ -335,6 +337,7 @@ object RadarPreloader {
                                 val frameTimestamp = frame.radarFrame?.time ?: frame.timestamp
                                 val frameKeys = currRequired.filter { it.contains("_${frameTimestamp}_") }
                                 if (frameKeys.isNotEmpty() && frameKeys.all { TileRamCache.contains(it) || DiskTileCache.contains(it) }) {
+                                    RadarDiag.logFrameReadyEvent(frame.index, frameTimestamp, frameKeys.size)
                                     onFrameReady?.invoke(frame.index)
                                 }
                             }
@@ -356,9 +359,10 @@ object RadarPreloader {
         centerLat: Double,
         centerLon: Double,
         mapZoom: Int,
-        readyStartTimeMs: Long
+        readyStartTimeMs: Long,
+        mapView: MapView? = null
     ): FrameTileStats {
-        val requiredKeys = getRequiredTileKeys(layer, listOf(frame), centerLat, centerLon, mapZoom)
+        val requiredKeys = getRequiredTileKeys(layer, listOf(frame), centerLat, centerLon, mapZoom, mapView)
         if (requiredKeys.isEmpty()) {
             return FrameTileStats(
                 frameIndex = frame.index,
@@ -527,7 +531,7 @@ object RadarPreloader {
             Log.d("RadarDebug", "ZOOM=$zoom | X=$x | Y=$y | TIMESTAMP=$tsInSec")
             Log.d("RadarDebug", "URL: $tileUrl")
             Log.d("RadarCache", "Cache Miss | Key: $cacheKey -> Downloading from network... URL: $tileUrl")
-            val downloadedBitmap = downloadAndDecode(tileUrl)
+            val downloadedBitmap = downloadAndDecode(tileUrl, cacheKey)
             if (downloadedBitmap != null) {
                 TileRamCache.put(cacheKey, downloadedBitmap)
                 DiskTileCache.put(cacheKey, downloadedBitmap)
@@ -556,7 +560,7 @@ object RadarPreloader {
             }
 
             val tileUrl = "https://tile.openweathermap.org/map/$layerEndpoint/$zoom/$x/$y.png?appid=$owmApiKey"
-            var bitmap = downloadAndDecode(tileUrl)
+            var bitmap = downloadAndDecode(tileUrl, cacheKey)
 
             if (bitmap != null) {
                 if (layer == MapWeatherLayer.CLOUDS && bitmap != emptyTransparentBitmap) {
@@ -570,7 +574,8 @@ object RadarPreloader {
         }
     }
 
-    private suspend fun downloadAndDecode(url: String): Bitmap? {
+    private suspend fun downloadAndDecode(url: String, key: String = ""): Bitmap? {
+        RadarDiag.logTileDownloadStart(key, url)
         val maxAttempts = 2
         for (attempt in 1..maxAttempts) {
             delay(30L)
@@ -581,37 +586,45 @@ object RadarPreloader {
                     .build()
 
                 val result = client.newCall(req).execute().use { response ->
+                    val code = response.code
                     when {
                         response.isSuccessful -> {
                             val bytes = response.body?.bytes()
                             if (bytes != null && bytes.isNotEmpty()) {
                                 val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                                 if (bmp != null) {
+                                    RadarDiag.logTileDownloadCompletion(key, "SUCCESS", bytes.size.toLong(), code, url)
                                     Log.d("RadarPreloader", "SUCCESS: downloaded tile (${bytes.size} bytes): $url")
                                     bmp
                                 } else {
+                                    RadarDiag.logTileDownloadCompletion(key, "DECODE_FAILED", bytes.size.toLong(), code, url)
                                     Log.w("RadarPreloader", "Failed to decode PNG bytes (${bytes.size} bytes): $url")
                                     null
                                 }
                             } else {
+                                RadarDiag.logTileDownloadCompletion(key, "EMPTY_BODY_TRANSPARENT", 0L, code, url)
                                 Log.d("RadarPreloader", "Empty response body (0 bytes / 204 No Content): $url -> transparent tile")
                                 emptyTransparentBitmap
                             }
                         }
-                        response.code == 404 || response.code == 204 -> {
-                            Log.d("RadarPreloader", "HTTP ${response.code} (No radar data on tile): $url -> transparent tile")
+                        code == 404 || code == 204 -> {
+                            RadarDiag.logTileDownloadCompletion(key, "HTTP_${code}_TRANSPARENT", 0L, code, url)
+                            Log.d("RadarPreloader", "HTTP $code (No radar data on tile): $url -> transparent tile")
                             emptyTransparentBitmap
                         }
-                        response.code == 410 -> {
+                        code == 410 -> {
+                            RadarDiag.logTileDownloadCompletion(key, "EXPIRED_410", 0L, code, url)
                             Log.w("RadarPreloader", "HTTP 410 Frame Expired for $url")
                             null
                         }
-                        response.code == 429 -> {
+                        code == 429 -> {
+                            RadarDiag.logTileDownloadCompletion(key, "RATE_LIMIT_429", 0L, code, url)
                             Log.w("RadarPreloader", "HTTP 429 Rate limited for $url (Attempt $attempt/$maxAttempts)...")
                             null
                         }
                         else -> {
-                            Log.w("RadarPreloader", "HTTP ${response.code} ${response.message} for tile URL: $url")
+                            RadarDiag.logTileDownloadCompletion(key, "HTTP_ERROR_${code}", 0L, code, url)
+                            Log.w("RadarPreloader", "HTTP $code ${response.message} for tile URL: $url")
                             null
                         }
                     }
@@ -625,12 +638,14 @@ object RadarPreloader {
                     delay(300L)
                 }
             } catch (e: Exception) {
+                RadarDiag.logTileDownloadCompletion(key, "EXCEPTION_${e.javaClass.simpleName}", 0L, 0, url)
                 Log.e("RadarPreloader", "Exception downloading tile $url (Attempt $attempt/$maxAttempts): ${e.localizedMessage}")
                 if (attempt < maxAttempts) {
                     delay(300L)
                 }
             }
         }
+        RadarDiag.logTileDownloadCompletion(key, "FAILED_ALL_ATTEMPTS", 0L, 0, url)
         Log.e("RadarPreloader", "Tile download failed after $maxAttempts attempts for URL: $url")
         return null
     }

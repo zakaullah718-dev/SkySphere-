@@ -42,15 +42,22 @@ object DiskTileCache {
 
     fun get(key: String): Bitmap? {
         val file = getFileForKey(key) ?: return null
-        if (!file.exists() || file.length() == 0L) return null
+        if (!file.exists() || file.length() == 0L) {
+            RadarDiag.logDiskCacheMiss(key)
+            return null
+        }
 
         return try {
             val bitmap = BitmapFactory.decodeFile(file.absolutePath)
             if (bitmap != null) {
+                RadarDiag.logDiskCacheHit(key)
                 Log.d("RadarCache", "Disk Cache Hit | Key: $key | Disk Cache File Count: ${fileCount()}")
+            } else {
+                RadarDiag.logDiskCacheMiss(key)
             }
             bitmap
         } catch (e: Exception) {
+            RadarDiag.logDiskCacheMiss(key)
             Log.w("RadarCache", "Failed to decode disk-cached tile for key '$key': ${e.localizedMessage}")
             file.delete()
             null
@@ -81,6 +88,7 @@ object DiskTileCache {
         try {
             val count = dir.listFiles()?.size ?: 0
             dir.listFiles()?.forEach { it.delete() }
+            RadarDiag.logCacheClear("Disk Cache", reason, count)
             Log.d("RadarCache", "Cache Eviction (Disk Cache Cleared) | Evicted $count tile files | Reason: $reason")
         } catch (e: Exception) {
             Log.w("RadarCache", "Error clearing DiskTileCache: ${e.localizedMessage}")
