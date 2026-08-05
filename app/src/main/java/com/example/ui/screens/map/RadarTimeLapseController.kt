@@ -166,37 +166,11 @@ class RadarTimeLapseController(
         val layer = _state.value.activeLayer
         if (layer == MapWeatherLayer.NONE) return
 
-        val frames = _state.value.frames
-        if (frames.isEmpty()) return
-
         currentLat = lat
         currentLon = lon
         currentZoom = zoom
 
-        viewportJob?.cancel()
-        viewportJob = scope.launch(Dispatchers.IO) {
-            delay(150)
-            RadarPreloader.preloadFrames(
-                layer = layer,
-                frames = frames,
-                centerLat = lat,
-                centerLon = lon,
-                mapZoom = zoom,
-                mapView = mapView,
-                onProgress = { loaded, total ->
-                    val progress = if (total > 0) loaded.toFloat() / total else 1.0f
-                    _state.update { s -> s.copy(bufferProgress = progress) }
-                },
-                onFrameReady = { fIdx ->
-                    _state.update { s ->
-                        val updatedFrames = s.frames.map { f ->
-                            if (f.index == fIdx) f.copy(isReady = true) else f
-                        }
-                        s.copy(frames = updatedFrames)
-                    }
-                }
-            )
-        }
+        RadarWarmUpEngine.updateViewport(lat, lon, zoom, layer, mapView)
     }
 
     fun onLocationChanged(
@@ -307,56 +281,17 @@ class RadarTimeLapseController(
         val frames = _state.value.frames
         if (frames.isEmpty()) return
         pause()
-        _state.update { it.copy(isPlaying = true, isReadyToPlay = true, isBuffering = true) }
+        _state.update { it.copy(isPlaying = true, isReadyToPlay = true, isBuffering = false) }
         RadarDiag.isPlaybackActive = true
-        RadarDiag.logPlaybackStateTransition("Paused", "Playing")
-
-        val layer = _state.value.activeLayer
-        val reqKeys = RadarPreloader.getRequiredTileKeys(layer, frames, currentLat, currentLon, currentZoom, mapView)
+        RadarDiag.logPlaybackStateTransition("Paused", "Playing (Read-Only)")
 
         Log.d(
             "TimelapsePipeline",
-            "PLAYBACK_STARTED | Zoom: $currentZoom | TotalFrames: ${frames.size} | RequiredTiles: ${reqKeys.size}"
+            "READ_ONLY_PLAYBACK_STARTED | Zoom: $currentZoom | TotalFrames: ${frames.size}"
         )
 
-        val seqId = ++RadarDiag.currentJobSequenceId
         playbackJob = scope.launch {
-            if (layer != MapWeatherLayer.NONE) {
-                // Proactively pre-fetch tiles for current zoom level and adjacent bounds before playback loop starts
-                RadarPreloader.preloadFrames(
-                    layer = layer,
-                    frames = frames,
-                    centerLat = currentLat,
-                    centerLon = currentLon,
-                    mapZoom = currentZoom,
-                    mapView = mapView
-                )
-
-                // Wait for initial frame tiles to be pre-cached
-                val currentIdx = _state.value.currentFrameIndex.coerceIn(0, frames.size - 1)
-                val currentFrame = frames[currentIdx]
-                waitForFrameReadiness(layer, currentFrame, currentZoom, minReadinessPct = 0.5f, maxWaitTimeMs = 1500L)
-            }
-            _state.update { it.copy(isBuffering = false) }
             runFrameLoop(onFrameChanged)
-        }
-    }
-
-    private suspend fun isFrameCached(frame: TimeLapseFrame, zoom: Int): Boolean = withContext(Dispatchers.IO) {
-        val layer = _state.value.activeLayer
-        if (layer == MapWeatherLayer.NONE) return@withContext true
-        val requiredKeys = RadarPreloader.getRequiredTileKeys(layer, listOf(frame), currentLat, currentLon, zoom, mapView)
-        if (requiredKeys.isEmpty()) return@withContext true
-        requiredKeys.all { key ->
-            TileRamCache.contains(key) || DiskTileCache.contains(key)
-        }
-    }
-
-    private suspend fun preloadFrameIfNeeded(frame: TimeLapseFrame, zoom: Int) {
-        val layer = _state.value.activeLayer
-        if (layer == MapWeatherLayer.NONE) return
-        withContext(Dispatchers.IO) {
-            RadarPreloader.preloadSingleFrame(layer, frame, currentLat, currentLon, zoom, mapView)
         }
     }
 
@@ -365,98 +300,23 @@ class RadarTimeLapseController(
             val currentState = _state.value
             val frames = currentState.frames
             if (frames.isEmpty()) break
-            
+
             val currentIndex = currentState.currentFrameIndex
             val nextIndex = (currentIndex + 1) % frames.size
             val nextFrame = frames[nextIndex]
 
-            // Preload the frame AFTER next too (lookahead)
-            val nextNextIndex = (nextIndex + 1) % frames.size
-            val nextNextFrame = frames[nextNextIndex]
-
-            if (lookaheadJob?.isActive == true) {
-                RadarDiag.detectJobCancellation("lookaheadJob", RadarDiag.currentJobSequenceId, currentIndex, RadarDiag.currentJobSequenceId + 1, nextIndex)
-            }
-            lookaheadJob?.cancel()
-            val lookaheadSeq = ++RadarDiag.currentJobSequenceId
-            lookaheadJob = scope.launch(Dispatchers.IO) {
-                preloadFrameIfNeeded(nextFrame, currentZoom)
-                preloadFrameIfNeeded(nextNextFrame, currentZoom)
-            }
-
-            // Enforce frame readiness gate before advancing
-            val activeLayer = currentState.activeLayer
-            if (activeLayer != MapWeatherLayer.NONE) {
-                var readiness = waitForFrameReadiness(
-                    activeLayer, nextFrame, currentZoom, minReadinessPct = 0.5f, maxWaitTimeMs = 1500L
-                )
-
-                if (!readiness.first && _state.value.isPlaying) {
-                    _state.update { it.copy(isBuffering = true) }
-                    val reason = "Frame $nextIndex below readiness threshold (${readiness.second}/${readiness.third} tiles loaded). Auto-buffering..."
-                    RadarDiag.logPlaybackAdvanceOrPause(nextIndex, "BUFFERING_WAIT", reason)
-
-                    while (_state.value.isPlaying && !readiness.first) {
-                        preloadFrameIfNeeded(nextFrame, currentZoom)
-                        val remainingCooldownMs = RadarPreloader.global429CooldownUntilMs - System.currentTimeMillis()
-                        val waitStepMs = if (remainingCooldownMs > 0) remainingCooldownMs.coerceAtMost(1000L) else 500L
-                        delay(waitStepMs)
-
-                        if (!_state.value.isPlaying) break
-                        
-                        readiness = waitForFrameReadiness(
-                            activeLayer, nextFrame, currentZoom, minReadinessPct = 0.5f, maxWaitTimeMs = 1000L
-                        )
-                    }
-
-                    if (!_state.value.isPlaying) break
-
-                    RadarDiag.logPlaybackAdvanceOrPause(
-                        nextIndex,
-                        "BUFFERING_RESUMED",
-                        "Frame $nextIndex reached readiness threshold (${readiness.second}/${readiness.third} tiles loaded). Resuming playback automatically."
-                    )
-                }
-            }
-
-            if (!_state.value.isPlaying) break
-            
             RadarDiag.logPlaybackFrameSwitch(currentIndex, nextIndex, nextFrame.timestamp)
             RadarDiag.currentFrameIndex = nextIndex
             RadarDiag.currentFrameTimestamp = nextFrame.timestamp
 
-            // Frame Summary Calculation for Diagnostic Logging
-            val requiredKeys = RadarPreloader.getRequiredTileKeys(activeLayer, listOf(nextFrame), currentLat, currentLon, currentZoom, mapView)
-            val ramHits = requiredKeys.count { TileRamCache.contains(it) }
-            val diskHits = requiredKeys.count { !TileRamCache.contains(it) && DiskTileCache.contains(it) }
-            val loadedTiles = ramHits + diskHits
-            val requiredCount = requiredKeys.size
-            val failedCount = if (loadedTiles < requiredCount) requiredCount - loadedTiles else 0
-            val netMisses = requiredCount - loadedTiles
-
-            RadarDiag.printFrameSummary(
-                frameIndex = nextIndex,
-                timestamp = nextFrame.timestamp,
-                requiredTiles = requiredCount,
-                loadedTiles = loadedTiles,
-                failedTiles = failedCount,
-                ramHits = ramHits,
-                diskHits = diskHits,
-                netMisses = netMisses,
-                isReady = nextFrame.isReady,
-                isRendered = true,
-                playbackAdvanced = true,
-                reason = "Frame sufficiently ready"
-            )
-
-            _state.update { 
+            _state.update {
                 it.copy(
                     isBuffering = false,
                     currentFrameIndex = nextIndex
                 )
             }
             onFrameChanged(nextFrame)
-            
+
             val delayMs = currentState.delayMs
             delay(delayMs)
         }

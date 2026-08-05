@@ -26,6 +26,8 @@ object RadarDiag {
     val totalCacheHits = AtomicLong(0)
     val totalCacheMisses = AtomicLong(0)
     val duplicateRequestCount = AtomicLong(0)
+    val tileReplacementCount = AtomicLong(0)
+    val downloadCancellationCount = AtomicLong(0)
     val totalDownloadTimeMs = AtomicLong(0)
     val completedDownloadCount = AtomicLong(0)
     val httpStatusSummary = ConcurrentHashMap<Int, AtomicInteger>()

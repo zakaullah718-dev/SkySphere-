@@ -355,6 +355,46 @@ object RadarPreloader {
         }
     }
 
+    fun startBackgroundPreparation(
+        layer: MapWeatherLayer,
+        frames: List<TimeLapseFrame>,
+        currentFrameIndex: Int = 0,
+        centerLat: Double = 37.7749,
+        centerLon: Double = -122.4194,
+        mapZoom: Int = 5,
+        mapView: MapView? = null
+    ): Job {
+        return scope.launch(Dispatchers.IO) {
+            if (layer == MapWeatherLayer.NONE || frames.isEmpty()) return@launch
+
+            val prioritizedFrames = mutableListOf<TimeLapseFrame>()
+            if (frames.isNotEmpty()) {
+                val safeIndex = currentFrameIndex.coerceIn(0, frames.size - 1)
+                // 1. Current frame
+                prioritizedFrames.add(frames[safeIndex])
+                // 2. Next frame
+                val nextIdx = (safeIndex + 1) % frames.size
+                if (!prioritizedFrames.contains(frames[nextIdx])) prioritizedFrames.add(frames[nextIdx])
+                // 3. Previous frame
+                val prevIdx = (safeIndex - 1 + frames.size) % frames.size
+                if (!prioritizedFrames.contains(frames[prevIdx])) prioritizedFrames.add(frames[prevIdx])
+                // 4. Remaining frames
+                frames.forEach { f ->
+                    if (!prioritizedFrames.contains(f)) prioritizedFrames.add(f)
+                }
+            }
+
+            preloadFrames(
+                layer = layer,
+                frames = prioritizedFrames,
+                centerLat = centerLat,
+                centerLon = centerLon,
+                mapZoom = mapZoom,
+                mapView = mapView
+            )
+        }
+    }
+
     fun checkFrameTileStats(
         layer: MapWeatherLayer,
         frame: TimeLapseFrame,

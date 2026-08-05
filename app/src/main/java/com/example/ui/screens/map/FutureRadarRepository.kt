@@ -259,6 +259,82 @@ class FutureRadarRepository(private val context: Context? = null) {
         fallbackList
     }
 
+    suspend fun fetchTimelineFrames(layer: MapWeatherLayer): List<TimeLapseFrame> = withContext(Dispatchers.IO) {
+        val nowSec = System.currentTimeMillis() / 1000L
+        if (layer == MapWeatherLayer.RAIN_RADAR) {
+            val radarFrames = try {
+                getAllRadarPastFrames()
+            } catch (e: Exception) {
+                emptyList()
+            }
+            if (radarFrames.isNotEmpty()) {
+                radarFrames.mapIndexed { idx, rf ->
+                    createTimeLapseFrame(idx, rf.time, rf, nowSec)
+                }
+            } else {
+                val list = mutableListOf<TimeLapseFrame>()
+                val startSec = nowSec - (3 * 3600L)
+                var idx = 0
+                for (ts in startSec..nowSec step 900L) {
+                    list.add(createTimeLapseFrame(idx++, ts, RadarFrame(time = ts), nowSec))
+                }
+                list
+            }
+        } else {
+            val list = mutableListOf<TimeLapseFrame>()
+            val startSec = nowSec - (3 * 3600L)
+            var idx = 0
+            for (ts in startSec..nowSec step 900L) {
+                list.add(createTimeLapseFrame(idx++, ts, RadarFrame(time = ts), nowSec))
+            }
+            list
+        }
+    }
+
+    private fun createTimeLapseFrame(index: Int, timestamp: Long, radarFrame: RadarFrame?, nowSec: Long): TimeLapseFrame {
+        val diffSec = timestamp - nowSec
+        val isNow = Math.abs(diffSec) < 300L
+        val isForecast = diffSec > 300L
+
+        val displayLabel = when {
+            isNow -> "NOW (LIVE)"
+            diffSec < 0 -> {
+                val totalMins = Math.abs(diffSec) / 60
+                val hrs = totalMins / 60
+                val mins = totalMins % 60
+                when {
+                    totalMins < 60 -> if (totalMins <= 1) "1 minute ago" else "$totalMins minutes ago"
+                    mins == 0L -> if (hrs == 1L) "1 hour ago" else "$hrs hours ago"
+                    else -> "${hrs}h ${mins}m ago"
+                }
+            }
+            else -> {
+                val totalMins = diffSec / 60
+                val hrs = totalMins / 60
+                val mins = totalMins % 60
+                when {
+                    totalMins < 60 -> if (totalMins <= 1) "In 1 minute" else "In $totalMins minutes"
+                    mins == 0L -> if (hrs == 1L) "In 1 hour" else "In $hrs hours"
+                    else -> "In ${hrs}h ${mins}m"
+                }
+            }
+        }
+
+        val clockFormat = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+        val clockStr = clockFormat.format(java.util.Date(timestamp * 1000L))
+
+        return TimeLapseFrame(
+            index = index,
+            timestamp = timestamp,
+            displayLabel = displayLabel,
+            relativeLabel = displayLabel,
+            formattedClock = clockStr,
+            radarFrame = radarFrame,
+            isNow = isNow,
+            isForecast = isForecast
+        )
+    }
+
     private val frameFetchLock = Any()
 
     fun getLatestRadarFrameSync(forceRefresh: Boolean = false): RadarFrame {

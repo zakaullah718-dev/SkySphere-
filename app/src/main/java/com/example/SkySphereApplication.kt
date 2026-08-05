@@ -15,5 +15,6 @@ class SkySphereApplication : Application() {
         WeatherNotificationManager.createNotificationChannel(this)
         WeatherWorkerScheduler.schedulePeriodicWeatherUpdates(this, intervalHours = 6)
         SkySphereWidgetManager.updateAllWidgets(this)
+        com.example.ui.screens.map.RadarWarmUpEngine.start(this)
     }
 }

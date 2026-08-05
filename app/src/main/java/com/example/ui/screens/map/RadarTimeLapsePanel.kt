@@ -39,6 +39,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -89,6 +91,9 @@ fun RadarTimeLapsePanel(
 
     val currentFrame = state.currentFrame
     val isNowFrame = currentFrame?.isNow == true
+
+    val warmUpState by RadarWarmUpEngine.state.collectAsState()
+    var showDiagnostics by remember { mutableStateOf(false) }
 
     Card(
         shape = RoundedCornerShape(16.dp),
@@ -157,54 +162,141 @@ fun RadarTimeLapsePanel(
                     }
                 }
 
-                // Speed Selector Pill Button
-                Surface(
-                    shape = RoundedCornerShape(8.dp),
-                    color = Color(0x33FFFFFF),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                            onCycleSpeed()
-                        }
-                        .testTag("timelapse_speed_button")
-                ) {
-                    Text(
-                        text = "${state.playbackSpeed}x",
-                        style = MaterialTheme.typography.labelMedium.copy(
-                            color = Color.White,
-                            fontWeight = FontWeight.Bold,
-                            fontSize = 11.sp
-                        ),
-                        modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
-                    )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    // Diagnostics Toggle Button
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = if (showDiagnostics) Color(0x664FD1C5) else Color(0x33FFFFFF),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                showDiagnostics = !showDiagnostics
+                            }
+                            .testTag("timelapse_diag_button")
+                    ) {
+                        Text(
+                            text = "DIAG",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = if (showDiagnostics) Color(0xFF00E676) else Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 10.sp
+                            ),
+                            modifier = Modifier.padding(horizontal = 6.dp, vertical = 3.dp)
+                        )
+                    }
+
+                    Spacer(modifier = Modifier.width(6.dp))
+
+                    // Speed Selector Pill Button
+                    Surface(
+                        shape = RoundedCornerShape(8.dp),
+                        color = Color(0x33FFFFFF),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable {
+                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                onCycleSpeed()
+                            }
+                            .testTag("timelapse_speed_button")
+                    ) {
+                        Text(
+                            text = "${state.playbackSpeed}x",
+                            style = MaterialTheme.typography.labelMedium.copy(
+                                color = Color.White,
+                                fontWeight = FontWeight.Bold,
+                                fontSize = 11.sp
+                            ),
+                            modifier = Modifier.padding(horizontal = 8.dp, vertical = 3.dp)
+                        )
+                    }
                 }
             }
 
-            // Buffer / Preload Banner
-            if (state.isBuffering && state.bufferProgress < 1.0f) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
+            // Expanded Stage 10 Diagnostics Panel
+            AnimatedVisibility(visible = showDiagnostics) {
+                Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(vertical = 4.dp)
-                        .background(Color(0x1F4FD1C5), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                        .background(Color(0xE60D1117), RoundedCornerShape(10.dp))
+                        .border(1.dp, Color(0x444FD1C5), RoundedCornerShape(10.dp))
+                        .padding(8.dp)
                 ) {
-                    CircularProgressIndicator(
-                        color = Color(0xFF4FD1C5),
-                        strokeWidth = 1.5.dp,
-                        modifier = Modifier.size(12.dp)
-                    )
-                    Spacer(modifier = Modifier.width(6.dp))
                     Text(
-                        text = "Preloading time-lapse... ${(state.bufferProgress * 100).toInt()}%",
+                        text = "RADAR ENGINE DIAGNOSTICS (STAGE 10)",
                         style = MaterialTheme.typography.labelSmall.copy(
-                            color = Color(0xFF4FD1C5),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium
-                        )
+                            color = Color(0xFF00E676),
+                            fontWeight = FontWeight.Bold,
+                            fontSize = 10.sp
+                        ),
+                        modifier = Modifier.padding(bottom = 4.dp)
                     )
+
+                    val ramSizeTiles = TileRamCache.size()
+                    val ramKb = TileRamCache.sizeInKb()
+                    val diskFiles = DiskTileCache.fileCount()
+                    val hitPct = String.format("%.1f%%", RadarDiag.getCacheHitPercentage())
+                    val avgLatency = "${RadarDiag.getAverageDownloadTimeMs()} ms"
+                    val queueSize = RadarDiag.downloadQueueSize.get()
+                    val replacements = RadarDiag.tileReplacementCount.get()
+                    val cancellations = RadarDiag.downloadCancellationCount.get()
+
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Text("Warm-Up Completion:", color = Color.LightGray, fontSize = 9.sp)
+                        Text("${String.format("%.1f", warmUpState.warmUpCompletionPct)}%", color = Color(0xFF00E676), fontWeight = FontWeight.Bold, fontSize = 9.sp)
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Text("RAM Cache Usage:", color = Color.LightGray, fontSize = 9.sp)
+                        Text("$ramSizeTiles tiles (${ramKb / 1024} MB)", color = Color.White, fontSize = 9.sp)
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Text("Disk Cache Usage:", color = Color.LightGray, fontSize = 9.sp)
+                        Text("$diskFiles tiles cached", color = Color.White, fontSize = 9.sp)
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Text("Prepared / Missing Frames:", color = Color.LightGray, fontSize = 9.sp)
+                        Text("${warmUpState.readyFrames} ready / ${warmUpState.missingFrames} pending", color = Color.White, fontSize = 9.sp)
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Text("Background Download Queue:", color = Color.LightGray, fontSize = 9.sp)
+                        Text("$queueSize tasks queued", color = Color.White, fontSize = 9.sp)
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Text("Avg Latency / Hit Ratio:", color = Color.LightGray, fontSize = 9.sp)
+                        Text("$avgLatency / $hitPct", color = Color.White, fontSize = 9.sp)
+                    }
+
+                    Row(
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp)
+                    ) {
+                        Text("Replacements / Cancellations:", color = Color.LightGray, fontSize = 9.sp)
+                        Text("$replacements replaced / $cancellations cancelled", color = Color.White, fontSize = 9.sp)
+                    }
                 }
             }
 
