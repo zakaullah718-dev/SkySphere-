@@ -6,9 +6,11 @@ import android.graphics.Color
 import android.util.Log
 import com.example.BuildConfig
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.launch
@@ -494,7 +496,22 @@ object RadarPreloader {
         }
     }
 
-    private suspend fun preloadSingleTile(
+    private val networkSemaphore = Semaphore(3)
+    private val inFlightDownloads = ConcurrentHashMap<String, Deferred<Bitmap?>>()
+
+    @Volatile
+    var global429CooldownUntilMs: Long = 0L
+
+    fun is429CooldownActive(): Boolean {
+        return System.currentTimeMillis() < global429CooldownUntilMs
+    }
+
+    fun trigger429Cooldown(cooldownMs: Long = 6000L) {
+        global429CooldownUntilMs = System.currentTimeMillis() + cooldownMs
+        Log.w("RadarPreloader", "GLOBAL 429 RATE LIMIT COOLDOWN TRIGGERED | Pausing network calls for ${cooldownMs}ms")
+    }
+
+    suspend fun preloadSingleTile(
         layer: MapWeatherLayer,
         frame: TimeLapseFrame,
         zoom: Int,
@@ -504,81 +521,110 @@ object RadarPreloader {
         val timestamp = frame.radarFrame?.time ?: frame.timestamp
         val cacheKey = buildTileKey(layer, timestamp, zoom, x, y)
 
-        if (layer == MapWeatherLayer.RAIN_RADAR) {
-            if (TileRamCache.contains(cacheKey)) {
-                Log.d("RadarCache", "RAM Cache Hit | Key: $cacheKey")
-                return
-            }
+        if (TileRamCache.contains(cacheKey)) {
+            RadarDiag.logRamCacheHit(cacheKey)
+            return
+        }
 
-            val diskTile = DiskTileCache.get(cacheKey)
-            if (diskTile != null) {
-                RadarApiTracker.logDiskCacheHit(cacheKey)
-                TileRamCache.put(cacheKey, diskTile)
-                return
-            }
+        val diskTile = DiskTileCache.get(cacheKey)
+        if (diskTile != null) {
+            RadarDiag.logDiskCacheHit(cacheKey)
+            TileRamCache.put(cacheKey, diskTile)
+            return
+        }
 
-            val tsInSec = if (timestamp > 10_000_000_000L) {
-                timestamp / 1000L
-            } else if (timestamp > 0L) {
-                timestamp
+        fetchTileBitmapWithDeduplication(cacheKey) {
+            if (layer == MapWeatherLayer.RAIN_RADAR) {
+                val tsInSec = if (timestamp > 10_000_000_000L) {
+                    timestamp / 1000L
+                } else if (timestamp > 0L) {
+                    timestamp
+                } else {
+                    (System.currentTimeMillis() - 600_000L) / 1000L
+                }
+
+                val tileUrl = frame.radarFrame?.buildTileUrl(zoom, x, y)
+                    ?: "https://tilecache.rainviewer.com/v2/radar/$tsInSec/256/$zoom/$x/$y/2/1_1.png"
+
+                downloadAndDecode(tileUrl, cacheKey)
             } else {
-                (System.currentTimeMillis() - 600_000L) / 1000L
-            }
+                val layerEndpoint = when (layer) {
+                    MapWeatherLayer.CLOUDS -> "clouds_new"
+                    MapWeatherLayer.TEMPERATURE -> "temp_new"
+                    MapWeatherLayer.WIND -> "wind_new"
+                    MapWeatherLayer.HUMIDITY -> "humidity_new"
+                    MapWeatherLayer.PRESSURE -> "pressure_new"
+                    else -> return@fetchTileBitmapWithDeduplication null
+                }
 
-            val tileUrl = frame.radarFrame?.buildTileUrl(zoom, x, y)
-                ?: "https://tilecache.rainviewer.com/v2/radar/$tsInSec/256/$zoom/$x/$y/2/1_1.png"
+                val tileUrl = "https://tile.openweathermap.org/map/$layerEndpoint/$zoom/$x/$y.png?appid=$owmApiKey"
+                var bitmap = downloadAndDecode(tileUrl, cacheKey)
 
-            Log.d("RadarDebug", "ZOOM=$zoom | X=$x | Y=$y | TIMESTAMP=$tsInSec")
-            Log.d("RadarDebug", "URL: $tileUrl")
-            Log.d("RadarCache", "Cache Miss | Key: $cacheKey -> Downloading from network... URL: $tileUrl")
-            val downloadedBitmap = downloadAndDecode(tileUrl, cacheKey)
-            if (downloadedBitmap != null) {
-                TileRamCache.put(cacheKey, downloadedBitmap)
-                DiskTileCache.put(cacheKey, downloadedBitmap)
-            } else {
-                Log.w("RadarPreloader", "Tile download failed after retries for $cacheKey ($tileUrl). Not caching.")
-            }
-
-        } else {
-            val layerEndpoint = when (layer) {
-                MapWeatherLayer.CLOUDS -> "clouds_new"
-                MapWeatherLayer.TEMPERATURE -> "temp_new"
-                MapWeatherLayer.WIND -> "wind_new"
-                MapWeatherLayer.HUMIDITY -> "humidity_new"
-                MapWeatherLayer.PRESSURE -> "pressure_new"
-                else -> return
-            }
-
-            val cacheKey = "${layerEndpoint}_${zoom}_${x}_${y}"
-            if (TileRamCache.contains(cacheKey)) return
-
-            val diskTile = DiskTileCache.get(cacheKey)
-            if (diskTile != null) {
-                RadarApiTracker.logDiskCacheHit(cacheKey)
-                TileRamCache.put(cacheKey, diskTile)
-                return
-            }
-
-            val tileUrl = "https://tile.openweathermap.org/map/$layerEndpoint/$zoom/$x/$y.png?appid=$owmApiKey"
-            var bitmap = downloadAndDecode(tileUrl, cacheKey)
-
-            if (bitmap != null) {
-                if (layer == MapWeatherLayer.CLOUDS && bitmap != emptyTransparentBitmap) {
+                if (bitmap != null && layer == MapWeatherLayer.CLOUDS && bitmap != emptyTransparentBitmap) {
                     bitmap = applyDarkCloudStyle(bitmap)
                 }
-                TileRamCache.put(cacheKey, bitmap)
-                DiskTileCache.put(cacheKey, bitmap)
-            } else {
-                Log.w("RadarPreloader", "Tile download failed after retries for $cacheKey ($tileUrl). Not caching.")
+                bitmap
             }
         }
     }
 
+    private suspend fun fetchTileBitmapWithDeduplication(
+        key: String,
+        fetchBlock: suspend () -> Bitmap?
+    ): Bitmap? {
+        // 1. Check existing in-flight download
+        val existingDeferred = inFlightDownloads[key]
+        if (existingDeferred != null) {
+            RadarDiag.logDuplicateRequest(key)
+            return existingDeferred.await()
+        }
+
+        // 2. Spawn new in-flight deferred job
+        val deferred = scope.async(Dispatchers.IO) {
+            RadarDiag.downloadQueueSize.incrementAndGet()
+            try {
+                networkSemaphore.withPermit {
+                    RadarDiag.downloadQueueSize.decrementAndGet()
+                    RadarDiag.concurrentDownloadCount.incrementAndGet()
+                    try {
+                        val bitmap = fetchBlock()
+                        if (bitmap != null) {
+                            TileRamCache.put(key, bitmap)
+                            DiskTileCache.put(key, bitmap)
+                        }
+                        bitmap
+                    } finally {
+                        RadarDiag.concurrentDownloadCount.decrementAndGet()
+                    }
+                }
+            } catch (e: Exception) {
+                null
+            } finally {
+                inFlightDownloads.remove(key)
+            }
+        }
+
+        inFlightDownloads[key] = deferred
+        return deferred.await()
+    }
+
     private suspend fun downloadAndDecode(url: String, key: String = ""): Bitmap? {
+        if (is429CooldownActive()) {
+            RadarDiag.logTileDownloadCompletion(key, "COOLDOWN_429_ACTIVE", 0L, 429, url)
+            Log.w("RadarPreloader", "Skipping request for $key due to active 429 rate-limit cooldown!")
+            return null
+        }
+
         RadarDiag.logTileDownloadStart(key, url)
+        val startTime = System.currentTimeMillis()
         val maxAttempts = 2
+
         for (attempt in 1..maxAttempts) {
-            delay(30L)
+            if (is429CooldownActive()) {
+                RadarDiag.logTileDownloadCompletion(key, "COOLDOWN_429_ACTIVE", 0L, 429, url)
+                return null
+            }
+
             try {
                 val req = Request.Builder()
                     .url(url)
@@ -587,6 +633,9 @@ object RadarPreloader {
 
                 val result = client.newCall(req).execute().use { response ->
                     val code = response.code
+                    val durationMs = System.currentTimeMillis() - startTime
+                    RadarDiag.recordDownloadDuration(durationMs)
+
                     when {
                         response.isSuccessful -> {
                             val bytes = response.body?.bytes()
@@ -594,37 +643,35 @@ object RadarPreloader {
                                 val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                                 if (bmp != null) {
                                     RadarDiag.logTileDownloadCompletion(key, "SUCCESS", bytes.size.toLong(), code, url)
-                                    Log.d("RadarPreloader", "SUCCESS: downloaded tile (${bytes.size} bytes): $url")
                                     bmp
                                 } else {
                                     RadarDiag.logTileDownloadCompletion(key, "DECODE_FAILED", bytes.size.toLong(), code, url)
-                                    Log.w("RadarPreloader", "Failed to decode PNG bytes (${bytes.size} bytes): $url")
                                     null
                                 }
                             } else {
                                 RadarDiag.logTileDownloadCompletion(key, "EMPTY_BODY_TRANSPARENT", 0L, code, url)
-                                Log.d("RadarPreloader", "Empty response body (0 bytes / 204 No Content): $url -> transparent tile")
                                 emptyTransparentBitmap
                             }
                         }
                         code == 404 || code == 204 -> {
                             RadarDiag.logTileDownloadCompletion(key, "HTTP_${code}_TRANSPARENT", 0L, code, url)
-                            Log.d("RadarPreloader", "HTTP $code (No radar data on tile): $url -> transparent tile")
                             emptyTransparentBitmap
                         }
                         code == 410 -> {
                             RadarDiag.logTileDownloadCompletion(key, "EXPIRED_410", 0L, code, url)
-                            Log.w("RadarPreloader", "HTTP 410 Frame Expired for $url")
                             null
                         }
                         code == 429 -> {
+                            val retryAfterHeader = response.header("Retry-After")
+                            val retryAfterMs = retryAfterHeader?.toLongOrNull()?.times(1000L) ?: 6000L
+                            trigger429Cooldown(retryAfterMs)
+
                             RadarDiag.logTileDownloadCompletion(key, "RATE_LIMIT_429", 0L, code, url)
-                            Log.w("RadarPreloader", "HTTP 429 Rate limited for $url (Attempt $attempt/$maxAttempts)...")
+                            Log.w("RadarPreloader", "HTTP 429 Rate limited for $url! Set global cooldown for ${retryAfterMs}ms.")
                             null
                         }
                         else -> {
                             RadarDiag.logTileDownloadCompletion(key, "HTTP_ERROR_${code}", 0L, code, url)
-                            Log.w("RadarPreloader", "HTTP $code ${response.message} for tile URL: $url")
                             null
                         }
                     }
@@ -635,18 +682,16 @@ object RadarPreloader {
                 }
 
                 if (attempt < maxAttempts) {
-                    delay(300L)
+                    delay(1000L * attempt)
                 }
             } catch (e: Exception) {
                 RadarDiag.logTileDownloadCompletion(key, "EXCEPTION_${e.javaClass.simpleName}", 0L, 0, url)
-                Log.e("RadarPreloader", "Exception downloading tile $url (Attempt $attempt/$maxAttempts): ${e.localizedMessage}")
                 if (attempt < maxAttempts) {
-                    delay(300L)
+                    delay(1000L * attempt)
                 }
             }
         }
         RadarDiag.logTileDownloadCompletion(key, "FAILED_ALL_ATTEMPTS", 0L, 0, url)
-        Log.e("RadarPreloader", "Tile download failed after $maxAttempts attempts for URL: $url")
         return null
     }
 

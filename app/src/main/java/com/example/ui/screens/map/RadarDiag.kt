@@ -1,6 +1,9 @@
 package com.example.ui.screens.map
 
 import android.util.Log
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicLong
 
 object RadarDiag {
     const val TAG = "RadarDiag"
@@ -17,6 +20,37 @@ object RadarDiag {
     @Volatile
     var currentJobSequenceId: Long = 0L
 
+    // Metrics
+    val concurrentDownloadCount = AtomicInteger(0)
+    val downloadQueueSize = AtomicInteger(0)
+    val totalCacheHits = AtomicLong(0)
+    val totalCacheMisses = AtomicLong(0)
+    val duplicateRequestCount = AtomicLong(0)
+    val totalDownloadTimeMs = AtomicLong(0)
+    val completedDownloadCount = AtomicLong(0)
+    val httpStatusSummary = ConcurrentHashMap<Int, AtomicInteger>()
+
+    fun recordHttpStatus(code: Int) {
+        httpStatusSummary.computeIfAbsent(code) { AtomicInteger(0) }.incrementAndGet()
+    }
+
+    fun recordDownloadDuration(durationMs: Long) {
+        totalDownloadTimeMs.addAndGet(durationMs)
+        completedDownloadCount.incrementAndGet()
+    }
+
+    fun getCacheHitPercentage(): Float {
+        val hits = totalCacheHits.get()
+        val misses = totalCacheMisses.get()
+        val total = hits + misses
+        return if (total > 0) (hits.toFloat() / total.toFloat()) * 100f else 0f
+    }
+
+    fun getAverageDownloadTimeMs(): Long {
+        val count = completedDownloadCount.get()
+        return if (count > 0) totalDownloadTimeMs.get() / count else 0L
+    }
+
     fun logFrameIndexRequested(index: Int, timestamp: Long, label: String) {
         Log.d(TAG, "[Frame Index Requested] Index: $index | Timestamp: $timestamp | Label: $label")
     }
@@ -30,27 +64,41 @@ object RadarDiag {
     }
 
     fun logTileDownloadStart(key: String, url: String) {
-        Log.d(TAG, "[Tile Download Start] Key: $key | URL: $url")
+        val active = concurrentDownloadCount.get()
+        val queue = downloadQueueSize.get()
+        Log.d(TAG, "[Tile Download Start] Key: $key | ActiveDownloads: $active | QueueSize: $queue | URL: $url")
     }
 
     fun logTileDownloadCompletion(key: String, status: String, bytes: Long, httpCode: Int, url: String) {
-        Log.d(TAG, "[Tile Download Completion] Key: $key | Status: $status | Bytes: $bytes | HTTP: $httpCode | URL: $url")
+        recordHttpStatus(httpCode)
+        val active = concurrentDownloadCount.get()
+        val queue = downloadQueueSize.get()
+        Log.d(TAG, "[Tile Download Completion] Key: $key | Status: $status | Bytes: $bytes | HTTP: $httpCode | ActiveDownloads: $active | QueueSize: $queue | URL: $url")
     }
 
     fun logRamCacheHit(key: String) {
-        Log.d(TAG, "[RAM Cache Hit] Key: $key")
+        totalCacheHits.incrementAndGet()
+        Log.d(TAG, "[RAM Cache Hit] Key: $key | CacheHitPct: ${String.format("%.1f", getCacheHitPercentage())}%")
     }
 
     fun logRamCacheMiss(key: String) {
-        Log.d(TAG, "[RAM Cache Miss] Key: $key")
+        totalCacheMisses.incrementAndGet()
+        Log.d(TAG, "[RAM Cache Miss] Key: $key | CacheHitPct: ${String.format("%.1f", getCacheHitPercentage())}%")
     }
 
     fun logDiskCacheHit(key: String) {
-        Log.d(TAG, "[Disk Cache Hit] Key: $key")
+        totalCacheHits.incrementAndGet()
+        Log.d(TAG, "[Disk Cache Hit] Key: $key | CacheHitPct: ${String.format("%.1f", getCacheHitPercentage())}%")
     }
 
     fun logDiskCacheMiss(key: String) {
-        Log.d(TAG, "[Disk Cache Miss] Key: $key")
+        totalCacheMisses.incrementAndGet()
+        Log.d(TAG, "[Disk Cache Miss] Key: $key | CacheHitPct: ${String.format("%.1f", getCacheHitPercentage())}%")
+    }
+
+    fun logDuplicateRequest(key: String) {
+        val count = duplicateRequestCount.incrementAndGet()
+        Log.d(TAG, "[Duplicate Request Deduplicated] Key: $key | TotalDeduplicated: $count")
     }
 
     fun logTileRenderingEvent(tileX: Int, tileY: Int, zoom: Int, cacheKey: String?, drawn: Boolean) {
@@ -72,7 +120,6 @@ object RadarDiag {
     fun logCacheClear(target: String, reason: String, count: Int = -1) {
         Log.d(TAG, "[Cache Clear Operation] Target: $target | Reason: $reason | Count: $count")
 
-        // Detect if active frame tiles are being cleared!
         if (currentFrameTimestamp > 0L && (target.contains("RAM") || target.contains("Disk") || target.contains("OSMDroid"))) {
             Log.w(TAG, "[DIAG DETECT] ANOMALY: Cache Clear ($target, Reason: $reason) executed while Frame $currentFrameIndex (Timestamp: $currentFrameTimestamp) is active!")
         }
@@ -93,6 +140,10 @@ object RadarDiag {
         Log.d(TAG, "[Playback State Transition] $oldState -> $newState")
     }
 
+    fun logPlaybackAdvanceOrPause(frameIndex: Int, action: String, reason: String) {
+        Log.d(TAG, "[Playback Scheduler] Action: $action | FrameIndex: $frameIndex | Reason: $reason")
+    }
+
     fun printFrameSummary(
         frameIndex: Int,
         timestamp: Long,
@@ -104,26 +155,34 @@ object RadarDiag {
         netMisses: Int,
         isReady: Boolean,
         isRendered: Boolean,
-        playbackAdvanced: Boolean
+        playbackAdvanced: Boolean,
+        reason: String = "Normal frame advance"
     ) {
+        val readinessPct = if (requiredTiles > 0) (loadedTiles.toFloat() / requiredTiles.toFloat() * 100f) else 100f
+        val httpSummaryStr = httpStatusSummary.entries.joinToString(", ") { "${it.key}: ${it.value.get()}" }
+
         val summary = """
         |----------------------------------------
         |Frame $frameIndex
-        |Tiles required: $requiredTiles
-        |Tiles loaded: $loadedTiles
-        |Tiles failed: $failedTiles
-        |Cache hits: ${ramHits + diskHits}
-        |Cache misses: $netMisses
+        |Tiles required: $requiredTiles | Loaded: $loadedTiles | Failed: $failedTiles
+        |Readiness: ${String.format("%.1f", readinessPct)}%
+        |Cache hits: ${ramHits + diskHits} (Hit Rate: ${String.format("%.1f", getCacheHitPercentage())}%)
+        |Concurrent downloads: ${concurrentDownloadCount.get()} | Queue size: ${downloadQueueSize.get()}
+        |Deduplicated requests: ${duplicateRequestCount.get()}
+        |Avg Download Time: ${getAverageDownloadTimeMs()} ms
+        |HTTP Summary: [$httpSummaryStr]
         |Frame marked ready: ${if (isReady) "YES" else "NO"}
         |Frame rendered: ${if (isRendered) "YES" else "NO"}
         |Playback advanced: ${if (playbackAdvanced) "YES" else "NO"}
+        |Action Reason: $reason
         |----------------------------------------
         """.trimMargin()
         Log.d(TAG, summary)
 
-        // ANOMALY DETECTION: Did playback advance before all required tiles loaded?
-        if (playbackAdvanced && (loadedTiles < requiredTiles)) {
-            Log.w(TAG, "[DIAG DETECT] ANOMALY: Playback advanced to Frame $frameIndex before all required visible tiles finished loading! Loaded: $loadedTiles/$requiredTiles (Missing: ${requiredTiles - loadedTiles})")
+        if (playbackAdvanced && (loadedTiles == 0 && requiredTiles > 0)) {
+            Log.e(TAG, "[DIAG DETECT] CRITICAL ANOMALY: Playback advanced to Frame $frameIndex with ZERO loaded tiles (0/$requiredTiles)! Reason given: $reason")
+        } else if (playbackAdvanced && (loadedTiles < requiredTiles)) {
+            Log.w(TAG, "[DIAG DETECT] ANOMALY: Playback advanced to Frame $frameIndex partially loaded: $loadedTiles/$requiredTiles (${String.format("%.1f", readinessPct)}%)")
         }
     }
 
@@ -131,3 +190,4 @@ object RadarDiag {
         Log.w(TAG, "[DIAG DETECT] ANOMALY: Asynchronous coroutine/job '$jobType' for Frame $oldFrameIndex (Seq: $oldSeq) was CANCELLED or OVERWRITTEN by new job for Frame $newFrameIndex (Seq: $newSeq)!")
     }
 }
+
