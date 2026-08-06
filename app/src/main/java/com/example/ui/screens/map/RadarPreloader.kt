@@ -187,7 +187,6 @@ object RadarPreloader {
                 for (y in tileYs) {
                     val k = buildTileKey(layer, timestamp, pZoom, x, y)
                     keys.add(k)
-                    RadarDiag.logVisibleTileRequested(pZoom, k, x, y)
                 }
             }
         }
@@ -562,27 +561,11 @@ object RadarPreloader {
         zoom: Int,
         x: Int,
         y: Int
-    ) {
+    ) = withContext(Dispatchers.IO) {
         val timestamp = frame.radarFrame?.time ?: frame.timestamp
         val cacheKey = buildTileKey(layer, timestamp, zoom, x, y)
-        val reqId = "REQ_TILE_${cacheKey}_${System.currentTimeMillis()}"
 
-        if (TileRamCache.contains(cacheKey)) {
-            RadarDiag.logRamCacheHit(cacheKey)
-            RadarDiag.logTileLifecycle(reqId, cacheKey, "HIT_RAM", "Found in RAM Cache")
-            return
-        }
-
-        val diskTile = DiskTileCache.get(cacheKey)
-        if (diskTile != null) {
-            RadarDiag.logDiskCacheHit(cacheKey)
-            RadarDiag.logTileLifecycle(reqId, cacheKey, "HIT_DISK", "Loaded from Disk Cache into RAM")
-            TileRamCache.put(cacheKey, diskTile)
-            return
-        }
-
-        RadarDiag.logTileLifecycle(reqId, cacheKey, "START_NETWORK", "Initiating network download")
-        fetchTileBitmapWithDeduplication(cacheKey) {
+        RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             if (layer == MapWeatherLayer.RAIN_RADAR) {
                 val tsInSec = if (timestamp > 10_000_000_000L) {
                     timestamp / 1000L
@@ -595,7 +578,7 @@ object RadarPreloader {
                 val tileUrl = frame.radarFrame?.buildTileUrl(zoom, x, y)
                     ?: "https://tilecache.rainviewer.com/v2/radar/$tsInSec/256/$zoom/$x/$y/2/1_1.png"
 
-                downloadAndDecode(tileUrl, cacheKey)
+                downloadAndDecodeSync(tileUrl, cacheKey)
             } else {
                 val layerEndpoint = when (layer) {
                     MapWeatherLayer.CLOUDS -> "clouds_new"
@@ -603,11 +586,11 @@ object RadarPreloader {
                     MapWeatherLayer.WIND -> "wind_new"
                     MapWeatherLayer.HUMIDITY -> "humidity_new"
                     MapWeatherLayer.PRESSURE -> "pressure_new"
-                    else -> return@fetchTileBitmapWithDeduplication null
+                    else -> return@fetchOrDeduplicateTile null
                 }
 
                 val tileUrl = "https://tile.openweathermap.org/map/$layerEndpoint/$zoom/$x/$y.png?appid=$owmApiKey"
-                var bitmap = downloadAndDecode(tileUrl, cacheKey)
+                var bitmap = downloadAndDecodeSync(tileUrl, cacheKey)
 
                 if (bitmap != null && layer == MapWeatherLayer.CLOUDS && bitmap != emptyTransparentBitmap) {
                     bitmap = applyDarkCloudStyle(bitmap)
@@ -617,47 +600,7 @@ object RadarPreloader {
         }
     }
 
-    private suspend fun fetchTileBitmapWithDeduplication(
-        key: String,
-        fetchBlock: suspend () -> Bitmap?
-    ): Bitmap? {
-        // 1. Check existing in-flight download
-        val existingDeferred = inFlightDownloads[key]
-        if (existingDeferred != null) {
-            RadarDiag.logDuplicateRequest(key)
-            return existingDeferred.await()
-        }
-
-        // 2. Spawn new in-flight deferred job
-        val deferred = scope.async(Dispatchers.IO) {
-            RadarDiag.downloadQueueSize.incrementAndGet()
-            try {
-                networkSemaphore.withPermit {
-                    RadarDiag.downloadQueueSize.decrementAndGet()
-                    RadarDiag.concurrentDownloadCount.incrementAndGet()
-                    try {
-                        val bitmap = fetchBlock()
-                        if (bitmap != null) {
-                            TileRamCache.put(key, bitmap)
-                            DiskTileCache.put(key, bitmap)
-                        }
-                        bitmap
-                    } finally {
-                        RadarDiag.concurrentDownloadCount.decrementAndGet()
-                    }
-                }
-            } catch (e: Exception) {
-                null
-            } finally {
-                inFlightDownloads.remove(key)
-            }
-        }
-
-        inFlightDownloads[key] = deferred
-        return deferred.await()
-    }
-
-    private suspend fun downloadAndDecode(url: String, key: String = ""): Bitmap? {
+    private fun downloadAndDecodeSync(url: String, key: String = ""): Bitmap? {
         if (is429CooldownActive()) {
             RadarDiag.logTileDownloadCompletion(key, "COOLDOWN_429_ACTIVE", 0L, 429, url)
             Log.w("RadarPreloader", "Skipping request for $key due to active 429 rate-limit cooldown!")
@@ -731,12 +674,12 @@ object RadarPreloader {
                 }
 
                 if (attempt < maxAttempts) {
-                    delay(1000L * attempt)
+                    try { Thread.sleep(1000L * attempt) } catch (_: Exception) {}
                 }
             } catch (e: Exception) {
                 RadarDiag.logTileDownloadCompletion(key, "EXCEPTION_${e.javaClass.simpleName}", 0L, 0, url)
                 if (attempt < maxAttempts) {
-                    delay(1000L * attempt)
+                    try { Thread.sleep(1000L * attempt) } catch (_: Exception) {}
                 }
             }
         }

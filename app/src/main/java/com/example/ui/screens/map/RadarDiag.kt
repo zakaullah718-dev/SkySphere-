@@ -1,6 +1,11 @@
 package com.example.ui.screens.map
 
 import android.util.Log
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
 import java.util.concurrent.atomic.AtomicLong
@@ -21,6 +26,14 @@ object RadarDiag {
     var currentJobSequenceId: Long = 0L
 
     // Metrics
+    val visibleTileRequests = AtomicLong(0)
+    val uniqueTileRequests = AtomicLong(0)
+    val duplicateRequestsPrevented = AtomicLong(0)
+    val ramCacheHits = AtomicLong(0)
+    val diskCacheHits = AtomicLong(0)
+    val inFlightReuseCount = AtomicLong(0)
+    val actualNetworkDownloads = AtomicLong(0)
+
     val concurrentDownloadCount = AtomicInteger(0)
     val downloadQueueSize = AtomicInteger(0)
     val totalCacheHits = AtomicLong(0)
@@ -31,6 +44,37 @@ object RadarDiag {
     val totalDownloadTimeMs = AtomicLong(0)
     val completedDownloadCount = AtomicLong(0)
     val httpStatusSummary = ConcurrentHashMap<Int, AtomicInteger>()
+
+    private val tickerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
+    private var isTickerStarted = false
+
+    fun startPeriodicDiagnostics() {
+        synchronized(this) {
+            if (isTickerStarted) return
+            isTickerStarted = true
+        }
+        tickerScope.launch {
+            while (true) {
+                delay(10_000L)
+                printDiagnosticCounters()
+            }
+        }
+    }
+
+    fun printDiagnosticCounters() {
+        val summary = """
+        |==================== RADAR DIAGNOSTICS (10s) ====================
+        |Visible Tile Requests:       ${visibleTileRequests.get()}
+        |Unique Tile Requests:        ${uniqueTileRequests.get()}
+        |Duplicate Requests Prevented: ${duplicateRequestsPrevented.get()}
+        |RAM Cache Hits:              ${ramCacheHits.get()}
+        |Disk Cache Hits:             ${diskCacheHits.get()}
+        |In-Flight Reuse Count:       ${inFlightReuseCount.get()}
+        |Actual Network Downloads:    ${actualNetworkDownloads.get()}
+        |=================================================================
+        """.trimMargin()
+        Log.d(TAG, summary)
+    }
 
     fun recordHttpStatus(code: Int) {
         httpStatusSummary.computeIfAbsent(code) { AtomicInteger(0) }.incrementAndGet()
@@ -62,6 +106,7 @@ object RadarDiag {
     }
 
     fun logVisibleTileRequested(zoom: Int, key: String, x: Int, y: Int) {
+        visibleTileRequests.incrementAndGet()
         Log.d(TAG, "[Visible Tile Requested] Zoom: $zoom | Key: $key | X=$x, Y=$y")
     }
 
@@ -79,6 +124,7 @@ object RadarDiag {
     }
 
     fun logRamCacheHit(key: String) {
+        ramCacheHits.incrementAndGet()
         totalCacheHits.incrementAndGet()
         Log.d(TAG, "[RAM Cache Hit] Key: $key | CacheHitPct: ${String.format("%.1f", getCacheHitPercentage())}%")
     }
@@ -89,6 +135,7 @@ object RadarDiag {
     }
 
     fun logDiskCacheHit(key: String) {
+        diskCacheHits.incrementAndGet()
         totalCacheHits.incrementAndGet()
         Log.d(TAG, "[Disk Cache Hit] Key: $key | CacheHitPct: ${String.format("%.1f", getCacheHitPercentage())}%")
     }
@@ -99,6 +146,8 @@ object RadarDiag {
     }
 
     fun logDuplicateRequest(key: String) {
+        inFlightReuseCount.incrementAndGet()
+        duplicateRequestsPrevented.incrementAndGet()
         val count = duplicateRequestCount.incrementAndGet()
         Log.d(TAG, "[Duplicate Request Deduplicated] Key: $key | TotalDeduplicated: $count")
     }

@@ -51,8 +51,14 @@ object RadarWarmUpEngine {
 
     private val preparedFramesMap = ConcurrentHashMap<Long, Boolean>()
 
+    @Volatile private var lastTileXs: List<Int> = emptyList()
+    @Volatile private var lastTileYs: List<Int> = emptyList()
+    @Volatile private var lastPZoom: Int = -1
+    private var viewportDebounceJob: Job? = null
+
     fun start(context: Context) {
         DiskTileCache.init(context)
+        RadarDiag.startPeriodicDiagnostics()
         if (_state.value.isRunning) return
 
         Log.d(TAG, "Starting Persistent Radar Warm-Up Engine...")
@@ -78,6 +84,23 @@ object RadarWarmUpEngine {
         mapView: MapView? = null
     ) {
         val layerChanged = (currentLayer != layer)
+        val providerMaxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) {
+            FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
+        } else {
+            FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
+        }
+        val pZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
+        val (newTileXs, newTileYs) = RadarPreloader.computeViewportTileBounds(mapView, lat, lon, pZoom)
+
+        // Prevent duplicate recalculations when camera movement does not change the visible tile grid
+        if (!layerChanged && pZoom == lastPZoom && newTileXs == lastTileXs && newTileYs == lastTileYs && currentFrames.isNotEmpty()) {
+            return
+        }
+
+        lastTileXs = newTileXs
+        lastTileYs = newTileYs
+        lastPZoom = pZoom
+
         val deltaLat = lat - currentLat
         val deltaLon = lon - currentLon
         val deltaZoom = zoom - currentZoom
@@ -95,7 +118,11 @@ object RadarWarmUpEngine {
         currentZoom = zoom
         currentLayer = layer
 
-        scope.launch {
+        viewportDebounceJob?.cancel()
+        viewportDebounceJob = scope.launch {
+            if (!layerChanged && currentFrames.isNotEmpty()) {
+                delay(150L) // Debounce viewport updates during active camera panning
+            }
             if (layerChanged || currentFrames.isEmpty()) {
                 syncTimelineAndPrepare(mapView)
             } else {

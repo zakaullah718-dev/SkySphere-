@@ -39,17 +39,19 @@ object RadarTileFetcher {
         cacheKey: String,
         fetcher: () -> Bitmap?
     ): Bitmap? {
+        RadarDiag.visibleTileRequests.incrementAndGet()
+
         // 1. Check RAM Cache
         val ramCached = TileRamCache.get(cacheKey)
-        if (ramCached != null) {
-            RadarApiTracker.logRamCacheHit(cacheKey)
+        if (ramCached != null && !ramCached.isRecycled) {
+            RadarDiag.logRamCacheHit(cacheKey)
             return ramCached
         }
 
         // 2. Check Local Disk Cache
         val diskCached = DiskTileCache.get(cacheKey)
-        if (diskCached != null) {
-            RadarApiTracker.logDiskCacheHit(cacheKey)
+        if (diskCached != null && !diskCached.isRecycled) {
+            RadarDiag.logDiskCacheHit(cacheKey)
             TileRamCache.put(cacheKey, diskCached)
             return diskCached
         }
@@ -57,6 +59,8 @@ object RadarTileFetcher {
         // 3. Deduplicate in-flight requests (prevent duplicate tile downloads)
         val newTask = FutureTask<Bitmap?> {
             semaphore.acquire()
+            RadarDiag.downloadQueueSize.decrementAndGet()
+            RadarDiag.concurrentDownloadCount.incrementAndGet()
             try {
                 val bitmap = fetcher()
                 if (bitmap != null) {
@@ -65,19 +69,24 @@ object RadarTileFetcher {
                 }
                 bitmap
             } finally {
+                RadarDiag.concurrentDownloadCount.decrementAndGet()
                 semaphore.release()
             }
         }
 
         val existingTask = inFlightTasks.putIfAbsent(cacheKey, newTask)
         if (existingTask != null) {
-            RadarApiTracker.logDuplicatePrevented(cacheKey)
+            RadarDiag.logDuplicateRequest(cacheKey)
             return try {
                 existingTask.get(5, TimeUnit.SECONDS)
             } catch (e: Exception) {
                 null
             }
         }
+
+        RadarDiag.uniqueTileRequests.incrementAndGet()
+        RadarDiag.actualNetworkDownloads.incrementAndGet()
+        RadarDiag.downloadQueueSize.incrementAndGet()
 
         return try {
             newTask.run()
@@ -519,8 +528,6 @@ class RainRadarTileModuleProvider(
             }
 
             RadarDiag.logTileRenderingEvent(tileX, tileY, mapZoom, "RainRadar_${mapZoom}_${tileX}_${tileY}", drawableResult != null)
-            RadarDiag.logMapInvalidate("RainTileLoader.loadTile")
-            mapView?.postInvalidate()
             return drawableResult
         }
     }
