@@ -34,6 +34,27 @@ object RadarDiag {
     val inFlightReuseCount = AtomicLong(0)
     val actualNetworkDownloads = AtomicLong(0)
 
+    val reusedTiles = AtomicLong(0)
+    val incrementalTileCount = AtomicLong(0)
+    val queueMergeCount = AtomicLong(0)
+    val queueRestartCount = AtomicLong(0)
+    val cancelledDownloads = AtomicLong(0)
+    val skippedDownloads = AtomicLong(0)
+    val total429Responses = AtomicLong(0)
+    val peakConcurrentDownloads = AtomicInteger(0)
+
+    private val visibleReadinessSum = AtomicLong(0)
+    private val visibleReadinessCount = AtomicLong(0)
+    private val backgroundReadinessSum = AtomicLong(0)
+    private val backgroundReadinessCount = AtomicLong(0)
+    private val httpRequestDelaySum = AtomicLong(0)
+    private val httpRequestDelayCount = AtomicLong(0)
+
+    private val preloadCompletionSum = AtomicLong(0)
+    private val preloadCompletionCount = AtomicLong(0)
+    private val frameReadinessSum = AtomicLong(0)
+    private val frameReadinessCount = AtomicLong(0)
+
     val concurrentDownloadCount = AtomicInteger(0)
     val downloadQueueSize = AtomicInteger(0)
     val totalCacheHits = AtomicLong(0)
@@ -45,13 +66,38 @@ object RadarDiag {
     val completedDownloadCount = AtomicLong(0)
     val httpStatusSummary = ConcurrentHashMap<Int, AtomicInteger>()
 
+    val deletedOldTilesCount = AtomicLong(0)
+    val oldFramesRemovedCount = AtomicLong(0)
+    val newFramesAddedCount = AtomicLong(0)
+    private val queueWaitSumMs = AtomicLong(0)
+    private val queueWaitCount = AtomicLong(0)
+    private var diagStartTimeMs: Long = System.currentTimeMillis()
+
     private val tickerScope = CoroutineScope(Dispatchers.IO + SupervisorJob())
     private var isTickerStarted = false
+
+    fun logDeletedOldTiles(count: Long) {
+        deletedOldTilesCount.addAndGet(count)
+    }
+
+    fun logOldFrameRemoved(count: Int = 1) {
+        oldFramesRemovedCount.addAndGet(count.toLong())
+    }
+
+    fun logNewFrameAdded(count: Int = 1) {
+        newFramesAddedCount.addAndGet(count.toLong())
+    }
+
+    fun recordQueueWait(waitMs: Long) {
+        queueWaitSumMs.addAndGet(waitMs.coerceAtLeast(0L))
+        queueWaitCount.incrementAndGet()
+    }
 
     fun startPeriodicDiagnostics() {
         synchronized(this) {
             if (isTickerStarted) return
             isTickerStarted = true
+            diagStartTimeMs = System.currentTimeMillis()
         }
         tickerScope.launch {
             while (true) {
@@ -61,17 +107,105 @@ object RadarDiag {
         }
     }
 
+    fun recordConcurrentDownloads(count: Int) {
+        var currentPeak = peakConcurrentDownloads.get()
+        while (count > currentPeak) {
+            if (peakConcurrentDownloads.compareAndSet(currentPeak, count)) break
+            currentPeak = peakConcurrentDownloads.get()
+        }
+    }
+
+    fun recordHttpRequestDelay(delayMs: Long) {
+        httpRequestDelaySum.addAndGet(delayMs)
+        httpRequestDelayCount.incrementAndGet()
+    }
+
+    fun recordVisibleTileReadiness(pct: Float) {
+        visibleReadinessSum.addAndGet((pct * 10f).toLong())
+        visibleReadinessCount.incrementAndGet()
+    }
+
+    fun recordBackgroundTileReadiness(pct: Float) {
+        backgroundReadinessSum.addAndGet((pct * 10f).toLong())
+        backgroundReadinessCount.incrementAndGet()
+    }
+
+    fun logQueueMerge(addedCount: Int) {
+        queueMergeCount.incrementAndGet()
+        incrementalTileCount.addAndGet(addedCount.toLong())
+    }
+
+    fun logQueueRestart() {
+        queueRestartCount.incrementAndGet()
+    }
+
+    fun recordPreloadCompletion(pct: Float) {
+        preloadCompletionSum.addAndGet((pct * 10f).toLong())
+        preloadCompletionCount.incrementAndGet()
+    }
+
+    fun recordFrameReadiness(pct: Float) {
+        frameReadinessSum.addAndGet((pct * 10f).toLong())
+        frameReadinessCount.incrementAndGet()
+    }
+
+    fun log429Response() {
+        total429Responses.incrementAndGet()
+    }
+
+    fun logCancelledDownload() {
+        cancelledDownloads.incrementAndGet()
+        downloadCancellationCount.incrementAndGet()
+    }
+
+    fun logSkippedDownload() {
+        skippedDownloads.incrementAndGet()
+    }
+
+    fun logReusedTile() {
+        reusedTiles.incrementAndGet()
+    }
+
     fun printDiagnosticCounters() {
+        val ramHits = ramCacheHits.get()
+        val diskHits = diskCacheHits.get()
+        val totalHits = ramHits + diskHits
+        val downloads = actualNetworkDownloads.get()
+        val dupsPrevented = duplicateRequestsPrevented.get()
+        val reused = reusedTiles.get()
+
+        val requestsSaved = ramHits + diskHits + dupsPrevented + reused
+        val totalAllRequests = requestsSaved + downloads
+        val cacheEfficiencyPct = if (totalAllRequests > 0) (requestsSaved.toDouble() / totalAllRequests.toDouble() * 100.0) else 100.0
+
+        val avgQueueWaitMs = if (queueWaitCount.get() > 0) (queueWaitSumMs.get() / queueWaitCount.get()) else 0L
+        val avgReadinessPct = if (frameReadinessCount.get() > 0) (frameReadinessSum.get().toDouble() / (frameReadinessCount.get() * 10.0)) else 0.0
+
+        val warmState = RadarWarmUpEngine.state.value
+
         val summary = """
-        |==================== RADAR DIAGNOSTICS (10s) ====================
-        |Visible Tile Requests:       ${visibleTileRequests.get()}
-        |Unique Tile Requests:        ${uniqueTileRequests.get()}
-        |Duplicate Requests Prevented: ${duplicateRequestsPrevented.get()}
-        |RAM Cache Hits:              ${ramCacheHits.get()}
-        |Disk Cache Hits:             ${diskCacheHits.get()}
-        |In-Flight Reuse Count:       ${inFlightReuseCount.get()}
-        |Actual Network Downloads:    ${actualNetworkDownloads.get()}
-        |=================================================================
+        |==================== RADAR CACHE DIAGNOSTICS SUMMARY (10s) ====================
+        |RAM Cache Hits:                        $ramHits
+        |Disk Cache Hits:                       $diskHits
+        |Tiles Reused:                          $reused
+        |New Downloads:                         $downloads
+        |Duplicate Download Requests Prevented: $dupsPrevented
+        |Frames Fully Cached:                  ${warmState.fullyCachedFrames}
+        |Frames Partially Cached:              ${warmState.partiallyCachedFrames}
+        |Frames Missing:                       ${warmState.missingFrames}
+        |Old Frames Removed:                    ${oldFramesRemovedCount.get()}
+        |New Frames Added:                      ${newFramesAddedCount.get()}
+        |Queue Length:                         ${downloadQueueSize.get()}
+        |Average Queue Wait:                    ${avgQueueWaitMs} ms
+        |Cancelled Downloads:                  ${cancelledDownloads.get()}
+        |HTTP 429 Responses:                   ${total429Responses.get()}
+        |Cache Efficiency (%):                 ${String.format("%.1f", cacheEfficiencyPct)}%
+        |Network Requests Saved:               $requestsSaved
+        |-----------------------------------------------------------------------------
+        |Avg Playback Readiness:               ${String.format("%.1f", avgReadinessPct)}%
+        |RAM Cache Size:                       ${TileRamCache.size()} tiles (${TileRamCache.sizeInKb()} KB)
+        |Disk Cache Size:                      ${DiskTileCache.fileCount()} files (${String.format("%.2f", DiskTileCache.diskSizeBytes() / (1024.0 * 1024.0))} MB)
+        |=============================================================================
         """.trimMargin()
         Log.d(TAG, summary)
     }

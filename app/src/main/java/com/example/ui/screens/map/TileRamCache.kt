@@ -93,6 +93,7 @@ object TileRamCache {
             }
             if (keysToRemove.isNotEmpty()) {
                 RadarDiag.logEvictFrame(timestamp, keysToRemove.size)
+                RadarDiag.logDeletedOldTiles(keysToRemove.size.toLong())
                 Log.d("RadarCache", "Evicted ${keysToRemove.size} tiles for frame $timestamp from RAM Cache. Remaining: ${size()} tiles (${sizeInKb()} KB)")
             }
         }

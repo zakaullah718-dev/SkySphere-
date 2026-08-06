@@ -51,6 +51,12 @@ object RadarPreloader {
     private var completedLogEmitted = false
 
     @Volatile
+    private var maxSessionProgressPct = 0
+
+    @Volatile
+    private var adaptiveRequestDelayMs: Long = 0L
+
+    @Volatile
     var isDownloading = false
 
     private val client = OkHttpClient.Builder()
@@ -75,11 +81,15 @@ object RadarPreloader {
         scope.launch {
             pipelineMutex.withLock {
                 val cancelCount = activeTileJobs.size
-                activeTileJobs.values.forEach { it.cancel() }
+                activeTileJobs.values.forEach {
+                    it.cancel()
+                    RadarDiag.logCancelledDownload()
+                }
                 activeTileJobs.clear()
                 currentActiveLayer = MapWeatherLayer.NONE
                 currentRequiredKeys = emptySet()
                 completedLogEmitted = false
+                maxSessionProgressPct = 0
                 if (cancelCount > 0) {
                     Log.d("RadarPreloader", "PRELOAD CANCEL | Reason: $reason (Cancelled $cancelCount obsolete tile tasks)")
                 }
@@ -210,12 +220,16 @@ object RadarPreloader {
                 pipelineMutex.withLock {
                     if (currentRequiredKeys.isNotEmpty() || activeTileJobs.isNotEmpty()) {
                         val cancelCount = activeTileJobs.size
-                        activeTileJobs.values.forEach { it.cancel() }
+                        activeTileJobs.values.forEach {
+                            it.cancel()
+                            RadarDiag.logCancelledDownload()
+                        }
                         activeTileJobs.clear()
                         Log.d("RadarPreloader", "PRELOAD CANCEL | Reason: Layer disabled or empty frames (Cancelled $cancelCount obsolete tile tasks)")
                     }
                     currentActiveLayer = MapWeatherLayer.NONE
                     currentRequiredKeys = emptySet()
+                    maxSessionProgressPct = 0
                 }
                 return@withContext
             }
@@ -236,8 +250,13 @@ object RadarPreloader {
 
                 if (currentActiveLayer != layer) {
                     val cancelCount = activeTileJobs.size
-                    activeTileJobs.values.forEach { it.cancel() }
+                    activeTileJobs.values.forEach {
+                        it.cancel()
+                        RadarDiag.logCancelledDownload()
+                    }
                     activeTileJobs.clear()
+                    maxSessionProgressPct = 0
+                    RadarDiag.logQueueRestart()
                     if (cancelCount > 0) {
                         RadarDiag.logSessionCancel(sessionId, "Active layer changed to $layer", cancelCount)
                         Log.d("RadarPreloader", "PRELOAD CANCEL | Session $sessionId | Reason: Active layer changed to $layer (Cancelled $cancelCount obsolete tile tasks)")
@@ -246,29 +265,35 @@ object RadarPreloader {
                     currentActiveLayer = layer
                     completedLogEmitted = false
                 } else {
-                    if (obsoleteKeys.isNotEmpty()) {
-                        var cancelledCount = 0
-                        obsoleteKeys.forEach { key ->
-                            activeTileJobs.remove(key)?.let { job ->
-                                job.cancel()
-                                cancelledCount++
-                            }
-                        }
-                        if (cancelledCount > 0) {
-                            RadarDiag.logSessionCancel(sessionId, "Viewport/Zoom change", cancelledCount)
-                            Log.d("RadarPreloader", "PRELOAD CANCEL | Session $sessionId | Reason: Viewport/Zoom change (Cancelled $cancelledCount obsolete tile tasks)")
-                        }
-                    }
-
-                    if (addedKeys.isNotEmpty() || keptKeys.isNotEmpty()) {
-                        Log.d("RadarPreloader", "PRELOAD RESUME | Session $sessionId | Reason: Viewport update to Zoom $mapZoom | Reusing ${keptKeys.size} valid tiles | Adding ${addedKeys.size} new tiles")
+                    // Session reuse & Incremental Merge: Keep active tile jobs running
+                    if (addedKeys.isNotEmpty()) {
+                        RadarDiag.logQueueMerge(addedKeys.size)
+                        Log.d("RadarPreloader", "PRELOAD INCREMENTAL MERGE | Session $sessionId | Reusing ${keptKeys.size} valid tiles | Merging ${addedKeys.size} newly required tiles into queue")
+                    } else if (keptKeys.isNotEmpty()) {
+                        Log.d("RadarPreloader", "PRELOAD REUSE | Session $sessionId | All ${keptKeys.size} required tiles already active/cached")
                     }
                 }
 
                 currentRequiredKeys = newRequiredKeys
 
+                // Warm RAM Cache from Disk Cache for all required keys
+                newRequiredKeys.forEach { key ->
+                    if (!TileRamCache.contains(key) && DiskTileCache.contains(key)) {
+                        val diskBmp = DiskTileCache.get(key)
+                        if (diskBmp != null) {
+                            TileRamCache.put(key, diskBmp)
+                        }
+                    }
+                }
+
                 missingKeysToStart = newRequiredKeys.filter { key ->
-                    !TileRamCache.contains(key) && !DiskTileCache.contains(key) && !activeTileJobs.containsKey(key)
+                    val isCached = TileRamCache.contains(key) || DiskTileCache.contains(key)
+                    if (isCached) {
+                        RadarDiag.logReusedTile()
+                        false
+                    } else {
+                        !activeTileJobs.containsKey(key)
+                    }
                 }
             }
 
@@ -281,6 +306,12 @@ object RadarPreloader {
             val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
             val (tileXs, tileYs) = computeViewportTileBounds(mapView, centerLat, centerLon, pZoom)
 
+            val numTilesDimension = 1 shl pZoom
+            val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+            val clampedLat = centerLat.coerceIn(-85.05112878, 85.05112878)
+            val rad = Math.toRadians(clampedLat)
+            val centerY = ((1.0 - ln(tan(rad) + 1.0 / cos(rad)) / Math.PI) / 2.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
+
             val keyToInfoMap = mutableMapOf<String, Triple<TimeLapseFrame, Int, Int>>()
             for (frame in frames) {
                 val timestamp = frame.radarFrame?.time ?: frame.timestamp
@@ -292,11 +323,50 @@ object RadarPreloader {
                 }
             }
 
+            // Priority Scheduling:
+            // Rank 1: Tiles visible on screen for active frame (frame 0)
+            // Rank 2: Tiles surrounding visible area / next frame
+            // Rank 3: Off-screen edge tiles / distant frames
+            missingKeysToStart = missingKeysToStart.sortedBy { key ->
+                val info = keyToInfoMap[key]
+                if (info != null) {
+                    val (frame, x, y) = info
+                    val frameRank = frames.indexOf(frame).let { if (it >= 0) it else 99 }
+                    val spatialDist = kotlin.math.abs(x - centerX) + kotlin.math.abs(y - centerY)
+                    when {
+                        frameRank == 0 && spatialDist <= 1 -> spatialDist
+                        frameRank == 0 -> 100 + spatialDist
+                        frameRank == 1 -> 1000 + spatialDist
+                        else -> 10000 + frameRank * 100 + spatialDist
+                    }
+                } else 999999
+            }
+
             val snapshotKeys = newRequiredKeys
             val totalTasks = snapshotKeys.size
             val loadedCount = snapshotKeys.count { TileRamCache.contains(it) || DiskTileCache.contains(it) }
 
-            onProgress(loadedCount, totalTasks)
+            // Record Visible Tile Readiness (Frame 0) and Background Tile Readiness
+            if (frames.isNotEmpty()) {
+                val frame0Timestamp = frames[0].radarFrame?.time ?: frames[0].timestamp
+                val frame0Keys = snapshotKeys.filter { it.contains("_${frame0Timestamp}_") }
+                if (frame0Keys.isNotEmpty()) {
+                    val frame0Loaded = frame0Keys.count { TileRamCache.contains(it) || DiskTileCache.contains(it) }
+                    val visReadinessPct = (frame0Loaded.toFloat() / frame0Keys.size.toFloat()) * 100f
+                    RadarDiag.recordVisibleTileReadiness(visReadinessPct)
+                }
+            }
+            if (totalTasks > 0) {
+                val bgReadinessPct = (loadedCount.toFloat() / totalTasks.toFloat()) * 100f
+                RadarDiag.recordBackgroundTileReadiness(bgReadinessPct)
+            }
+
+            val initialRawPct = if (totalTasks > 0) (loadedCount.toFloat() / totalTasks.toFloat() * 100f).toInt() else 100
+            val initialMonotonicPct = maxOf(maxSessionProgressPct, initialRawPct)
+            maxSessionProgressPct = initialMonotonicPct
+
+            RadarDiag.recordPreloadCompletion(initialMonotonicPct.toFloat())
+            onProgress((totalTasks * initialMonotonicPct / 100), totalTasks)
 
             if (loadedCount == totalTasks) {
                 pipelineMutex.withLock {
@@ -326,9 +396,13 @@ object RadarPreloader {
                                 val curLoaded = currRequired.count { TileRamCache.contains(it) || DiskTileCache.contains(it) }
                                 val curTotal = currRequired.size
                                 if (curTotal > 0) {
-                                    val pct = (curLoaded.toFloat() / curTotal.toFloat() * 100f).toInt()
-                                    Log.d("TimelapsePipeline", "PRELOAD_PROGRESS | Zoom: $pZoom | Required: $curTotal | Loaded: $curLoaded | Completion: $pct%")
-                                    onProgress(curLoaded, curTotal)
+                                    val rawPct = (curLoaded.toFloat() / curTotal.toFloat() * 100f).toInt()
+                                    val monotonicPct = maxOf(maxSessionProgressPct, rawPct)
+                                    maxSessionProgressPct = monotonicPct
+
+                                    RadarDiag.recordPreloadCompletion(monotonicPct.toFloat())
+                                    Log.d("TimelapsePipeline", "PRELOAD_PROGRESS | Zoom: $pZoom | Required: $curTotal | Loaded: $curLoaded | Completion: $monotonicPct%")
+                                    onProgress((curTotal * monotonicPct / 100), curTotal)
 
                                     if (curLoaded == curTotal) {
                                         pipelineMutex.withLock {
@@ -550,9 +624,11 @@ object RadarPreloader {
         return System.currentTimeMillis() < global429CooldownUntilMs
     }
 
-    fun trigger429Cooldown(cooldownMs: Long = 6000L) {
+    fun trigger429Cooldown(cooldownMs: Long = 15000L) {
         global429CooldownUntilMs = System.currentTimeMillis() + cooldownMs
-        Log.w("RadarPreloader", "GLOBAL 429 RATE LIMIT COOLDOWN TRIGGERED | Pausing network calls for ${cooldownMs}ms")
+        adaptiveRequestDelayMs = (adaptiveRequestDelayMs + 100L).coerceAtMost(500L)
+        RadarDiag.log429Response()
+        Log.w("RadarPreloader", "GLOBAL 429 RATE LIMIT COOLDOWN TRIGGERED | Pausing network calls for ${cooldownMs}ms | Adaptive delay=${adaptiveRequestDelayMs}ms")
     }
 
     suspend fun preloadSingleTile(
@@ -601,10 +677,16 @@ object RadarPreloader {
     }
 
     private fun downloadAndDecodeSync(url: String, key: String = ""): Bitmap? {
-        if (is429CooldownActive()) {
-            RadarDiag.logTileDownloadCompletion(key, "COOLDOWN_429_ACTIVE", 0L, 429, url)
-            Log.w("RadarPreloader", "Skipping request for $key due to active 429 rate-limit cooldown!")
-            return null
+        while (is429CooldownActive()) {
+            val remaining = global429CooldownUntilMs - System.currentTimeMillis()
+            if (remaining > 0) {
+                RadarDiag.logSkippedDownload()
+                try { Thread.sleep(remaining.coerceAtMost(2000L)) } catch (_: Exception) {}
+            }
+        }
+
+        if (adaptiveRequestDelayMs > 0) {
+            try { Thread.sleep(adaptiveRequestDelayMs) } catch (_: Exception) {}
         }
 
         RadarDiag.logTileDownloadStart(key, url)
@@ -612,9 +694,12 @@ object RadarPreloader {
         val maxAttempts = 2
 
         for (attempt in 1..maxAttempts) {
-            if (is429CooldownActive()) {
-                RadarDiag.logTileDownloadCompletion(key, "COOLDOWN_429_ACTIVE", 0L, 429, url)
-                return null
+            while (is429CooldownActive()) {
+                val remaining = global429CooldownUntilMs - System.currentTimeMillis()
+                if (remaining > 0) {
+                    RadarDiag.logSkippedDownload()
+                    try { Thread.sleep(remaining.coerceAtMost(2000L)) } catch (_: Exception) {}
+                }
             }
 
             try {
@@ -630,6 +715,9 @@ object RadarPreloader {
 
                     when {
                         response.isSuccessful -> {
+                            if (adaptiveRequestDelayMs > 0) {
+                                adaptiveRequestDelayMs = (adaptiveRequestDelayMs - 10L).coerceAtLeast(0L)
+                            }
                             val bytes = response.body?.bytes()
                             if (bytes != null && bytes.isNotEmpty()) {
                                 val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
@@ -655,7 +743,7 @@ object RadarPreloader {
                         }
                         code == 429 -> {
                             val retryAfterHeader = response.header("Retry-After")
-                            val retryAfterMs = retryAfterHeader?.toLongOrNull()?.times(1000L) ?: 6000L
+                            val retryAfterMs = retryAfterHeader?.toLongOrNull()?.times(1000L) ?: 15000L
                             trigger429Cooldown(retryAfterMs)
 
                             RadarDiag.logTileDownloadCompletion(key, "RATE_LIMIT_429", 0L, code, url)

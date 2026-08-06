@@ -150,7 +150,7 @@ fun MapScreen(
     val weatherOverlayRef = remember { arrayOfNulls<WeatherTilesOverlay>(1) }
 
     // Helper to trigger center & reverse geocode
-    fun centerOnLocation(mapView: MapView?, lat: Double, lon: Double, zoomLevel: Double = 11.0) {
+    fun centerOnLocation(mapView: MapView?, lat: Double, lon: Double, zoomLevel: Double = 5.0) {
         val geoPoint = GeoPoint(lat, lon)
         mapView?.controller?.setZoom(zoomLevel)
         mapView?.controller?.animateTo(geoPoint)
@@ -170,8 +170,8 @@ fun MapScreen(
     fun moveToCurrentLocation(mapView: MapView?) {
         val overlay = locationOverlayRef[0]
         val myLocation = overlay?.myLocation
-        val currentZoom = mapView?.zoomLevelDouble ?: 11.0
-        val targetZoom = if (currentZoom < 8.0) 11.0 else currentZoom
+        val currentZoom = mapView?.zoomLevelDouble ?: 5.0
+        val targetZoom = if (currentZoom < 5.0) 5.0 else currentZoom
 
         if (myLocation != null) {
             centerOnLocation(mapView, myLocation.latitude, myLocation.longitude, targetZoom)
@@ -204,7 +204,7 @@ fun MapScreen(
                 val loc = locationOverlayRef[0]?.myLocation
                 if (loc != null) {
                     coroutineScope.launch {
-                        centerOnLocation(null, loc.latitude, loc.longitude, 11.0)
+                        centerOnLocation(null, loc.latitude, loc.longitude, 5.0)
                     }
                 }
             }
@@ -308,11 +308,14 @@ fun MapScreen(
                 val defaultCenter = mapRepository.getDefaultCenter()
                 val defaultZoom = mapRepository.getDefaultZoom()
 
-                this.controller.setZoom(defaultZoom)
-                this.controller.setCenter(GeoPoint(defaultCenter.first, defaultCenter.second))
-
                 val hasLocationPermission = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
                         ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+                val initialLastLoc = if (hasLocationPermission) mapRepository.getLastKnownLocation(context) else null
+                val initialCenterPoint = if (initialLastLoc != null) GeoPoint(initialLastLoc.latitude, initialLastLoc.longitude) else GeoPoint(defaultCenter.first, defaultCenter.second)
+
+                this.controller.setZoom(defaultZoom)
+                this.controller.setCenter(initialCenterPoint)
 
                 val locationProvider = SafeGpsMyLocationProvider(context)
                 val myLocationOverlay = MyLocationNewOverlay(locationProvider, this).apply {
@@ -323,7 +326,7 @@ fun MapScreen(
                                 val loc = myLocation
                                 if (loc != null) {
                                     coroutineScope.launch {
-                                        centerOnLocation(this@mapApply, loc.latitude, loc.longitude, 11.0)
+                                        centerOnLocation(this@mapApply, loc.latitude, loc.longitude, 5.0)
                                     }
                                 }
                             }

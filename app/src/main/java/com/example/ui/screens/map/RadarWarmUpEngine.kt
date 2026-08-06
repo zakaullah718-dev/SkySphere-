@@ -22,6 +22,8 @@ data class WarmUpState(
     val totalFrames: Int = 0,
     val readyFrames: Int = 0,
     val missingFrames: Int = 0,
+    val fullyCachedFrames: Int = 0,
+    val partiallyCachedFrames: Int = 0,
     val preparedTilesCount: Int = 0,
     val missingTilesCount: Int = 0,
     val queueSize: Int = 0,
@@ -50,6 +52,7 @@ object RadarWarmUpEngine {
     @Volatile private var currentFrames: List<TimeLapseFrame> = emptyList()
 
     private val preparedFramesMap = ConcurrentHashMap<Long, Boolean>()
+    private val cachedFrameTimestamps = ConcurrentHashMap.newKeySet<Long>()
 
     @Volatile private var lastTileXs: List<Int> = emptyList()
     @Volatile private var lastTileYs: List<Int> = emptyList()
@@ -144,8 +147,16 @@ object RadarWarmUpEngine {
             currentFrames = frames
             val total = frames.size
 
-            // Retain valid cached timeline entries and remove expired ones
+            // Retain valid cached timeline entries and remove expired ones (ring buffer eviction)
             val activeTimestamps = frames.map { it.radarFrame?.time ?: it.timestamp }.toSet()
+            val expiredTimestamps = cachedFrameTimestamps - activeTimestamps
+            expiredTimestamps.forEach { ts ->
+                TileRamCache.evictFrameByTimestamp(ts)
+                DiskTileCache.evictFrameByTimestamp(ts)
+                preparedFramesMap.remove(ts)
+            }
+            cachedFrameTimestamps.clear()
+            cachedFrameTimestamps.addAll(activeTimestamps)
             preparedFramesMap.keys.retainAll(activeTimestamps)
 
             prepareVisibleTilesDelta(mapView, 0.0, 0.0)

@@ -296,6 +296,8 @@ class RadarTimeLapseController(
     }
 
     private suspend fun runFrameLoop(onFrameChanged: (TimeLapseFrame) -> Unit) {
+        val targetAvailabilityThreshold = 0.90f // Requirement 10: Tile Availability Gate (90%)
+
         while (_state.value.isPlaying) {
             val currentState = _state.value
             val frames = currentState.frames
@@ -305,13 +307,32 @@ class RadarTimeLapseController(
             val nextIndex = (currentIndex + 1) % frames.size
             val nextFrame = frames[nextIndex]
 
+            val isCooldown = RadarPreloader.is429CooldownActive()
+
+            // Requirement 10 & 5: Wait for tile availability gate (90%).
+            // Requirement 5: During 429 cooldown, ONLY advance into frames whose tiles are already cached.
+            val (isReady, loadedCount, requiredCount) = waitForFrameReadiness(
+                layer = currentState.activeLayer,
+                frame = nextFrame,
+                zoom = currentZoom,
+                minReadinessPct = targetAvailabilityThreshold,
+                maxWaitTimeMs = if (isCooldown) 3000L else 1200L
+            )
+
+            if (!isReady && isCooldown) {
+                _state.update { it.copy(isBuffering = true) }
+                Log.w("RadarTimeLapseController", "429 Cooldown active: Frame $nextIndex is uncached ($loadedCount/$requiredCount tiles). Holding playback until ready.")
+                delay(300L)
+                continue
+            }
+
             RadarDiag.logPlaybackFrameSwitch(currentIndex, nextIndex, nextFrame.timestamp)
             RadarDiag.currentFrameIndex = nextIndex
             RadarDiag.currentFrameTimestamp = nextFrame.timestamp
 
             _state.update {
                 it.copy(
-                    isBuffering = false,
+                    isBuffering = !isReady,
                     currentFrameIndex = nextIndex
                 )
             }
@@ -326,8 +347,8 @@ class RadarTimeLapseController(
         layer: MapWeatherLayer,
         frame: TimeLapseFrame,
         zoom: Int,
-        minReadinessPct: Float = 0.5f,
-        maxWaitTimeMs: Long = 1500L
+        minReadinessPct: Float = 0.90f,
+        maxWaitTimeMs: Long = 1200L
     ): Triple<Boolean, Int, Int> = withContext(Dispatchers.IO) {
         val requiredKeys = RadarPreloader.getRequiredTileKeys(layer, listOf(frame), currentLat, currentLon, zoom, mapView)
         val requiredCount = requiredKeys.size
@@ -343,13 +364,11 @@ class RadarTimeLapseController(
             }
 
             val readinessPct = loadedCount.toFloat() / requiredCount.toFloat()
+            RadarDiag.recordFrameReadiness(readinessPct * 100f)
+            RadarDiag.recordVisibleTileReadiness(readinessPct * 100f)
+
             if (readinessPct >= minReadinessPct) {
                 return@withContext Triple(true, loadedCount, requiredCount)
-            }
-
-            if (RadarPreloader.is429CooldownActive() && loadedCount == 0) {
-                Log.w("RadarTimeLapseController", "429 Cooldown active and 0 tiles loaded for frame ${frame.index}. Aborting wait early.")
-                return@withContext Triple(false, loadedCount, requiredCount)
             }
 
             delay(50L)
@@ -360,7 +379,8 @@ class RadarTimeLapseController(
             TileRamCache.contains(key) || DiskTileCache.contains(key)
         }
         val finalReadinessPct = loadedCount.toFloat() / requiredCount.toFloat()
-        val isUsable = (finalReadinessPct >= minReadinessPct) && (loadedCount > 0)
+        RadarDiag.recordFrameReadiness(finalReadinessPct * 100f)
+        val isUsable = (finalReadinessPct >= minReadinessPct)
         return@withContext Triple(isUsable, loadedCount, requiredCount)
     }
 

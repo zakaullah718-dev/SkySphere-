@@ -83,6 +83,29 @@ object DiskTileCache {
         return file.exists() && file.length() > 0L
     }
 
+    fun diskSizeBytes(): Long {
+        val dir = cacheDir ?: return 0L
+        return dir.listFiles()?.sumOf { it.length() } ?: 0L
+    }
+
+    fun evictFrameByTimestamp(timestamp: Long): Int {
+        val dir = cacheDir ?: return 0
+        val targetPattern = "_${timestamp}_"
+        val filesToDelete = dir.listFiles()?.filter { it.name.contains(targetPattern) } ?: emptyList()
+        var deletedCount = 0
+        filesToDelete.forEach { file ->
+            if (file.delete()) {
+                deletedCount++
+            }
+        }
+        if (deletedCount > 0) {
+            RadarDiag.logDeletedOldTiles(deletedCount.toLong())
+            RadarDiag.logEvictFrame(timestamp, deletedCount)
+            Log.d(TAG, "Evicted $deletedCount files for frame $timestamp from Disk Cache. Remaining files: ${fileCount()}")
+        }
+        return deletedCount
+    }
+
     fun clear(reason: String = "Explicit clear requested") {
         val dir = cacheDir ?: return
         try {

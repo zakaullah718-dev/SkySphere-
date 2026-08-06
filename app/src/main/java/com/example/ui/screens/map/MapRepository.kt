@@ -13,7 +13,7 @@ import java.util.Locale
 class MapRepository(
     private val weatherRepository: WeatherRepository
 ) {
-    fun getDefaultZoom(): Double = 2.5
+    fun getDefaultZoom(): Double = 5.0
     fun getDefaultCenter(): Pair<Double, Double> = Pair(20.0, 0.0)
 
     @Suppress("DEPRECATION")

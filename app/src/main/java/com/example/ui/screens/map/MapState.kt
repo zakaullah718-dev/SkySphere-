@@ -6,7 +6,7 @@ data class MapState(
     val isReady: Boolean = false,
     val centerLatitude: Double = 20.0,
     val centerLongitude: Double = 0.0,
-    val zoomLevel: Double = 2.5,
+    val zoomLevel: Double = 5.0,
     val userLatitude: Double? = null,
     val userLongitude: Double? = null,
     val locationName: String? = null,

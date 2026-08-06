@@ -57,8 +57,11 @@ object RadarTileFetcher {
         }
 
         // 3. Deduplicate in-flight requests (prevent duplicate tile downloads)
+        val enqueueTimeMs = System.currentTimeMillis()
         val newTask = FutureTask<Bitmap?> {
             semaphore.acquire()
+            val queueWaitMs = System.currentTimeMillis() - enqueueTimeMs
+            RadarDiag.recordQueueWait(queueWaitMs)
             RadarDiag.downloadQueueSize.decrementAndGet()
             RadarDiag.concurrentDownloadCount.incrementAndGet()
             try {

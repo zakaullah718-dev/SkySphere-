@@ -42,6 +42,9 @@ class MainActivity : ComponentActivity() {
         // Schedule background WorkManager task for periodic weather updates
         WeatherWorkerScheduler.schedulePeriodicWeatherUpdates(applicationContext)
 
+        // Start persistent background Radar WarmUp Engine
+        com.example.ui.screens.map.RadarWarmUpEngine.start(applicationContext)
+
         // Request POST_NOTIFICATIONS runtime permission on Android 13+
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             if (ContextCompat.checkSelfPermission(this, Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
