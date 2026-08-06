@@ -189,7 +189,25 @@ object RadarDiag {
     }
 
     fun detectJobCancellation(jobType: String, oldSeq: Long, oldFrameIndex: Int, newSeq: Long, newFrameIndex: Int) {
+        downloadCancellationCount.incrementAndGet()
         Log.w(TAG, "[DIAG DETECT] ANOMALY: Asynchronous coroutine/job '$jobType' for Frame $oldFrameIndex (Seq: $oldSeq) was CANCELLED or OVERWRITTEN by new job for Frame $newFrameIndex (Seq: $newSeq)!")
+    }
+
+    fun logSessionStart(sessionId: String, layer: String, zoom: Int, totalTiles: Int) {
+        Log.d(TAG, "[PRELOAD SESSION START] SessionID: $sessionId | Layer: $layer | Zoom: $zoom | TotalTiles: $totalTiles")
+    }
+
+    fun logSessionCancel(sessionId: String, reason: String, cancelledTaskCount: Int) {
+        downloadCancellationCount.addAndGet(cancelledTaskCount.toLong())
+        Log.w(TAG, "[PRELOAD SESSION CANCEL] SessionID: $sessionId | Reason: $reason | CancelledTasks: $cancelledTaskCount")
+    }
+
+    fun logSessionComplete(sessionId: String, zoom: Int, loadedTiles: Int, totalTiles: Int) {
+        Log.d(TAG, "[PRELOAD SESSION COMPLETE] SessionID: $sessionId | Zoom: $zoom | Loaded: $loadedTiles/$totalTiles")
+    }
+
+    fun logTileLifecycle(requestId: String, key: String, stage: String, details: String = "") {
+        Log.d(TAG, "[TILE TRACE] RequestID: $requestId | Key: $key | Stage: $stage | $details")
     }
 }
 

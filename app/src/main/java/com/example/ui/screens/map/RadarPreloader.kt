@@ -224,6 +224,9 @@ object RadarPreloader {
             val newRequiredKeys = getRequiredTileKeys(layer, frames, centerLat, centerLon, mapZoom, mapView)
             if (newRequiredKeys.isEmpty()) return@withContext
 
+            val sessionId = "REQ_SESS_${System.currentTimeMillis()}_${(100..999).random()}"
+            RadarDiag.logSessionStart(sessionId, layer.name, mapZoom, newRequiredKeys.size)
+
             var missingKeysToStart = emptyList<String>()
 
             pipelineMutex.withLock {
@@ -237,9 +240,10 @@ object RadarPreloader {
                     activeTileJobs.values.forEach { it.cancel() }
                     activeTileJobs.clear()
                     if (cancelCount > 0) {
-                        Log.d("RadarPreloader", "PRELOAD CANCEL | Reason: Active layer changed to $layer (Cancelled $cancelCount obsolete tile tasks)")
+                        RadarDiag.logSessionCancel(sessionId, "Active layer changed to $layer", cancelCount)
+                        Log.d("RadarPreloader", "PRELOAD CANCEL | Session $sessionId | Reason: Active layer changed to $layer (Cancelled $cancelCount obsolete tile tasks)")
                     }
-                    Log.d("RadarPreloader", "PRELOAD START | Layer: $layer | Zoom: $mapZoom | Required tiles: ${newRequiredKeys.size}")
+                    Log.d("RadarPreloader", "PRELOAD START | Session $sessionId | Layer: $layer | Zoom: $mapZoom | Required tiles: ${newRequiredKeys.size}")
                     currentActiveLayer = layer
                     completedLogEmitted = false
                 } else {
@@ -252,12 +256,13 @@ object RadarPreloader {
                             }
                         }
                         if (cancelledCount > 0) {
-                            Log.d("RadarPreloader", "PRELOAD CANCEL | Reason: Viewport/Zoom change (Cancelled $cancelledCount obsolete tile tasks)")
+                            RadarDiag.logSessionCancel(sessionId, "Viewport/Zoom change", cancelledCount)
+                            Log.d("RadarPreloader", "PRELOAD CANCEL | Session $sessionId | Reason: Viewport/Zoom change (Cancelled $cancelledCount obsolete tile tasks)")
                         }
                     }
 
                     if (addedKeys.isNotEmpty() || keptKeys.isNotEmpty()) {
-                        Log.d("RadarPreloader", "PRELOAD RESUME | Reason: Viewport update to Zoom $mapZoom | Reusing ${keptKeys.size} valid tiles | Adding ${addedKeys.size} new tiles")
+                        Log.d("RadarPreloader", "PRELOAD RESUME | Session $sessionId | Reason: Viewport update to Zoom $mapZoom | Reusing ${keptKeys.size} valid tiles | Adding ${addedKeys.size} new tiles")
                     }
                 }
 
@@ -560,19 +565,23 @@ object RadarPreloader {
     ) {
         val timestamp = frame.radarFrame?.time ?: frame.timestamp
         val cacheKey = buildTileKey(layer, timestamp, zoom, x, y)
+        val reqId = "REQ_TILE_${cacheKey}_${System.currentTimeMillis()}"
 
         if (TileRamCache.contains(cacheKey)) {
             RadarDiag.logRamCacheHit(cacheKey)
+            RadarDiag.logTileLifecycle(reqId, cacheKey, "HIT_RAM", "Found in RAM Cache")
             return
         }
 
         val diskTile = DiskTileCache.get(cacheKey)
         if (diskTile != null) {
             RadarDiag.logDiskCacheHit(cacheKey)
+            RadarDiag.logTileLifecycle(reqId, cacheKey, "HIT_DISK", "Loaded from Disk Cache into RAM")
             TileRamCache.put(cacheKey, diskTile)
             return
         }
 
+        RadarDiag.logTileLifecycle(reqId, cacheKey, "START_NETWORK", "Initiating network download")
         fetchTileBitmapWithDeduplication(cacheKey) {
             if (layer == MapWeatherLayer.RAIN_RADAR) {
                 val tsInSec = if (timestamp > 10_000_000_000L) {

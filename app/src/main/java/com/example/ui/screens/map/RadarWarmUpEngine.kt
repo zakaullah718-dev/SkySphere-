@@ -147,7 +147,7 @@ object RadarWarmUpEngine {
         val initialIndex = currentFrames.indexOfLast { !it.isForecast }.coerceAtLeast(0)
         val orderedFrames = mutableListOf<TimeLapseFrame>()
 
-        // Priority ordering: Current -> Next 1 -> Next 2 -> Next 3 -> Prev -> Remaining (Playback RAM lookahead guaranteed)
+        // Priority ordering: Current -> Next 1 -> Next 2 -> Next 3 -> Prev -> Remaining
         if (initialIndex in currentFrames.indices) {
             orderedFrames.add(currentFrames[initialIndex])
         }
