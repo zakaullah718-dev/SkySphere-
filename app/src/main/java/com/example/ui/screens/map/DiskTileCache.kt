@@ -44,6 +44,7 @@ object DiskTileCache {
         val file = getFileForKey(key) ?: return null
         if (!file.exists() || file.length() == 0L) {
             RadarDiag.logDiskCacheMiss(key)
+            Log.d("SKYSPHERE_TIMELAPSE", "CACHE=DISK RESULT=MISS KEY=$key")
             return null
         }
 
@@ -51,14 +52,15 @@ object DiskTileCache {
             val bitmap = BitmapFactory.decodeFile(file.absolutePath)
             if (bitmap != null) {
                 RadarDiag.logDiskCacheHit(key)
-                Log.d("RadarCache", "Disk Cache Hit | Key: $key | Disk Cache File Count: ${fileCount()}")
+                Log.d("SKYSPHERE_TIMELAPSE", "CACHE=DISK RESULT=HIT KEY=$key FILES=${fileCount()}")
             } else {
                 RadarDiag.logDiskCacheMiss(key)
+                Log.d("SKYSPHERE_TIMELAPSE", "CACHE=DISK RESULT=MISS KEY=$key")
             }
             bitmap
         } catch (e: Exception) {
             RadarDiag.logDiskCacheMiss(key)
-            Log.w("RadarCache", "Failed to decode disk-cached tile for key '$key': ${e.localizedMessage}")
+            Log.w("SKYSPHERE_TIMELAPSE", "CACHE=DISK RESULT=CORRUPT KEY=$key")
             file.delete()
             null
         }
@@ -72,9 +74,9 @@ object DiskTileCache {
             FileOutputStream(file).use { out ->
                 bitmap.compress(Bitmap.CompressFormat.PNG, 100, out)
             }
-            Log.d("RadarCache", "Disk Cache Put | Key: $key | Disk Cache File Count: ${fileCount()}")
+            Log.d("SKYSPHERE_TIMELAPSE", "CACHE=DISK RESULT=PUT KEY=$key FILES=${fileCount()}")
         } catch (e: Exception) {
-            Log.w("RadarCache", "Failed to save tile to disk cache for key '$key': ${e.localizedMessage}")
+            Log.w("SKYSPHERE_TIMELAPSE", "CACHE=DISK RESULT=WRITE_FAILED KEY=$key Error=${e.localizedMessage}")
         }
     }
 

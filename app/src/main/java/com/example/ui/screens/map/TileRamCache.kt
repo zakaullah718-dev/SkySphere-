@@ -41,10 +41,11 @@ object TileRamCache {
             val bitmap = cache.get(key)
             if (bitmap != null && !bitmap.isRecycled) {
                 RadarDiag.logRamCacheHit(key)
-                Log.d("RadarCache", "RAM Cache Hit | Key: $key | Current RAM Cache Size: ${cache.snapshot().size} tiles (${cache.size()} KB / $maxMemoryKb KB)")
+                Log.d("SKYSPHERE_TIMELAPSE", "CACHE=RAM RESULT=HIT KEY=$key TILES=${cache.snapshot().size}")
                 return bitmap
             }
             RadarDiag.logRamCacheMiss(key)
+            Log.d("SKYSPHERE_TIMELAPSE", "CACHE=RAM RESULT=MISS KEY=$key")
             return null
         }
     }
@@ -54,10 +55,10 @@ object TileRamCache {
             try {
                 synchronized(cache) {
                     cache.put(key, bitmap)
-                    Log.d("RadarCache", "RAM Cache Put | Key: $key | Current RAM Cache Size: ${cache.snapshot().size} tiles (${cache.size()} KB / $maxMemoryKb KB)")
+                    Log.d("SKYSPHERE_TIMELAPSE", "CACHE=RAM RESULT=PUT KEY=$key TILES=${cache.snapshot().size}")
                 }
             } catch (oom: OutOfMemoryError) {
-                Log.e("RadarCache", "Cache Eviction (OutOfMemoryError) | Clearing RAM cache completely.")
+                Log.e("SKYSPHERE_TIMELAPSE", "CACHE=RAM RESULT=OOM_CLEAR Reason=OutOfMemoryError safeguard")
                 clear("OutOfMemoryError safeguard")
             } catch (e: Exception) {
                 Log.w(TAG, "Error caching bitmap: ${e.localizedMessage}")

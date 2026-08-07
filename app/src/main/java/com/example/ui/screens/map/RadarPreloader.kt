@@ -433,6 +433,8 @@ object RadarPreloader {
         }
     }
 
+    @Volatile private var activePreparationJob: Job? = null
+
     fun startBackgroundPreparation(
         layer: MapWeatherLayer,
         frames: List<TimeLapseFrame>,
@@ -440,36 +442,46 @@ object RadarPreloader {
         centerLat: Double = 37.7749,
         centerLon: Double = -122.4194,
         mapZoom: Int = 5,
-        mapView: MapView? = null
+        mapView: MapView? = null,
+        forceRestart: Boolean = false
     ): Job {
-        return scope.launch(Dispatchers.IO) {
-            if (layer == MapWeatherLayer.NONE || frames.isEmpty()) return@launch
-
-            val prioritizedFrames = mutableListOf<TimeLapseFrame>()
-            if (frames.isNotEmpty()) {
-                val safeIndex = currentFrameIndex.coerceIn(0, frames.size - 1)
-                // 1. Current frame
-                prioritizedFrames.add(frames[safeIndex])
-                // 2. Next frame
-                val nextIdx = (safeIndex + 1) % frames.size
-                if (!prioritizedFrames.contains(frames[nextIdx])) prioritizedFrames.add(frames[nextIdx])
-                // 3. Previous frame
-                val prevIdx = (safeIndex - 1 + frames.size) % frames.size
-                if (!prioritizedFrames.contains(frames[prevIdx])) prioritizedFrames.add(frames[prevIdx])
-                // 4. Remaining frames
-                frames.forEach { f ->
-                    if (!prioritizedFrames.contains(f)) prioritizedFrames.add(f)
-                }
+        synchronized(this) {
+            val currentJob = activePreparationJob
+            if (!forceRestart && currentJob != null && currentJob.isActive) {
+                return currentJob
             }
 
-            preloadFrames(
-                layer = layer,
-                frames = prioritizedFrames,
-                centerLat = centerLat,
-                centerLon = centerLon,
-                mapZoom = mapZoom,
-                mapView = mapView
-            )
+            val job = scope.launch(Dispatchers.IO) {
+                if (layer == MapWeatherLayer.NONE || frames.isEmpty()) return@launch
+
+                val prioritizedFrames = mutableListOf<TimeLapseFrame>()
+                if (frames.isNotEmpty()) {
+                    val safeIndex = currentFrameIndex.coerceIn(0, frames.size - 1)
+                    // 1. Current frame
+                    prioritizedFrames.add(frames[safeIndex])
+                    // 2. Next frame
+                    val nextIdx = (safeIndex + 1) % frames.size
+                    if (!prioritizedFrames.contains(frames[nextIdx])) prioritizedFrames.add(frames[nextIdx])
+                    // 3. Previous frame
+                    val prevIdx = (safeIndex - 1 + frames.size) % frames.size
+                    if (!prioritizedFrames.contains(frames[prevIdx])) prioritizedFrames.add(frames[prevIdx])
+                    // 4. Remaining frames
+                    frames.forEach { f ->
+                        if (!prioritizedFrames.contains(f)) prioritizedFrames.add(f)
+                    }
+                }
+
+                preloadFrames(
+                    layer = layer,
+                    frames = prioritizedFrames,
+                    centerLat = centerLat,
+                    centerLon = centerLon,
+                    mapZoom = mapZoom,
+                    mapView = mapView
+                )
+            }
+            activePreparationJob = job
+            return job
         }
     }
 
@@ -641,6 +653,20 @@ object RadarPreloader {
         val timestamp = frame.radarFrame?.time ?: frame.timestamp
         val cacheKey = buildTileKey(layer, timestamp, zoom, x, y)
 
+        if (TileRamCache.contains(cacheKey)) {
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=$timestamp ZOOM=$zoom X=$x Y=$y RAM=HIT DISK=SKIP ACTION=PRELOADED")
+            return@withContext
+        }
+
+        val diskTile = DiskTileCache.get(cacheKey)
+        if (diskTile != null && !diskTile.isRecycled) {
+            TileRamCache.put(cacheKey, diskTile)
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=$timestamp ZOOM=$zoom X=$x Y=$y RAM=MISS DISK=HIT ACTION=LOAD_TO_RAM")
+            return@withContext
+        }
+
+        Log.d("SKYSPHERE_TIMELAPSE", "FRAME=$timestamp ZOOM=$zoom X=$x Y=$y RAM=MISS DISK=MISS ACTION=NETWORK_DOWNLOAD")
+
         RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             if (layer == MapWeatherLayer.RAIN_RADAR) {
                 val tsInSec = if (timestamp > 10_000_000_000L) {
@@ -772,7 +798,7 @@ object RadarPreloader {
             }
         }
         RadarDiag.logTileDownloadCompletion(key, "FAILED_ALL_ATTEMPTS", 0L, 0, url)
-        return null
+        return emptyTransparentBitmap
     }
 
     private fun applyDarkCloudStyle(originalBitmap: Bitmap): Bitmap {

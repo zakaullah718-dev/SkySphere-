@@ -35,6 +35,10 @@ object RadarTileFetcher {
     private val semaphore = Semaphore(4) // Rate limit to max 4 concurrent network tile downloads
     private val inFlightTasks = ConcurrentHashMap<String, FutureTask<Bitmap?>>()
 
+    fun isInFlight(cacheKey: String): Boolean {
+        return inFlightTasks.containsKey(cacheKey)
+    }
+
     fun fetchOrDeduplicateTile(
         cacheKey: String,
         fetcher: () -> Bitmap?
@@ -231,37 +235,6 @@ class WeatherTilesOverlay(
             }
         }
 
-        if (frame != null) {
-            val layer = when (moduleProvider) {
-                is RainRadarTileModuleProvider -> MapWeatherLayer.RAIN_RADAR
-                is OwmTileModuleProvider -> {
-                    when (moduleProvider.layerEndpoint) {
-                        "clouds_new" -> MapWeatherLayer.CLOUDS
-                        "temp_new" -> MapWeatherLayer.TEMPERATURE
-                        "wind_new" -> MapWeatherLayer.WIND
-                        "humidity_new" -> MapWeatherLayer.HUMIDITY
-                        "pressure_new" -> MapWeatherLayer.PRESSURE
-                        else -> MapWeatherLayer.NONE
-                    }
-                }
-                else -> MapWeatherLayer.NONE
-            }
-            if (layer != MapWeatherLayer.NONE) {
-                val centerLat = mapView?.mapCenter?.latitude ?: 37.7749
-                val centerLon = mapView?.mapCenter?.longitude ?: -122.4194
-                val mapZoom = mapView?.zoomLevelDouble?.toInt() ?: 5
-                CoroutineScope(Dispatchers.IO).launch {
-                    RadarPreloader.preloadFrames(
-                        layer = layer,
-                        frames = listOf(frame),
-                        centerLat = centerLat,
-                        centerLon = centerLon,
-                        mapZoom = mapZoom
-                    )
-                }
-            }
-        }
-
         mapView?.postInvalidate()
 
         Log.d(
@@ -408,14 +381,18 @@ class RainRadarTileModuleProvider(
 
         val ramHit = TileRamCache.get(cacheKey)
         if (ramHit != null && !ramHit.isRecycled) {
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y RAM=HIT DISK=SKIP ACTION=DISPLAY")
             return Pair(ramHit, "RAM Cache Hit")
         }
 
         val diskHit = DiskTileCache.get(cacheKey)
         if (diskHit != null && !diskHit.isRecycled) {
             TileRamCache.put(cacheKey, diskHit)
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=HIT ACTION=LOAD_TO_RAM")
             return Pair(diskHit, "Disk Cache Hit")
         }
+
+        Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=MISS ACTION=NETWORK_DOWNLOAD")
 
         val bitmap = RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             var tileUrl = frame.buildTileUrl(clampedZoom, x, y)
@@ -569,15 +546,19 @@ class OwmTileModuleProvider(
         val cacheKey = "${layerEndpoint}_${clampedZoom}_${x}_${y}"
 
         val ramHit = TileRamCache.get(cacheKey)
-        if (ramHit != null) {
+        if (ramHit != null && !ramHit.isRecycled) {
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y RAM=HIT DISK=SKIP ACTION=DISPLAY")
             return ramHit
         }
 
         val diskHit = DiskTileCache.get(cacheKey)
-        if (diskHit != null) {
+        if (diskHit != null && !diskHit.isRecycled) {
             TileRamCache.put(cacheKey, diskHit)
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=HIT ACTION=LOAD_TO_RAM")
             return diskHit
         }
+
+        Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=MISS ACTION=NETWORK_DOWNLOAD")
 
         return RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             val url = "https://tile.openweathermap.org/map/$layerEndpoint/$clampedZoom/$x/$y.png?appid=$owmApiKey"
