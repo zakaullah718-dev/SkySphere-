@@ -113,47 +113,36 @@ class RadarTimeLapseController(
                 onFrameChanged(initialFrame)
             }
 
-            // Quick-fetch initial frame tiles first
+            val nextIndex = (initialIndex + 1) % frames.size
+            val nextFrame = frames.getOrNull(nextIndex)
+
+            // Quick-fetch initial frame + next frame tiles first for instant streaming playback
             if (initialFrame != null) {
                 RadarPreloader.preloadSingleFrame(layer, initialFrame, lat, lon, zoom, mapView)
             }
-
-            val orderedFrames = if (initialFrame != null) {
-                listOf(initialFrame) + frames.filter { it.index != initialIndex }
-            } else frames
-
-            RadarPreloader.preloadFrames(
-                layer = layer,
-                frames = orderedFrames,
-                centerLat = lat,
-                centerLon = lon,
-                mapZoom = zoom,
-                mapView = mapView,
-                onProgress = { loaded, total ->
-                    val progress = if (total > 0) loaded.toFloat() / total else 1.0f
-                    _state.update { s -> s.copy(bufferProgress = progress) }
-                },
-                onFrameReady = { fIdx ->
-                    RadarDiag.logFrameReadyEvent(fIdx, frames.getOrNull(fIdx)?.timestamp ?: 0L, 0)
-                    _state.update { s ->
-                        val updatedFrames = s.frames.map { f ->
-                            if (f.index == fIdx) f.copy(status = FramePreparationStatus.READY) else f
-                        }
-                        s.copy(frames = updatedFrames)
-                    }
-                }
-            )
+            if (nextFrame != null && nextFrame.index != initialIndex) {
+                RadarPreloader.preloadSingleFrame(layer, nextFrame, lat, lon, zoom, mapView)
+            }
 
             _state.update { s ->
-                val allReadyFrames = s.frames.map { f -> f.copy(status = FramePreparationStatus.READY) }
                 s.copy(
-                    frames = allReadyFrames,
                     isLoading = false,
                     isBuffering = false,
                     isReadyToPlay = true,
-                    bufferProgress = 1.0f
+                    bufferProgress = 0.5f
                 )
             }
+
+            // Start background streaming preparation for remaining frames without blocking playback readiness
+            RadarPreloader.startBackgroundPreparation(
+                layer = layer,
+                frames = frames,
+                currentFrameIndex = initialIndex,
+                centerLat = lat,
+                centerLon = lon,
+                mapZoom = zoom,
+                mapView = mapView
+            )
         }
     }
 
@@ -310,9 +299,20 @@ class RadarTimeLapseController(
         val loadedCount: Int,
         val requiredCount: Int,
         val missingCount: Int,
+        val missingCenterCount: Int,
         val inFlightCount: Int,
         val failedCount: Int
     )
+
+    private fun extractXFromKey(key: String): Int {
+        val parts = key.split("_")
+        return parts.getOrNull(parts.size - 2)?.toIntOrNull() ?: 0
+    }
+
+    private fun extractYFromKey(key: String): Int {
+        val parts = key.split("_")
+        return parts.lastOrNull()?.toIntOrNull() ?: 0
+    }
 
     private fun checkFrameReadiness(
         layer: MapWeatherLayer,
@@ -327,14 +327,24 @@ class RadarTimeLapseController(
                 loadedCount = 0,
                 requiredCount = 0,
                 missingCount = 0,
+                missingCenterCount = 0,
                 inFlightCount = 0,
                 failedCount = 0
             )
         }
 
+        val providerMaxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) {
+            FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
+        } else {
+            FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
+        }
+        val pZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
+        val (tileXs, tileYs) = RadarPreloader.computeViewportTileBounds(mapView, currentLat, currentLon, pZoom)
+
         var loadedCount = 0
         var inFlightCount = 0
         var missingCount = 0
+        var missingCenterCount = 0
 
         requiredKeys.forEach { key ->
             if (TileRamCache.contains(key)) {
@@ -347,38 +357,53 @@ class RadarTimeLapseController(
                     loadedCount++
                 } else {
                     missingCount++
+                    val x = extractXFromKey(key)
+                    val y = extractYFromKey(key)
+                    if (RadarPreloader.isCenterTile(x, y, tileXs, tileYs)) {
+                        missingCenterCount++
+                    }
                 }
             } else {
                 missingCount++
+                val x = extractXFromKey(key)
+                val y = extractYFromKey(key)
+                if (RadarPreloader.isCenterTile(x, y, tileXs, tileYs)) {
+                    missingCenterCount++
+                }
                 if (RadarTileFetcher.isInFlight(key)) {
                     inFlightCount++
                 }
             }
         }
 
-        val failedCount = 0
-        val isReady = (requiredCount > 0 && loadedCount == requiredCount)
-
-        val readinessPct = loadedCount.toFloat() / requiredCount.toFloat()
+        val readinessPct = if (requiredCount > 0) loadedCount.toFloat() / requiredCount.toFloat() else 1.0f
         RadarDiag.recordFrameReadiness(readinessPct * 100f)
+
+        val isFullReady = (requiredCount > 0 && loadedCount == requiredCount)
+        val isPartialReady = (readinessPct >= 0.90f && missingCenterCount == 0)
+        val isReady = isFullReady || isPartialReady
 
         return FrameReadinessInfo(
             isReady = isReady,
             loadedCount = loadedCount,
             requiredCount = requiredCount,
             missingCount = missingCount,
+            missingCenterCount = missingCenterCount,
             inFlightCount = inFlightCount,
-            failedCount = failedCount
+            failedCount = 0
         )
     }
 
     private suspend fun runFrameLoop(onFrameChanged: (TimeLapseFrame) -> Unit) {
+        var isLoopFirstRun = true
+
         while (_state.value.isPlaying) {
             val currentState = _state.value
             val frames = currentState.frames
             if (frames.isEmpty()) break
 
             val currentIndex = currentState.currentFrameIndex
+            val currentFrame = frames[currentIndex]
             val nextIndex = (currentIndex + 1) % frames.size
             val nextFrame = frames[nextIndex]
 
@@ -387,7 +412,7 @@ class RadarTimeLapseController(
             val lookaheadIndex = (nextIndex + 1) % frames.size
             val activeWindowFrames = listOfNotNull(
                 frames.getOrNull(prevIndex),
-                frames.getOrNull(currentIndex),
+                currentFrame,
                 nextFrame,
                 frames.getOrNull(lookaheadIndex)
             )
@@ -401,6 +426,18 @@ class RadarTimeLapseController(
             )
             PlaybackProtectedCache.setProtectedKeys(windowKeys)
 
+            if (isLoopFirstRun) {
+                isLoopFirstRun = false
+                val currReadiness = checkFrameReadiness(currentState.activeLayer, currentFrame, currentZoom)
+                val nextReadiness = checkFrameReadiness(currentState.activeLayer, nextFrame, currentZoom)
+
+                val currStatus = if (currReadiness.isReady) "READY" else "LOADING"
+                val nextStatus = if (nextReadiness.isReady) "READY" else "LOADING"
+
+                Log.d("SKYSPHERE_TIMELAPSE", "PLAYBACK_BUFFER_STATUS current=$currStatus next=$nextStatus future=QUEUED")
+                Log.d("SKYSPHERE_TIMELAPSE", "PLAYBACK_START_READY frame=$currentIndex loaded=${currReadiness.loadedCount}/${currReadiness.requiredCount}")
+            }
+
             val readiness = checkFrameReadiness(
                 layer = currentState.activeLayer,
                 frame = nextFrame,
@@ -410,13 +447,15 @@ class RadarTimeLapseController(
             if (!readiness.isReady) {
                 _state.update { it.copy(isBuffering = true) }
 
+                val nextReadiness = checkFrameReadiness(currentState.activeLayer, nextFrame, currentZoom)
+                val currReadiness = checkFrameReadiness(currentState.activeLayer, currentFrame, currentZoom)
+                val currStatus = if (currReadiness.isReady) "READY" else "LOADING"
+                val nextStatus = if (nextReadiness.isReady) "READY" else "LOADING"
+                Log.d("SKYSPHERE_TIMELAPSE", "PLAYBACK_BUFFER_STATUS current=$currStatus next=$nextStatus future=QUEUED")
+
                 Log.d(
                     "SKYSPHERE_TIMELAPSE",
                     "FRAME_WAIT timestamp=${nextFrame.timestamp} frameIndex=$nextIndex required=${readiness.requiredCount} loaded=${readiness.loadedCount} missing=${readiness.missingCount} inFlight=${readiness.inFlightCount} failed=${readiness.failedCount}"
-                )
-                Log.d(
-                    "SKYSPHERE_TIMELAPSE",
-                    "FRAME_WAIT\ntimestamp=${nextFrame.timestamp}\nframeIndex=$nextIndex\nrequired=${readiness.requiredCount}\nloaded=${readiness.loadedCount}\nmissing=${readiness.missingCount}\ninFlight=${readiness.inFlightCount}\nfailed=${readiness.failedCount}"
                 )
 
                 // Ensure tile preparation is active for this frame
@@ -434,14 +473,17 @@ class RadarTimeLapseController(
                 continue
             }
 
-            // Frame is 100% READY
+            // Frame is READY (100% or partial ready >= 90% with 0 missing center tiles)
+            if (readiness.missingCount > 0 && readiness.missingCenterCount == 0) {
+                Log.d(
+                    "SKYSPHERE_TIMELAPSE",
+                    "FRAME_PARTIAL_READY timestamp=${nextFrame.timestamp} index=$nextIndex loaded=${readiness.loadedCount}/${readiness.requiredCount} visibleMissing=${readiness.missingCenterCount}"
+                )
+            }
+
             Log.d(
                 "SKYSPHERE_TIMELAPSE",
                 "FRAME_READY timestamp=${nextFrame.timestamp} frameIndex=$nextIndex loaded=${readiness.loadedCount}/${readiness.requiredCount}"
-            )
-            Log.d(
-                "SKYSPHERE_TIMELAPSE",
-                "FRAME_READY\ntimestamp=${nextFrame.timestamp}\nframeIndex=$nextIndex\nloaded=${readiness.loadedCount}/${readiness.requiredCount}"
             )
 
             RadarDiag.logPlaybackFrameSwitch(currentIndex, nextIndex, nextFrame.timestamp)

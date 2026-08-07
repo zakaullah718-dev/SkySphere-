@@ -26,6 +26,16 @@ object PlaybackProtectedCache {
         val beforeCount = protectedTiles.size
         protectedTiles.keys.retainAll(activePlaybackKeys)
         val evictedCount = beforeCount - protectedTiles.size
+
+        // Promote any existing RAM tiles into protected memory pool
+        keys.forEach { key ->
+            if (!protectedTiles.containsKey(key)) {
+                val bm = TileRamCache.getDirectFromLru(key)
+                if (bm != null && !bm.isRecycled) {
+                    protectedTiles[key] = bm
+                }
+            }
+        }
         
         Log.d(
             "SKYSPHERE_TIMELAPSE",

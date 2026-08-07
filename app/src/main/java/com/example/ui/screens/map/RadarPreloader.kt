@@ -224,6 +224,23 @@ object RadarPreloader {
         return keys
     }
 
+    fun isCenterTile(x: Int, y: Int, tileXs: List<Int>, tileYs: List<Int>): Boolean {
+        if (tileXs.isEmpty() || tileYs.isEmpty()) return false
+        val isXCenter = if (tileXs.size <= 2) true else {
+            val minXIdx = 1
+            val maxXIdx = tileXs.size - 2
+            val xIdx = tileXs.indexOf(x)
+            xIdx in minXIdx..maxXIdx
+        }
+        val isYCenter = if (tileYs.size <= 2) true else {
+            val minYIdx = 1
+            val maxYIdx = tileYs.size - 2
+            val yIdx = tileYs.indexOf(y)
+            yIdx in minYIdx..maxYIdx
+        }
+        return isXCenter && isYCenter
+    }
+
     private val activeGenerationId = java.util.concurrent.atomic.AtomicLong(1L)
 
     fun nextGenerationId(): Long = activeGenerationId.incrementAndGet()
@@ -232,9 +249,7 @@ object RadarPreloader {
     private data class PreloadSessionParams(
         val layer: MapWeatherLayer,
         val frameTimestamps: List<Long>,
-        val centerLat: Double,
-        val centerLon: Double,
-        val mapZoom: Int
+        val pZoom: Int
     )
 
     @Volatile private var activeSessionParams: PreloadSessionParams? = null
@@ -310,8 +325,10 @@ object RadarPreloader {
                 } else {
                     if (addedKeys.isNotEmpty()) {
                         RadarDiag.logQueueMerge(addedKeys.size)
+                        Log.d("SKYSPHERE_TIMELAPSE", "VIEWPORT_CHANGE_REUSE_CACHE reusedTiles=${keptKeys.size} downloadedTiles=${addedKeys.size}")
                         Log.d("RadarPreloader", "PRELOAD INCREMENTAL MERGE | Session $sessionId | Reusing ${keptKeys.size} valid tiles | Merging ${addedKeys.size} newly required tiles into queue")
                     } else if (keptKeys.isNotEmpty()) {
+                        Log.d("SKYSPHERE_TIMELAPSE", "VIEWPORT_CHANGE_REUSE_CACHE reusedTiles=${keptKeys.size} downloadedTiles=0")
                         Log.d("RadarPreloader", "PRELOAD REUSE | Session $sessionId | All ${keptKeys.size} required tiles already active/cached")
                     }
                 }
@@ -366,21 +383,24 @@ object RadarPreloader {
             }
 
             // Priority Scheduling:
-            // Rank 1: Current playback frame
-            // Rank 2: Next frame
-            // Rank 3: Previous frame
-            // Rank 4: Remaining future frames
+            // Priority 1: Current playback frame - Center tiles
+            // Priority 2: Current playback frame - Edge tiles
+            // Priority 3: Next animation frame - Center tiles
+            // Priority 4: Next animation frame - Edge tiles
+            // Priority 5: Previous animation frame - Center/Edge tiles
+            // Priority 6: Future animation frames - Center/Edge tiles
             missingKeysToStart = missingKeysToStart.sortedBy { key ->
                 val info = keyToInfoMap[key]
                 if (info != null) {
                     val (frame, x, y) = info
                     val frameRank = frames.indexOf(frame).let { if (it >= 0) it else 99 }
+                    val isCenter = isCenterTile(x, y, tileXs, tileYs)
                     val spatialDist = kotlin.math.abs(x - centerX) + kotlin.math.abs(y - centerY)
-                    when {
-                        frameRank == 0 && spatialDist <= 1 -> spatialDist
-                        frameRank == 0 -> 100 + spatialDist
-                        frameRank == 1 -> 1000 + spatialDist
-                        else -> 10000 + frameRank * 100 + spatialDist
+                    when (frameRank) {
+                        0 -> if (isCenter) 10 + spatialDist else 20 + spatialDist
+                        1 -> if (isCenter) 30 + spatialDist else 40 + spatialDist
+                        2 -> if (isCenter) 50 + spatialDist else 60 + spatialDist
+                        else -> 100 + frameRank * 10 + (if (isCenter) 0 else 5) + spatialDist
                     }
                 } else 999999
             }
@@ -517,7 +537,13 @@ object RadarPreloader {
     ): Job {
         synchronized(this) {
             val timestamps = frames.map { it.radarFrame?.time ?: it.timestamp }
-            val newParams = PreloadSessionParams(layer, timestamps, centerLat, centerLon, mapZoom)
+            val providerMaxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) {
+                FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
+            } else {
+                FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
+            }
+            val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
+            val newParams = PreloadSessionParams(layer, timestamps, pZoom)
             val currentJob = activePreparationJob
 
             if (!forceRestart && currentJob != null && currentJob.isActive && activeSessionParams == newParams) {

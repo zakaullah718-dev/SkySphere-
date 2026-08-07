@@ -84,6 +84,13 @@ object TileRamCache {
         }
     }
 
+    fun getDirectFromLru(key: String): Bitmap? {
+        synchronized(cache) {
+            val bitmap = cache.get(key)
+            return if (bitmap != null && !bitmap.isRecycled) bitmap else null
+        }
+    }
+
     fun contains(key: String): Boolean {
         if (PlaybackProtectedCache.contains(key)) return true
         synchronized(cache) {
