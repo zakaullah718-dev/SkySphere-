@@ -224,6 +224,21 @@ object RadarPreloader {
         return keys
     }
 
+    private val activeGenerationId = java.util.concurrent.atomic.AtomicLong(1L)
+
+    fun nextGenerationId(): Long = activeGenerationId.incrementAndGet()
+    fun getCurrentGenerationId(): Long = activeGenerationId.get()
+
+    private data class PreloadSessionParams(
+        val layer: MapWeatherLayer,
+        val frameTimestamps: List<Long>,
+        val centerLat: Double,
+        val centerLon: Double,
+        val mapZoom: Int
+    )
+
+    @Volatile private var activeSessionParams: PreloadSessionParams? = null
+
     private val preloaderSemaphore = Semaphore(5)
 
     suspend fun preloadFrames(
@@ -233,6 +248,7 @@ object RadarPreloader {
         centerLon: Double = -122.4194,
         mapZoom: Int = 5,
         mapView: MapView? = null,
+        generationId: Long = getCurrentGenerationId(),
         onProgress: (loaded: Int, total: Int) -> Unit = { _, _ -> },
         onFrameReady: ((frameIndex: Int) -> Unit)? = null
     ) = withContext(Dispatchers.IO) {
@@ -255,19 +271,23 @@ object RadarPreloader {
                 return@withContext
             }
 
+            if (generationId != getCurrentGenerationId()) {
+                Log.d("RadarPreloader", "PRELOAD ABORT | Obsolete generation $generationId (current=${getCurrentGenerationId()})")
+                return@withContext
+            }
+
             val newRequiredKeys = getRequiredTileKeys(layer, frames, centerLat, centerLon, mapZoom, mapView)
             if (newRequiredKeys.isEmpty()) return@withContext
 
             PlaybackProtectedCache.setProtectedKeys(newRequiredKeys)
 
-            val sessionId = "REQ_SESS_${System.currentTimeMillis()}_${(100..999).random()}"
+            val sessionId = "REQ_SESS_${System.currentTimeMillis()}_gen${generationId}_${(100..999).random()}"
             RadarDiag.logSessionStart(sessionId, layer.name, mapZoom, newRequiredKeys.size)
 
             var missingKeysToStart = emptyList<String>()
 
             pipelineMutex.withLock {
                 val oldRequiredKeys = currentRequiredKeys
-                val obsoleteKeys = oldRequiredKeys - newRequiredKeys
                 val addedKeys = newRequiredKeys - oldRequiredKeys
                 val keptKeys = oldRequiredKeys intersect newRequiredKeys
 
@@ -288,7 +308,6 @@ object RadarPreloader {
                     currentActiveLayer = layer
                     completedLogEmitted = false
                 } else {
-                    // Session reuse & Incremental Merge: Keep active tile jobs running
                     if (addedKeys.isNotEmpty()) {
                         RadarDiag.logQueueMerge(addedKeys.size)
                         Log.d("RadarPreloader", "PRELOAD INCREMENTAL MERGE | Session $sessionId | Reusing ${keptKeys.size} valid tiles | Merging ${addedKeys.size} newly required tiles into queue")
@@ -347,9 +366,10 @@ object RadarPreloader {
             }
 
             // Priority Scheduling:
-            // Rank 1: Tiles visible on screen for active frame (frame 0)
-            // Rank 2: Tiles surrounding visible area / next frame
-            // Rank 3: Off-screen edge tiles / distant frames
+            // Rank 1: Current playback frame
+            // Rank 2: Next frame
+            // Rank 3: Previous frame
+            // Rank 4: Remaining future frames
             missingKeysToStart = missingKeysToStart.sortedBy { key ->
                 val info = keyToInfoMap[key]
                 if (info != null) {
@@ -379,7 +399,6 @@ object RadarPreloader {
                 }
             }
 
-            // Record Visible Tile Readiness (Frame 0) and Background Tile Readiness
             if (frames.isNotEmpty()) {
                 val frame0Timestamp = frames[0].radarFrame?.time ?: frames[0].timestamp
                 val frame0Keys = snapshotKeys.filter { it.contains("_${frame0Timestamp}_") }
@@ -411,7 +430,10 @@ object RadarPreloader {
                 }
                 frames.forEach {
                     val fTs = it.radarFrame?.time ?: it.timestamp
-                    Log.d("SKYSPHERE_TIMELAPSE", "FRAME_READY timestamp=$fTs frame_index=${it.index}")
+                    val fKeys = snapshotKeys.filter { k -> k.contains("_${fTs}_") }
+                    val fLoaded = fKeys.count { k -> TileRamCache.contains(k) || DiskTileCache.contains(k) }
+                    Log.d("SKYSPHERE_TIMELAPSE", "FRAME_READY timestamp=$fTs frame_index=${it.index} loaded=$fLoaded/${fKeys.size}")
+                    Log.d("SKYSPHERE_TIMELAPSE", "FRAME_READY\ntimestamp=$fTs\nframe_index=${it.index}\nloaded=$fLoaded/${fKeys.size}")
                     onFrameReady?.invoke(it.index)
                 }
                 return@withContext
@@ -423,13 +445,17 @@ object RadarPreloader {
                 if (info != null) {
                     val (frame, x, y) = info
                     val job = scope.launch(Dispatchers.IO) {
+                        if (generationId != getCurrentGenerationId()) return@launch
                         preloaderSemaphore.withPermit {
+                            if (generationId != getCurrentGenerationId()) return@withPermit
                             try {
                                 preloadSingleTile(layer, frame, pZoom, x, y)
                             } catch (e: Exception) {
                                 Log.w("RadarPreloader", "Failed tile download $key: ${e.localizedMessage}")
                             } finally {
                                 activeTileJobs.remove(key)
+                                if (generationId != getCurrentGenerationId()) return@withPermit
+
                                 val currRequired = currentRequiredKeys
                                 val curLoaded = currRequired.count { TileRamCache.contains(it) || DiskTileCache.contains(it) }
                                 val curTotal = currRequired.size
@@ -459,7 +485,8 @@ object RadarPreloader {
                                 Log.d("SKYSPHERE_TIMELAPSE", "FRAME_COMPLETION timestamp=$frameTimestamp frame_index=${frame.index} loaded_tiles=$frameLoaded/total_tiles=$frameTotal")
 
                                 if (frameTotal > 0 && frameLoaded == frameTotal) {
-                                    Log.d("SKYSPHERE_TIMELAPSE", "FRAME_READY timestamp=$frameTimestamp frame_index=${frame.index}")
+                                    Log.d("SKYSPHERE_TIMELAPSE", "FRAME_READY timestamp=$frameTimestamp frame_index=${frame.index} loaded=$frameLoaded/$frameTotal")
+                                    Log.d("SKYSPHERE_TIMELAPSE", "FRAME_READY\ntimestamp=$frameTimestamp\nframe_index=${frame.index}\nloaded=$frameLoaded/$frameTotal")
                                     RadarDiag.logFrameReadyEvent(frame.index, frameTimestamp, frameKeys.size)
                                     onFrameReady?.invoke(frame.index)
                                 }
@@ -489,9 +516,19 @@ object RadarPreloader {
         forceRestart: Boolean = false
     ): Job {
         synchronized(this) {
+            val timestamps = frames.map { it.radarFrame?.time ?: it.timestamp }
+            val newParams = PreloadSessionParams(layer, timestamps, centerLat, centerLon, mapZoom)
             val currentJob = activePreparationJob
-            if (!forceRestart && currentJob != null && currentJob.isActive) {
+
+            if (!forceRestart && currentJob != null && currentJob.isActive && activeSessionParams == newParams) {
                 return currentJob
+            }
+
+            val targetGenId = if (activeSessionParams != newParams || forceRestart) {
+                activeSessionParams = newParams
+                nextGenerationId()
+            } else {
+                getCurrentGenerationId()
             }
 
             val job = scope.launch(Dispatchers.IO) {
@@ -500,15 +537,15 @@ object RadarPreloader {
                 val prioritizedFrames = mutableListOf<TimeLapseFrame>()
                 if (frames.isNotEmpty()) {
                     val safeIndex = currentFrameIndex.coerceIn(0, frames.size - 1)
-                    // 1. Current frame
+                    // Priority 1: Current frame
                     prioritizedFrames.add(frames[safeIndex])
-                    // 2. Next frame
+                    // Priority 2: Next frame
                     val nextIdx = (safeIndex + 1) % frames.size
                     if (!prioritizedFrames.contains(frames[nextIdx])) prioritizedFrames.add(frames[nextIdx])
-                    // 3. Previous frame
+                    // Priority 3: Previous frame
                     val prevIdx = (safeIndex - 1 + frames.size) % frames.size
                     if (!prioritizedFrames.contains(frames[prevIdx])) prioritizedFrames.add(frames[prevIdx])
-                    // 4. Remaining frames
+                    // Priority 4: Remaining frames
                     frames.forEach { f ->
                         if (!prioritizedFrames.contains(f)) prioritizedFrames.add(f)
                     }
@@ -520,7 +557,8 @@ object RadarPreloader {
                     centerLat = centerLat,
                     centerLon = centerLon,
                     mapZoom = mapZoom,
-                    mapView = mapView
+                    mapView = mapView,
+                    generationId = targetGenId
                 )
             }
             activePreparationJob = job
@@ -800,22 +838,27 @@ object RadarPreloader {
                                 val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                                 if (bmp != null) {
                                     RadarDiag.logTileDownloadCompletion(key, "SUCCESS", bytes.size.toLong(), code, url)
+                                    Log.d("SKYSPHERE_TIMELAPSE", "TILE_DECODE_SUCCESS key=$key")
                                     bmp
                                 } else {
                                     RadarDiag.logTileDownloadCompletion(key, "DECODE_FAILED", bytes.size.toLong(), code, url)
+                                    Log.d("SKYSPHERE_TIMELAPSE", "TILE_DECODE_FAILED key=$key")
                                     null
                                 }
                             } else {
                                 RadarDiag.logTileDownloadCompletion(key, "EMPTY_BODY_TRANSPARENT", 0L, code, url)
+                                Log.d("SKYSPHERE_TIMELAPSE", "TILE_DECODE_SUCCESS key=$key status=EMPTY_BODY_TRANSPARENT")
                                 emptyTransparentBitmap
                             }
                         }
                         code == 404 || code == 204 -> {
                             RadarDiag.logTileDownloadCompletion(key, "HTTP_${code}_TRANSPARENT", 0L, code, url)
+                            Log.d("SKYSPHERE_TIMELAPSE", "TILE_DECODE_SUCCESS key=$key status=HTTP_${code}_TRANSPARENT")
                             emptyTransparentBitmap
                         }
                         code == 410 -> {
                             RadarDiag.logTileDownloadCompletion(key, "EXPIRED_410", 0L, code, url)
+                            Log.d("SKYSPHERE_TIMELAPSE", "TILE_DECODE_FAILED key=$key status=EXPIRED_410")
                             null
                         }
                         code == 429 -> {
@@ -825,10 +868,12 @@ object RadarPreloader {
 
                             RadarDiag.logTileDownloadCompletion(key, "RATE_LIMIT_429", 0L, code, url)
                             Log.w("RadarPreloader", "HTTP 429 Rate limited for $url! Set global cooldown for ${retryAfterMs}ms.")
+                            Log.d("SKYSPHERE_TIMELAPSE", "TILE_DECODE_FAILED key=$key status=RATE_LIMIT_429")
                             null
                         }
                         else -> {
                             RadarDiag.logTileDownloadCompletion(key, "HTTP_ERROR_${code}", 0L, code, url)
+                            Log.d("SKYSPHERE_TIMELAPSE", "TILE_DECODE_FAILED key=$key status=HTTP_ERROR_${code}")
                             null
                         }
                     }
@@ -843,13 +888,15 @@ object RadarPreloader {
                 }
             } catch (e: Exception) {
                 RadarDiag.logTileDownloadCompletion(key, "EXCEPTION_${e.javaClass.simpleName}", 0L, 0, url)
+                Log.d("SKYSPHERE_TIMELAPSE", "TILE_DECODE_FAILED key=$key status=EXCEPTION_${e.javaClass.simpleName}")
                 if (attempt < maxAttempts) {
                     try { Thread.sleep(1000L * attempt) } catch (_: Exception) {}
                 }
             }
         }
         RadarDiag.logTileDownloadCompletion(key, "FAILED_ALL_ATTEMPTS", 0L, 0, url)
-        return emptyTransparentBitmap
+        Log.d("SKYSPHERE_TIMELAPSE", "TILE_DECODE_FAILED key=$key status=FAILED_ALL_ATTEMPTS")
+        return null
     }
 
     private fun applyDarkCloudStyle(originalBitmap: Bitmap): Bitmap {

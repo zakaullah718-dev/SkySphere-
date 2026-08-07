@@ -18,6 +18,9 @@ object PlaybackProtectedCache {
     fun setProtectedKeys(keys: Collection<String>) {
         activePlaybackKeys.clear()
         activePlaybackKeys.addAll(keys)
+        keys.forEach { key ->
+            Log.d("SKYSPHERE_TIMELAPSE", "TILE_PROTECTED key=$key")
+        }
         
         // Retain only tiles that are still part of the active playback sequence
         val beforeCount = protectedTiles.size
@@ -30,9 +33,20 @@ object PlaybackProtectedCache {
         )
     }
 
+    fun addProtectedKeys(keys: Collection<String>) {
+        activePlaybackKeys.addAll(keys)
+        keys.forEach { key ->
+            Log.d("SKYSPHERE_TIMELAPSE", "TILE_PROTECTED key=$key")
+        }
+    }
+
     fun put(key: String, bitmap: Bitmap) {
         if (!bitmap.isRecycled) {
             protectedTiles[key] = bitmap
+            Log.d(
+                "SKYSPHERE_TIMELAPSE",
+                "TILE_PROTECTED key=$key"
+            )
             Log.d(
                 "SKYSPHERE_TIMELAPSE",
                 "PLAYBACK_PROTECTED RESULT=PUT KEY=$key PROTECTED_TILES=${protectedTiles.size}"

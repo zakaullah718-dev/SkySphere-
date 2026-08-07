@@ -39,6 +39,8 @@ object RadarTileFetcher {
         return inFlightTasks.containsKey(cacheKey)
     }
 
+    fun getInFlightCount(): Int = inFlightTasks.size
+
     fun fetchOrDeduplicateTile(
         cacheKey: String,
         fetcher: () -> Bitmap?
@@ -84,9 +86,9 @@ object RadarTileFetcher {
         val existingTask = inFlightTasks.putIfAbsent(cacheKey, newTask)
         if (existingTask != null) {
             RadarDiag.logDuplicateRequest(cacheKey)
-            Log.d("SKYSPHERE_TIMELAPSE", "in-flight deduplicated KEY=$cacheKey")
+            Log.d("SKYSPHERE_TIMELAPSE", "TILE_REQUEST_DEDUP key=$cacheKey")
             return try {
-                existingTask.get(5, TimeUnit.SECONDS)
+                existingTask.get(10, TimeUnit.SECONDS)
             } catch (e: Exception) {
                 null
             }
@@ -98,7 +100,7 @@ object RadarTileFetcher {
 
         return try {
             newTask.run()
-            newTask.get(5, TimeUnit.SECONDS)
+            newTask.get(10, TimeUnit.SECONDS)
         } catch (e: Exception) {
             null
         } finally {

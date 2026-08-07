@@ -26,10 +26,12 @@ object TileRamCache {
 
         override fun entryRemoved(evicted: Boolean, key: String, oldValue: Bitmap, newValue: Bitmap?) {
             if (evicted) {
-                if (PlaybackProtectedCache.contains(key)) {
+                val isProtected = PlaybackProtectedCache.contains(key)
+                Log.d("SKYSPHERE_TIMELAPSE", "TILE_EVICTED key=$key protected=$isProtected")
+                if (isProtected) {
                     Log.d("RadarCache", "Cache Eviction (RAM LRU Limit Reached) | Key: $key evicted from LRU but RETAINED in PlaybackProtectedCache | Protected Tiles: ${PlaybackProtectedCache.size()}")
                 } else {
-                    Log.d("RadarCache", "Cache Eviction (RAM LRU Limit Reached) | Key: $key | Remaining LRU: ${size()} tiles (${sizeInKb()} KB)")
+                    Log.d("RadarCache", "Cache Eviction (RAM LRU Limit Reached) | Key: $key | Remaining LRU: ${snapshot().size} tiles (${size()} KB)")
                 }
             }
         }

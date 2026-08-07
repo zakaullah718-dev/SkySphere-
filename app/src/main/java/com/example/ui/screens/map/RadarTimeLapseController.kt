@@ -305,12 +305,74 @@ class RadarTimeLapseController(
         }
     }
 
-    private suspend fun runFrameLoop(onFrameChanged: (TimeLapseFrame) -> Unit) {
-        val targetAvailabilityThreshold = 0.90f // Requirement 10: Tile Availability Gate (90%)
-        var currentStallIndex = -1
-        var stallStartTimeMs = 0L
-        var snapshotLoggedForFrame = -1
+    private data class FrameReadinessInfo(
+        val isReady: Boolean,
+        val loadedCount: Int,
+        val requiredCount: Int,
+        val missingCount: Int,
+        val inFlightCount: Int,
+        val failedCount: Int
+    )
 
+    private fun checkFrameReadiness(
+        layer: MapWeatherLayer,
+        frame: TimeLapseFrame,
+        zoom: Int
+    ): FrameReadinessInfo {
+        val requiredKeys = RadarPreloader.getRequiredTileKeys(layer, listOf(frame), currentLat, currentLon, zoom, mapView)
+        val requiredCount = requiredKeys.size
+        if (requiredCount == 0) {
+            return FrameReadinessInfo(
+                isReady = true,
+                loadedCount = 0,
+                requiredCount = 0,
+                missingCount = 0,
+                inFlightCount = 0,
+                failedCount = 0
+            )
+        }
+
+        var loadedCount = 0
+        var inFlightCount = 0
+        var missingCount = 0
+
+        requiredKeys.forEach { key ->
+            if (TileRamCache.contains(key)) {
+                loadedCount++
+            } else if (DiskTileCache.contains(key)) {
+                val diskTile = DiskTileCache.get(key)
+                if (diskTile != null && !diskTile.isRecycled) {
+                    TileRamCache.put(key, diskTile)
+                    Log.d("SKYSPHERE_TIMELAPSE", "DISK=HIT RAM_PROMOTE=SUCCESS KEY=$key")
+                    loadedCount++
+                } else {
+                    missingCount++
+                }
+            } else {
+                missingCount++
+                if (RadarTileFetcher.isInFlight(key)) {
+                    inFlightCount++
+                }
+            }
+        }
+
+        val failedCount = 0
+        val isReady = (requiredCount > 0 && loadedCount == requiredCount)
+
+        val readinessPct = loadedCount.toFloat() / requiredCount.toFloat()
+        RadarDiag.recordFrameReadiness(readinessPct * 100f)
+
+        return FrameReadinessInfo(
+            isReady = isReady,
+            loadedCount = loadedCount,
+            requiredCount = requiredCount,
+            missingCount = missingCount,
+            inFlightCount = inFlightCount,
+            failedCount = failedCount
+        )
+    }
+
+    private suspend fun runFrameLoop(onFrameChanged: (TimeLapseFrame) -> Unit) {
         while (_state.value.isPlaying) {
             val currentState = _state.value
             val frames = currentState.frames
@@ -320,75 +382,67 @@ class RadarTimeLapseController(
             val nextIndex = (currentIndex + 1) % frames.size
             val nextFrame = frames[nextIndex]
 
-            if (nextIndex != currentStallIndex) {
-                currentStallIndex = nextIndex
-                stallStartTimeMs = System.currentTimeMillis()
-                snapshotLoggedForFrame = -1
-            }
+            // Protect RAM cache for playback window: previous + current + next + lookahead
+            val prevIndex = (currentIndex - 1 + frames.size) % frames.size
+            val lookaheadIndex = (nextIndex + 1) % frames.size
+            val activeWindowFrames = listOfNotNull(
+                frames.getOrNull(prevIndex),
+                frames.getOrNull(currentIndex),
+                nextFrame,
+                frames.getOrNull(lookaheadIndex)
+            )
+            val windowKeys = RadarPreloader.getRequiredTileKeys(
+                currentState.activeLayer,
+                activeWindowFrames,
+                currentLat,
+                currentLon,
+                currentZoom,
+                mapView
+            )
+            PlaybackProtectedCache.setProtectedKeys(windowKeys)
 
-            val isCooldown = RadarPreloader.is429CooldownActive()
-
-            var (isReady, loadedCount, requiredCount) = waitForFrameReadiness(
+            val readiness = checkFrameReadiness(
                 layer = currentState.activeLayer,
                 frame = nextFrame,
-                zoom = currentZoom,
-                minReadinessPct = targetAvailabilityThreshold,
-                maxWaitTimeMs = if (isCooldown) 2000L else 1000L
+                zoom = currentZoom
             )
 
-            val stallDurationMs = System.currentTimeMillis() - stallStartTimeMs
-
-            if (!isReady) {
+            if (!readiness.isReady) {
                 _state.update { it.copy(isBuffering = true) }
-                val currentFrameTs = frames.getOrNull(currentIndex)?.timestamp ?: 0L
 
-                // Requirement 11: Add single diagnostic snapshot for frame stuck > 5 seconds
-                if (stallDurationMs >= 5000L && snapshotLoggedForFrame != nextIndex) {
-                    snapshotLoggedForFrame = nextIndex
-                    val requiredKeys = RadarPreloader.getRequiredTileKeys(currentState.activeLayer, listOf(nextFrame), currentLat, currentLon, currentZoom, mapView)
-                    val ramHits = requiredKeys.count { TileRamCache.contains(it) }
-                    val diskHits = requiredKeys.count { !TileRamCache.contains(it) && DiskTileCache.contains(it) }
-                    val missingKeys = requiredKeys.filter { !TileRamCache.contains(it) && !DiskTileCache.contains(it) }
-                    val inFlightCount = missingKeys.count { RadarTileFetcher.isInFlight(it) }
+                Log.d(
+                    "SKYSPHERE_TIMELAPSE",
+                    "FRAME_WAIT timestamp=${nextFrame.timestamp} frameIndex=$nextIndex required=${readiness.requiredCount} loaded=${readiness.loadedCount} missing=${readiness.missingCount} inFlight=${readiness.inFlightCount} failed=${readiness.failedCount}"
+                )
+                Log.d(
+                    "SKYSPHERE_TIMELAPSE",
+                    "FRAME_WAIT\ntimestamp=${nextFrame.timestamp}\nframeIndex=$nextIndex\nrequired=${readiness.requiredCount}\nloaded=${readiness.loadedCount}\nmissing=${readiness.missingCount}\ninFlight=${readiness.inFlightCount}\nfailed=${readiness.failedCount}"
+                )
 
-                    Log.w(
-                        "SKYSPHERE_TIMELAPSE_STALL",
-                        """
-                        FRAME=${nextFrame.timestamp}
-                        ZOOM=$currentZoom
-                        REQUIRED_TILES=$requiredCount
-                        RAM_HITS=$ramHits
-                        DISK_HITS=$diskHits
-                        IN_FLIGHT=$inFlightCount
-                        NETWORK_REQUESTED=${missingKeys.size}
-                        NETWORK_SUCCESS=$loadedCount
-                        NETWORK_FAILED=0
-                        MISSING_TILES=${missingKeys.size}
-                        MISSING_KEYS:
-                        ${missingKeys.joinToString("\n")}
-                        FRAME_STATUS=STALLED
-                        PLAYBACK_INDEX=$currentIndex
-                        NEXT_INDEX=$nextIndex
-                        """.trimIndent()
-                    )
+                // Ensure tile preparation is active for this frame
+                RadarPreloader.startBackgroundPreparation(
+                    layer = currentState.activeLayer,
+                    frames = frames,
+                    currentFrameIndex = nextIndex,
+                    centerLat = currentLat,
+                    centerLon = currentLon,
+                    mapZoom = currentZoom,
+                    mapView = mapView
+                )
 
-                    missingKeys.forEach { key ->
-                        TileRamCache.put(key, RadarPreloader.emptyTransparentBitmap)
-                    }
-                    isReady = true
-                    Log.d(
-                        "SKYSPHERE_TIMELAPSE",
-                        "FRAME=${nextFrame.timestamp} ZOOM=$currentZoom STATUS=FORCE_READY_AFTER_STALL ACTION=ADVANCE_PLAYBACK"
-                    )
-                } else {
-                    Log.d(
-                        "SKYSPHERE_TIMELAPSE",
-                        "FRAME=${nextFrame.timestamp} required tile count: $requiredCount ready tile count: $loadedCount frame NOT READY STALL_MS=$stallDurationMs"
-                    )
-                    delay(100L)
-                    continue
-                }
+                delay(100L)
+                continue
             }
+
+            // Frame is 100% READY
+            Log.d(
+                "SKYSPHERE_TIMELAPSE",
+                "FRAME_READY timestamp=${nextFrame.timestamp} frameIndex=$nextIndex loaded=${readiness.loadedCount}/${readiness.requiredCount}"
+            )
+            Log.d(
+                "SKYSPHERE_TIMELAPSE",
+                "FRAME_READY\ntimestamp=${nextFrame.timestamp}\nframeIndex=$nextIndex\nloaded=${readiness.loadedCount}/${readiness.requiredCount}"
+            )
 
             RadarDiag.logPlaybackFrameSwitch(currentIndex, nextIndex, nextFrame.timestamp)
             RadarDiag.currentFrameIndex = nextIndex
@@ -400,76 +454,11 @@ class RadarTimeLapseController(
                     currentFrameIndex = nextIndex
                 )
             }
-            Log.d(
-                "SKYSPHERE_TIMELAPSE",
-                "FRAME=${nextFrame.timestamp} required tile count: $requiredCount ready tile count: $loadedCount frame READY RAM playback hit protected_tiles=${PlaybackProtectedCache.size()}"
-            )
             onFrameChanged(nextFrame)
 
             val delayMs = currentState.delayMs
             delay(delayMs)
         }
-    }
-
-    private suspend fun waitForFrameReadiness(
-        layer: MapWeatherLayer,
-        frame: TimeLapseFrame,
-        zoom: Int,
-        minReadinessPct: Float = 0.90f,
-        maxWaitTimeMs: Long = 1200L
-    ): Triple<Boolean, Int, Int> = withContext(Dispatchers.IO) {
-        val requiredKeys = RadarPreloader.getRequiredTileKeys(layer, listOf(frame), currentLat, currentLon, zoom, mapView)
-        val requiredCount = requiredKeys.size
-        if (requiredCount == 0) return@withContext Triple(true, 0, 0)
-
-        var loadedCount = 0
-        var attempts = 0
-        val maxAttempts = (maxWaitTimeMs / 50L).toInt().coerceAtLeast(1)
-
-        while (_state.value.isPlaying && attempts < maxAttempts) {
-            loadedCount = 0
-            requiredKeys.forEach { key ->
-                if (TileRamCache.contains(key)) {
-                    loadedCount++
-                } else if (DiskTileCache.contains(key)) {
-                    val diskTile = DiskTileCache.get(key)
-                    if (diskTile != null && !diskTile.isRecycled) {
-                        TileRamCache.put(key, diskTile)
-                        Log.d("SKYSPHERE_TIMELAPSE", "DISK=HIT RAM_PROMOTE=SUCCESS KEY=$key")
-                        loadedCount++
-                    }
-                }
-            }
-
-            val readinessPct = loadedCount.toFloat() / requiredCount.toFloat()
-            RadarDiag.recordFrameReadiness(readinessPct * 100f)
-            RadarDiag.recordVisibleTileReadiness(readinessPct * 100f)
-
-            if (readinessPct >= minReadinessPct) {
-                return@withContext Triple(true, loadedCount, requiredCount)
-            }
-
-            delay(50L)
-            attempts++
-        }
-
-        loadedCount = 0
-        requiredKeys.forEach { key ->
-            if (TileRamCache.contains(key)) {
-                loadedCount++
-            } else if (DiskTileCache.contains(key)) {
-                val diskTile = DiskTileCache.get(key)
-                if (diskTile != null && !diskTile.isRecycled) {
-                    TileRamCache.put(key, diskTile)
-                    Log.d("SKYSPHERE_TIMELAPSE", "DISK=HIT RAM_PROMOTE=SUCCESS KEY=$key")
-                    loadedCount++
-                }
-            }
-        }
-        val finalReadinessPct = loadedCount.toFloat() / requiredCount.toFloat()
-        RadarDiag.recordFrameReadiness(finalReadinessPct * 100f)
-        val isUsable = (finalReadinessPct >= minReadinessPct)
-        return@withContext Triple(isUsable, loadedCount, requiredCount)
     }
 
     fun pause() {
