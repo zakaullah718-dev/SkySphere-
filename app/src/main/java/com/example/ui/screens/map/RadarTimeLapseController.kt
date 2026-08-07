@@ -137,7 +137,7 @@ class RadarTimeLapseController(
                     RadarDiag.logFrameReadyEvent(fIdx, frames.getOrNull(fIdx)?.timestamp ?: 0L, 0)
                     _state.update { s ->
                         val updatedFrames = s.frames.map { f ->
-                            if (f.index == fIdx) f.copy(isReady = true) else f
+                            if (f.index == fIdx) f.copy(status = FramePreparationStatus.READY) else f
                         }
                         s.copy(frames = updatedFrames)
                     }
@@ -145,7 +145,7 @@ class RadarTimeLapseController(
             )
 
             _state.update { s ->
-                val allReadyFrames = s.frames.map { f -> f.copy(isReady = true) }
+                val allReadyFrames = s.frames.map { f -> f.copy(status = FramePreparationStatus.READY) }
                 s.copy(
                     frames = allReadyFrames,
                     isLoading = false,
@@ -383,19 +383,8 @@ class RadarTimeLapseController(
                 } else {
                     Log.d(
                         "SKYSPHERE_TIMELAPSE",
-                        "FRAME=${nextFrame.timestamp} ZOOM=$currentZoom STATUS=WAITING_FOR_TILES ACTION=KEEP_FRAME_${currentFrameTs}_VISIBLE LOADED=$loadedCount/$requiredCount STALL_MS=$stallDurationMs"
+                        "FRAME=${nextFrame.timestamp} required tile count: $requiredCount ready tile count: $loadedCount frame NOT READY STALL_MS=$stallDurationMs"
                     )
-
-                    RadarPreloader.startBackgroundPreparation(
-                        layer = currentState.activeLayer,
-                        frames = frames,
-                        currentFrameIndex = nextIndex,
-                        centerLat = currentLat,
-                        centerLon = currentLon,
-                        mapZoom = currentZoom,
-                        mapView = mapView
-                    )
-
                     delay(100L)
                     continue
                 }
@@ -413,19 +402,9 @@ class RadarTimeLapseController(
             }
             Log.d(
                 "SKYSPHERE_TIMELAPSE",
-                "FRAME=${nextFrame.timestamp} ZOOM=$currentZoom STATUS=READY ACTION=DISPLAY LOADED=$loadedCount/$requiredCount"
+                "FRAME=${nextFrame.timestamp} required tile count: $requiredCount ready tile count: $loadedCount frame READY RAM playback hit protected_tiles=${PlaybackProtectedCache.size()}"
             )
             onFrameChanged(nextFrame)
-
-            RadarPreloader.startBackgroundPreparation(
-                layer = currentState.activeLayer,
-                frames = frames,
-                currentFrameIndex = nextIndex,
-                centerLat = currentLat,
-                centerLon = currentLon,
-                mapZoom = currentZoom,
-                mapView = mapView
-            )
 
             val delayMs = currentState.delayMs
             delay(delayMs)
@@ -503,6 +482,7 @@ class RadarTimeLapseController(
         viewportJob = null
         _state.update { it.copy(isPlaying = false, isBuffering = false) }
         RadarDiag.isPlaybackActive = false
+        RadarPreloader.pausePreparation("Playback paused")
         if (wasPlaying) {
             RadarDiag.logPlaybackStateTransition("Playing", "Paused")
         }

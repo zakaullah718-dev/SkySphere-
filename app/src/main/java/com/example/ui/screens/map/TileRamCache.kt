@@ -26,7 +26,11 @@ object TileRamCache {
 
         override fun entryRemoved(evicted: Boolean, key: String, oldValue: Bitmap, newValue: Bitmap?) {
             if (evicted) {
-                Log.d("RadarCache", "Cache Eviction (RAM LRU Limit Reached) | Key: $key | Remaining: ${size()} tiles (${sizeInKb()} KB)")
+                if (PlaybackProtectedCache.contains(key)) {
+                    Log.d("RadarCache", "Cache Eviction (RAM LRU Limit Reached) | Key: $key evicted from LRU but RETAINED in PlaybackProtectedCache | Protected Tiles: ${PlaybackProtectedCache.size()}")
+                } else {
+                    Log.d("RadarCache", "Cache Eviction (RAM LRU Limit Reached) | Key: $key | Remaining LRU: ${size()} tiles (${sizeInKb()} KB)")
+                }
             }
         }
     }
@@ -37,6 +41,15 @@ object TileRamCache {
     }
 
     fun get(key: String): Bitmap? {
+        // 1. Check Protected Playback Cache first
+        val protectedHit = PlaybackProtectedCache.get(key)
+        if (protectedHit != null && !protectedHit.isRecycled) {
+            RadarDiag.logRamCacheHit(key)
+            Log.d("SKYSPHERE_TIMELAPSE", "CACHE=PLAYBACK_PROTECTED RESULT=HIT KEY=$key TILES=${PlaybackProtectedCache.size()}")
+            return protectedHit
+        }
+
+        // 2. Check Standard LRU RAM Cache
         synchronized(cache) {
             val bitmap = cache.get(key)
             if (bitmap != null && !bitmap.isRecycled) {
@@ -52,6 +65,9 @@ object TileRamCache {
 
     fun put(key: String, bitmap: Bitmap) {
         if (!bitmap.isRecycled) {
+            if (PlaybackProtectedCache.isProtectedKey(key)) {
+                PlaybackProtectedCache.put(key, bitmap)
+            }
             try {
                 synchronized(cache) {
                     cache.put(key, bitmap)
@@ -67,6 +83,7 @@ object TileRamCache {
     }
 
     fun contains(key: String): Boolean {
+        if (PlaybackProtectedCache.contains(key)) return true
         synchronized(cache) {
             val bitmap = cache.get(key)
             return bitmap != null && !bitmap.isRecycled

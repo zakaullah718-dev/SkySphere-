@@ -84,6 +84,7 @@ object RadarTileFetcher {
         val existingTask = inFlightTasks.putIfAbsent(cacheKey, newTask)
         if (existingTask != null) {
             RadarDiag.logDuplicateRequest(cacheKey)
+            Log.d("SKYSPHERE_TIMELAPSE", "in-flight deduplicated KEY=$cacheKey")
             return try {
                 existingTask.get(5, TimeUnit.SECONDS)
             } catch (e: Exception) {
@@ -381,18 +382,23 @@ class RainRadarTileModuleProvider(
 
         val ramHit = TileRamCache.get(cacheKey)
         if (ramHit != null && !ramHit.isRecycled) {
-            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y RAM=HIT DISK=SKIP ACTION=DISPLAY")
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y RAM playback hit protected_tiles=${PlaybackProtectedCache.size()} ACTION=DISPLAY")
             return Pair(ramHit, "RAM Cache Hit")
         }
 
         val diskHit = DiskTileCache.get(cacheKey)
         if (diskHit != null && !diskHit.isRecycled) {
             TileRamCache.put(cacheKey, diskHit)
-            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=HIT ACTION=LOAD_TO_RAM")
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y DISK playback hit ACTION=LOAD_TO_RAM")
             return Pair(diskHit, "Disk Cache Hit")
         }
 
-        Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=MISS ACTION=NETWORK_DOWNLOAD")
+        if (isPlaybackActive || RadarDiag.isPlaybackActive) {
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=MISS ACTION=PLAYBACK_MISS_NO_NETWORK")
+            return Pair(RadarPreloader.emptyTransparentBitmap, "Playback Miss - Network Blocked")
+        }
+
+        Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y NETWORK download KEY=$cacheKey ACTION=NETWORK_DOWNLOAD")
 
         val bitmap = RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             var tileUrl = frame.buildTileUrl(clampedZoom, x, y)
@@ -547,18 +553,23 @@ class OwmTileModuleProvider(
 
         val ramHit = TileRamCache.get(cacheKey)
         if (ramHit != null && !ramHit.isRecycled) {
-            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y RAM=HIT DISK=SKIP ACTION=DISPLAY")
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y RAM playback hit protected_tiles=${PlaybackProtectedCache.size()} ACTION=DISPLAY")
             return ramHit
         }
 
         val diskHit = DiskTileCache.get(cacheKey)
         if (diskHit != null && !diskHit.isRecycled) {
             TileRamCache.put(cacheKey, diskHit)
-            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=HIT ACTION=LOAD_TO_RAM")
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y DISK playback hit ACTION=LOAD_TO_RAM")
             return diskHit
         }
 
-        Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=MISS ACTION=NETWORK_DOWNLOAD")
+        if (isPlaybackActive || RadarDiag.isPlaybackActive) {
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=MISS ACTION=PLAYBACK_MISS_NO_NETWORK")
+            return RadarPreloader.emptyTransparentBitmap
+        }
+
+        Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y NETWORK download KEY=$cacheKey ACTION=NETWORK_DOWNLOAD")
 
         return RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             val url = "https://tile.openweathermap.org/map/$layerEndpoint/$clampedZoom/$x/$y.png?appid=$owmApiKey"

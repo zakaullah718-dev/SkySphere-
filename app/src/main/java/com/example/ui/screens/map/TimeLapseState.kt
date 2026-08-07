@@ -1,5 +1,12 @@
 package com.example.ui.screens.map
 
+enum class FramePreparationStatus {
+    QUEUED,
+    DOWNLOADING,
+    READY,
+    FAILED_RETRYABLE
+}
+
 data class TimeLapseFrame(
     val index: Int,
     val timestamp: Long,
@@ -10,8 +17,11 @@ data class TimeLapseFrame(
     val radarFrame: RadarFrame? = null,
     val isNow: Boolean = false,
     val isForecast: Boolean = false,
-    val isReady: Boolean = false
-)
+    val status: FramePreparationStatus = FramePreparationStatus.QUEUED
+) {
+    val isReady: Boolean
+        get() = status == FramePreparationStatus.READY
+}
 
 data class TimeLapseState(
     val frames: List<TimeLapseFrame> = emptyList(),

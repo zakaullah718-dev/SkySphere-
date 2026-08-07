@@ -90,8 +90,29 @@ object RadarPreloader {
                 currentRequiredKeys = emptySet()
                 completedLogEmitted = false
                 maxSessionProgressPct = 0
+                PlaybackProtectedCache.clear(reason)
                 if (cancelCount > 0) {
                     Log.d("RadarPreloader", "PRELOAD CANCEL | Reason: $reason (Cancelled $cancelCount obsolete tile tasks)")
+                }
+            }
+        }
+    }
+
+    fun pausePreparation(reason: String = "Playback paused") {
+        synchronized(this) {
+            activePreparationJob?.cancel()
+            activePreparationJob = null
+        }
+        scope.launch {
+            pipelineMutex.withLock {
+                val cancelCount = activeTileJobs.size
+                activeTileJobs.values.forEach {
+                    it.cancel()
+                    RadarDiag.logCancelledDownload()
+                }
+                activeTileJobs.clear()
+                if (cancelCount > 0) {
+                    Log.d("RadarPreloader", "PRELOAD PAUSE | Reason: $reason (Stopped $cancelCount active download tasks)")
                 }
             }
         }
@@ -237,6 +258,8 @@ object RadarPreloader {
             val newRequiredKeys = getRequiredTileKeys(layer, frames, centerLat, centerLon, mapZoom, mapView)
             if (newRequiredKeys.isEmpty()) return@withContext
 
+            PlaybackProtectedCache.setProtectedKeys(newRequiredKeys)
+
             val sessionId = "REQ_SESS_${System.currentTimeMillis()}_${(100..999).random()}"
             RadarDiag.logSessionStart(sessionId, layer.name, mapZoom, newRequiredKeys.size)
 
@@ -346,6 +369,16 @@ object RadarPreloader {
             val totalTasks = snapshotKeys.size
             val loadedCount = snapshotKeys.count { TileRamCache.contains(it) || DiskTileCache.contains(it) }
 
+            // Diagnostic logging for frame tile requirements
+            frames.forEach { f ->
+                val fTs = f.radarFrame?.time ?: f.timestamp
+                val fKeys = snapshotKeys.filter { it.contains("_${fTs}_") }
+                Log.d("SKYSPHERE_TIMELAPSE", "FRAME_REQUIRED timestamp=$fTs frame_index=${f.index} required_tiles=${fKeys.size}")
+                fKeys.forEach { k ->
+                    Log.d("SKYSPHERE_TIMELAPSE", "FRAME_TILE_REQUIRED key=$k timestamp=$fTs")
+                }
+            }
+
             // Record Visible Tile Readiness (Frame 0) and Background Tile Readiness
             if (frames.isNotEmpty()) {
                 val frame0Timestamp = frames[0].radarFrame?.time ?: frames[0].timestamp
@@ -366,6 +399,7 @@ object RadarPreloader {
             maxSessionProgressPct = initialMonotonicPct
 
             RadarDiag.recordPreloadCompletion(initialMonotonicPct.toFloat())
+            Log.d("TimelapsePipeline", "PRELOAD_PROGRESS | Zoom: $pZoom | Required: $totalTasks | Loaded: $loadedCount | Completion: $initialMonotonicPct%")
             onProgress((totalTasks * initialMonotonicPct / 100), totalTasks)
 
             if (loadedCount == totalTasks) {
@@ -375,7 +409,11 @@ object RadarPreloader {
                         Log.d("RadarPreloader", "PRELOAD COMPLETE | Loaded $totalTasks/$totalTasks tiles (100%) for Zoom $pZoom")
                     }
                 }
-                frames.forEach { onFrameReady?.invoke(it.index) }
+                frames.forEach {
+                    val fTs = it.radarFrame?.time ?: it.timestamp
+                    Log.d("SKYSPHERE_TIMELAPSE", "FRAME_READY timestamp=$fTs frame_index=${it.index}")
+                    onFrameReady?.invoke(it.index)
+                }
                 return@withContext
             }
 
@@ -416,7 +454,12 @@ object RadarPreloader {
 
                                 val frameTimestamp = frame.radarFrame?.time ?: frame.timestamp
                                 val frameKeys = currRequired.filter { it.contains("_${frameTimestamp}_") }
-                                if (frameKeys.isNotEmpty() && frameKeys.all { TileRamCache.contains(it) || DiskTileCache.contains(it) }) {
+                                val frameLoaded = frameKeys.count { TileRamCache.contains(it) || DiskTileCache.contains(it) }
+                                val frameTotal = frameKeys.size
+                                Log.d("SKYSPHERE_TIMELAPSE", "FRAME_COMPLETION timestamp=$frameTimestamp frame_index=${frame.index} loaded_tiles=$frameLoaded/total_tiles=$frameTotal")
+
+                                if (frameTotal > 0 && frameLoaded == frameTotal) {
+                                    Log.d("SKYSPHERE_TIMELAPSE", "FRAME_READY timestamp=$frameTimestamp frame_index=${frame.index}")
                                     RadarDiag.logFrameReadyEvent(frame.index, frameTimestamp, frameKeys.size)
                                     onFrameReady?.invoke(frame.index)
                                 }
@@ -655,6 +698,8 @@ object RadarPreloader {
 
         if (TileRamCache.contains(cacheKey)) {
             Log.d("SKYSPHERE_TIMELAPSE", "FRAME=$timestamp ZOOM=$zoom X=$x Y=$y RAM=HIT DISK=SKIP ACTION=PRELOADED")
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME_TILE_CACHE_HIT_RAM key=$cacheKey timestamp=$timestamp")
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME_TILE_COMPLETED key=$cacheKey timestamp=$timestamp")
             return@withContext
         }
 
@@ -662,12 +707,15 @@ object RadarPreloader {
         if (diskTile != null && !diskTile.isRecycled) {
             TileRamCache.put(cacheKey, diskTile)
             Log.d("SKYSPHERE_TIMELAPSE", "FRAME=$timestamp ZOOM=$zoom X=$x Y=$y RAM=MISS DISK=HIT ACTION=LOAD_TO_RAM")
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME_TILE_CACHE_HIT_DISK key=$cacheKey timestamp=$timestamp")
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME_TILE_COMPLETED key=$cacheKey timestamp=$timestamp")
             return@withContext
         }
 
         Log.d("SKYSPHERE_TIMELAPSE", "FRAME=$timestamp ZOOM=$zoom X=$x Y=$y RAM=MISS DISK=MISS ACTION=NETWORK_DOWNLOAD")
+        Log.d("SKYSPHERE_TIMELAPSE", "FRAME_TILE_NETWORK key=$cacheKey timestamp=$timestamp")
 
-        RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
+        val fetchedBmp = RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
             if (layer == MapWeatherLayer.RAIN_RADAR) {
                 val tsInSec = if (timestamp > 10_000_000_000L) {
                     timestamp / 1000L
@@ -699,6 +747,9 @@ object RadarPreloader {
                 }
                 bitmap
             }
+        }
+        if (fetchedBmp != null) {
+            Log.d("SKYSPHERE_TIMELAPSE", "FRAME_TILE_COMPLETED key=$cacheKey timestamp=$timestamp")
         }
     }
 
