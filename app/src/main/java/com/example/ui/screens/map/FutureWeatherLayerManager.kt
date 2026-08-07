@@ -86,6 +86,7 @@ object RadarTileFetcher {
         val existingTask = inFlightTasks.putIfAbsent(cacheKey, newTask)
         if (existingTask != null) {
             RadarDiag.logDuplicateRequest(cacheKey)
+            Log.d("SKYSPHERE_TIMELAPSE", "DUPLICATE_TILE_REQUEST key=$cacheKey existingRequest=true")
             Log.d("SKYSPHERE_TIMELAPSE", "TILE_REQUEST_DEDUP key=$cacheKey")
             return try {
                 existingTask.get(10, TimeUnit.SECONDS)
@@ -159,6 +160,10 @@ class WeatherTilesOverlay(
         pTileProvider.clearTileCache()
 
         // Pre-populate osmdroid's tileCache for visible tiles if already present in RAM/Disk cache
+        var tilesSubmitted = 0
+        var tilesActuallyRendered = 0
+        var missingAtRender = 0
+
         if (frame != null && mapView != null) {
             try {
                 val mapZoom = mapView.zoomLevelDouble.toInt()
@@ -174,6 +179,7 @@ class WeatherTilesOverlay(
 
                 if (mapZoom <= providerMaxZoom) {
                     val (tileXs, tileYs) = RadarPreloader.computeViewportTileBounds(mapView, centerLat, centerLon, mapZoom)
+                    tilesSubmitted = tileXs.size * tileYs.size
                     for (x in tileXs) {
                         for (y in tileYs) {
                             val cacheKey = if (moduleProvider is RainRadarTileModuleProvider) {
@@ -185,10 +191,13 @@ class WeatherTilesOverlay(
 
                             if (cacheKey != null) {
                                 val bitmap = TileRamCache.get(cacheKey) ?: DiskTileCache.get(cacheKey)
-                                if (bitmap != null) {
+                                if (bitmap != null && bitmap != RadarPreloader.emptyTransparentBitmap && !bitmap.isRecycled) {
+                                    tilesActuallyRendered++
                                     val pMapTileIndex = MapTileIndex.getTileIndex(mapZoom, x, y)
                                     val drawable = BitmapDrawable(pContext.resources, bitmap)
                                     pTileProvider.tileCache.putTile(pMapTileIndex, drawable)
+                                } else {
+                                    missingAtRender++
                                 }
                             }
                         }
@@ -196,6 +205,7 @@ class WeatherTilesOverlay(
                 } else {
                     val deltaZ = mapZoom - providerMaxZoom
                     val (tileXs, tileYs) = RadarPreloader.computeViewportTileBounds(mapView, centerLat, centerLon, mapZoom)
+                    tilesSubmitted = tileXs.size * tileYs.size
                     for (x in tileXs) {
                         for (y in tileYs) {
                             val parentX = x shr deltaZ
@@ -219,15 +229,20 @@ class WeatherTilesOverlay(
                                         val cropHeight = minOf(subSize, parentBmp.height - offsetY)
 
                                         if (cropWidth > 0 && cropHeight > 0) {
+                                            tilesActuallyRendered++
                                             val cropped = Bitmap.createBitmap(parentBmp, offsetX, offsetY, cropWidth, cropHeight)
                                             val scaledBitmap = Bitmap.createScaledBitmap(cropped, 256, 256, true)
                                             val drawable = BitmapDrawable(pContext.resources, scaledBitmap)
                                             val pMapTileIndex = MapTileIndex.getTileIndex(mapZoom, x, y)
                                             pTileProvider.tileCache.putTile(pMapTileIndex, drawable)
+                                        } else {
+                                            missingAtRender++
                                         }
                                     } catch (e: Exception) {
-                                        // Ignore cropping errors
+                                        missingAtRender++
                                     }
+                                } else {
+                                    missingAtRender++
                                 }
                             }
                         }
@@ -237,6 +252,11 @@ class WeatherTilesOverlay(
                 Log.w("TimelapsePipeline", "Error pre-populating osmdroid tileCache: ${e.localizedMessage}")
             }
         }
+
+        Log.d(
+            "SKYSPHERE_TIMELAPSE",
+            "FRAME_RENDER timestamp=$timestamp frameIndex=${frame?.index ?: -1} tilesSubmitted=$tilesSubmitted tilesActuallyRendered=$tilesActuallyRendered missingAtRender=$missingAtRender"
+        )
 
         mapView?.postInvalidate()
 

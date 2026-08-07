@@ -155,9 +155,28 @@ class RadarTimeLapseController(
         val layer = _state.value.activeLayer
         if (layer == MapWeatherLayer.NONE) return
 
+        val oldZoom = currentZoom
+        val currentFrame = _state.value.frames.getOrNull(_state.value.currentFrameIndex)
+        val oldKeys = if (currentFrame != null) {
+            RadarPreloader.getRequiredTileKeys(layer, listOf(currentFrame), currentLat, currentLon, oldZoom, mapView)
+        } else emptySet()
+
         currentLat = lat
         currentLon = lon
         currentZoom = zoom
+
+        val newKeys = if (currentFrame != null) {
+            RadarPreloader.getRequiredTileKeys(layer, listOf(currentFrame), lat, lon, zoom, mapView)
+        } else emptySet()
+
+        val reused = oldKeys intersect newKeys
+        val newTiles = newKeys - oldKeys
+        val removed = oldKeys - newKeys
+
+        Log.d(
+            "SKYSPHERE_TIMELAPSE",
+            "VIEWPORT_CHANGE oldZoom=$oldZoom newZoom=$zoom reusedTiles=${reused.size} newTiles=${newTiles.size} removedTiles=${removed.size}"
+        )
 
         RadarWarmUpEngine.updateViewport(lat, lon, zoom, layer, mapView)
     }
@@ -319,8 +338,19 @@ class RadarTimeLapseController(
         frame: TimeLapseFrame,
         zoom: Int
     ): FrameReadinessInfo {
-        val requiredKeys = RadarPreloader.getRequiredTileKeys(layer, listOf(frame), currentLat, currentLon, zoom, mapView)
-        val requiredCount = requiredKeys.size
+        val providerMaxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) {
+            FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
+        } else {
+            FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
+        }
+        val pZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
+        val (tileXs, tileYs) = RadarPreloader.computeViewportTileBounds(mapView, currentLat, currentLon, pZoom)
+
+        val frameTimestamp = frame.radarFrame?.time ?: frame.timestamp
+        val plan = RadarTilePlanner.planFrame(layer, frameTimestamp, pZoom, tileXs, tileYs)
+
+        val criticalKeys = plan.criticalKeys
+        val requiredCount = criticalKeys.size + plan.backgroundKeys.size
         if (requiredCount == 0) {
             return FrameReadinessInfo(
                 isReady = true,
@@ -333,43 +363,48 @@ class RadarTimeLapseController(
             )
         }
 
-        val providerMaxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) {
-            FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
-        } else {
-            FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
-        }
-        val pZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
-        val (tileXs, tileYs) = RadarPreloader.computeViewportTileBounds(mapView, currentLat, currentLon, pZoom)
-
         var loadedCount = 0
+        var loadedCriticalCount = 0
         var inFlightCount = 0
         var missingCount = 0
         var missingCenterCount = 0
 
-        requiredKeys.forEach { key ->
+        criticalKeys.forEach { key ->
+            if (TileRamCache.contains(key)) {
+                loadedCount++
+                loadedCriticalCount++
+            } else if (DiskTileCache.contains(key)) {
+                val diskTile = DiskTileCache.get(key)
+                if (diskTile != null && !diskTile.isRecycled) {
+                    TileRamCache.put(key, diskTile)
+                    loadedCount++
+                    loadedCriticalCount++
+                } else {
+                    missingCount++
+                    missingCenterCount++
+                }
+            } else {
+                missingCount++
+                missingCenterCount++
+                if (RadarTileFetcher.isInFlight(key)) {
+                    inFlightCount++
+                }
+            }
+        }
+
+        plan.backgroundKeys.forEach { key ->
             if (TileRamCache.contains(key)) {
                 loadedCount++
             } else if (DiskTileCache.contains(key)) {
                 val diskTile = DiskTileCache.get(key)
                 if (diskTile != null && !diskTile.isRecycled) {
                     TileRamCache.put(key, diskTile)
-                    Log.d("SKYSPHERE_TIMELAPSE", "DISK=HIT RAM_PROMOTE=SUCCESS KEY=$key")
                     loadedCount++
                 } else {
                     missingCount++
-                    val x = extractXFromKey(key)
-                    val y = extractYFromKey(key)
-                    if (RadarPreloader.isCenterTile(x, y, tileXs, tileYs)) {
-                        missingCenterCount++
-                    }
                 }
             } else {
                 missingCount++
-                val x = extractXFromKey(key)
-                val y = extractYFromKey(key)
-                if (RadarPreloader.isCenterTile(x, y, tileXs, tileYs)) {
-                    missingCenterCount++
-                }
                 if (RadarTileFetcher.isInFlight(key)) {
                     inFlightCount++
                 }
@@ -379,9 +414,25 @@ class RadarTimeLapseController(
         val readinessPct = if (requiredCount > 0) loadedCount.toFloat() / requiredCount.toFloat() else 1.0f
         RadarDiag.recordFrameReadiness(readinessPct * 100f)
 
-        val isFullReady = (requiredCount > 0 && loadedCount == requiredCount)
-        val isPartialReady = (readinessPct >= 0.90f && missingCenterCount == 0)
-        val isReady = isFullReady || isPartialReady
+        val isFullReady = (missingCount == 0)
+        val isCriticalReady = (criticalKeys.isEmpty() || missingCenterCount == 0)
+        val isReady = isFullReady || isCriticalReady
+
+        val loadedBackgroundCount = loadedCount - loadedCriticalCount
+        val missingBackgroundCount = plan.backgroundKeys.size - loadedBackgroundCount
+
+        Log.d(
+            "SKYSPHERE_TIMELAPSE",
+            "FRAME_READINESS criticalRequired=${criticalKeys.size} criticalReady=$loadedCriticalCount backgroundReady=$loadedBackgroundCount missingCritical=$missingCenterCount missingBackground=$missingBackgroundCount inFlight=$inFlightCount failed=0 isReady=$isReady"
+        )
+
+        if (isReady) {
+            val backgroundPending = plan.backgroundKeys.size - loadedBackgroundCount
+            Log.d(
+                "SKYSPHERE_TIMELAPSE",
+                "RADAR_PLAYBACK_READY frame=${frame.index} criticalRequired=${criticalKeys.size} criticalReady=$loadedCriticalCount backgroundPending=$backgroundPending"
+            )
+        }
 
         return FrameReadinessInfo(
             isReady = isReady,
@@ -416,27 +467,43 @@ class RadarTimeLapseController(
                 nextFrame,
                 frames.getOrNull(lookaheadIndex)
             )
-            val windowKeys = RadarPreloader.getRequiredTileKeys(
+
+            val providerMaxZoom = if (currentState.activeLayer == MapWeatherLayer.RAIN_RADAR) {
+                FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
+            } else {
+                FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
+            }
+            val pZoom = currentZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
+            val (tileXs, tileYs) = RadarPreloader.computeViewportTileBounds(mapView, currentLat, currentLon, pZoom)
+
+            val windowKeys = RadarTilePlanner.planPlaybackWindowCriticalKeys(
                 currentState.activeLayer,
                 activeWindowFrames,
-                currentLat,
-                currentLon,
-                currentZoom,
-                mapView
+                pZoom,
+                tileXs,
+                tileYs
             )
             PlaybackProtectedCache.setProtectedKeys(windowKeys)
 
-            if (isLoopFirstRun) {
-                isLoopFirstRun = false
-                val currReadiness = checkFrameReadiness(currentState.activeLayer, currentFrame, currentZoom)
-                val nextReadiness = checkFrameReadiness(currentState.activeLayer, nextFrame, currentZoom)
+            Log.d(
+                "SKYSPHERE_TIMELAPSE",
+                "FRAME_STATE timestamp=${currentFrame.timestamp} frameIndex=$currentIndex previousFrameIndex=$prevIndex nextFrameIndex=$nextIndex"
+            )
 
-                val currStatus = if (currReadiness.isReady) "READY" else "LOADING"
-                val nextStatus = if (nextReadiness.isReady) "READY" else "LOADING"
+            Log.d(
+                "SKYSPHERE_TIMELAPSE",
+                "CACHE_STATE ramTiles=${TileRamCache.size()} ramBytes=${TileRamCache.sizeInKb()}KB protectedTiles=${PlaybackProtectedCache.size()} diskTiles=${DiskTileCache.fileCount()}"
+            )
 
-                Log.d("SKYSPHERE_TIMELAPSE", "PLAYBACK_BUFFER_STATUS current=$currStatus next=$nextStatus future=QUEUED")
-                Log.d("SKYSPHERE_TIMELAPSE", "PLAYBACK_START_READY frame=$currentIndex loaded=${currReadiness.loadedCount}/${currReadiness.requiredCount}")
-            }
+            val currReadiness = checkFrameReadiness(currentState.activeLayer, currentFrame, currentZoom)
+            val nextReadiness = checkFrameReadiness(currentState.activeLayer, nextFrame, currentZoom)
+            val currStatus = if (currReadiness.isReady) "READY" else "LOADING"
+            val nextStatus = if (nextReadiness.isReady) "READY" else "LOADING"
+
+            Log.d(
+                "SKYSPHERE_TIMELAPSE",
+                "PLAYBACK_STATE current=$currStatus next=$nextStatus future=QUEUED playbackPosition=$currentIndex"
+            )
 
             val readiness = checkFrameReadiness(
                 layer = currentState.activeLayer,

@@ -209,17 +209,12 @@ object RadarPreloader {
         val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
         val (tileXs, tileYs) = computeViewportTileBounds(mapView, centerLat, centerLon, pZoom)
 
-        Log.d("RadarDebug", "getRequiredTileKeys | pZoom=$pZoom, tileXs=$tileXs, tileYs=$tileYs")
-
         val keys = mutableSetOf<String>()
         for (frame in frames) {
             val timestamp = frame.radarFrame?.time ?: frame.timestamp
-            for (x in tileXs) {
-                for (y in tileYs) {
-                    val k = buildTileKey(layer, timestamp, pZoom, x, y)
-                    keys.add(k)
-                }
-            }
+            val plan = RadarTilePlanner.planFrame(layer, timestamp, pZoom, tileXs, tileYs)
+            keys.addAll(plan.criticalKeys)
+            keys.addAll(plan.backgroundKeys)
         }
         return keys
     }
@@ -294,7 +289,16 @@ object RadarPreloader {
             val newRequiredKeys = getRequiredTileKeys(layer, frames, centerLat, centerLon, mapZoom, mapView)
             if (newRequiredKeys.isEmpty()) return@withContext
 
-            PlaybackProtectedCache.setProtectedKeys(newRequiredKeys)
+            val providerMaxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) {
+                FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
+            } else {
+                FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
+            }
+            val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
+            val (tileXs, tileYs) = computeViewportTileBounds(mapView, centerLat, centerLon, pZoom)
+            val activeFrames = frames.take(2)
+            val criticalWindowKeys = RadarTilePlanner.planPlaybackWindowCriticalKeys(layer, activeFrames, pZoom, tileXs, tileYs)
+            PlaybackProtectedCache.setProtectedKeys(criticalWindowKeys)
 
             val sessionId = "REQ_SESS_${System.currentTimeMillis()}_gen${generationId}_${(100..999).random()}"
             RadarDiag.logSessionStart(sessionId, layer.name, mapZoom, newRequiredKeys.size)
@@ -355,15 +359,6 @@ object RadarPreloader {
                     }
                 }
             }
-
-            val providerMaxZoom = if (layer == MapWeatherLayer.RAIN_RADAR) {
-                FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
-            } else {
-                FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
-            }
-
-            val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
-            val (tileXs, tileYs) = computeViewportTileBounds(mapView, centerLat, centerLon, pZoom)
 
             val numTilesDimension = 1 shl pZoom
             val centerX = ((centerLon + 180.0) / 360.0 * numTilesDimension).toInt().coerceIn(0, numTilesDimension - 1)
