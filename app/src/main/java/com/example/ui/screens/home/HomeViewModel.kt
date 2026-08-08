@@ -26,6 +26,7 @@ class HomeViewModel(
 
     init {
         viewModelScope.launch {
+            repository.getOrFetchActiveCity()
             repository.forceRefreshActiveCity()
         }
         viewModelScope.launch {

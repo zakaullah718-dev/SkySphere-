@@ -244,7 +244,9 @@ object RadarPreloader {
     private data class PreloadSessionParams(
         val layer: MapWeatherLayer,
         val frameTimestamps: List<Long>,
-        val pZoom: Int
+        val pZoom: Int,
+        val tileXs: List<Int>,
+        val tileYs: List<Int>
     )
 
     @Volatile private var activeSessionParams: PreloadSessionParams? = null
@@ -538,7 +540,8 @@ object RadarPreloader {
                 FutureWeatherLayerManager.OWM_PROVIDER_MAX_ZOOM
             }
             val pZoom = mapZoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, providerMaxZoom)
-            val newParams = PreloadSessionParams(layer, timestamps, pZoom)
+            val (tileXs, tileYs) = computeViewportTileBounds(mapView, centerLat, centerLon, pZoom)
+            val newParams = PreloadSessionParams(layer, timestamps, pZoom, tileXs, tileYs)
             val currentJob = activePreparationJob
 
             if (!forceRestart && currentJob != null && currentJob.isActive && activeSessionParams == newParams) {

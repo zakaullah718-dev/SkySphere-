@@ -69,10 +69,9 @@ object RadarTilePlanner {
 
                 candidates.add(candidateKey)
 
-                // Filter out tiles in areas with known NO radar coverage
+                // Track tiles in areas with reported no radar coverage for diagnostics, but do not exclude required viewport tiles
                 if (isRain && CoverageTileCache.hasCoverage(zoom, x, y) == false) {
                     excluded.add(candidateKey)
-                    continue
                 }
 
                 val isCenter = RadarPreloader.isCenterTile(x, y, tileXs, tileYs)

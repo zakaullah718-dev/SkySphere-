@@ -617,6 +617,87 @@ class WeatherRepository(private val context: Context) {
         }
     }
 
+    private data class FallbackInfo(
+        val country: String,
+        val region: String,
+        val temp: Int,
+        val cond: WeatherCondition,
+        val high: Int,
+        val low: Int,
+        val wind: Double
+    )
+
+    fun createFallbackCityWeather(cityName: String): CityWeather {
+        val cleanName = if (cityName.isBlank() || cityName == "Loading...") "London" else cityName
+        val info = when (cleanName.lowercase(Locale.US)) {
+            "new york" -> FallbackInfo("United States", "New York", 72, WeatherCondition.SUNNY, 76, 60, 10.0)
+            "tokyo" -> FallbackInfo("Japan", "Tokyo", 75, WeatherCondition.SUNNY, 78, 64, 6.2)
+            "paris" -> FallbackInfo("France", "Île-de-France", 68, WeatherCondition.PARTLY_CLOUDY, 71, 54, 7.0)
+            else -> FallbackInfo("United Kingdom", "England", 65, WeatherCondition.PARTLY_CLOUDY, 68, 52, 8.5)
+        }
+
+        val now = System.currentTimeMillis()
+        val hourlyList = (0..23).map { hourOffset ->
+            val hourMillis = now + (hourOffset * 3600000L)
+            val cal = Calendar.getInstance().apply { timeInMillis = hourMillis }
+            val hour24 = cal.get(Calendar.HOUR_OF_DAY)
+            val hourLabel = when {
+                hourOffset == 0 -> "Now"
+                hour24 == 0 -> "12 AM"
+                hour24 < 12 -> "$hour24 AM"
+                hour24 == 12 -> "12 PM"
+                else -> "${hour24 - 12} PM"
+            }
+            val tempVariation = (kotlin.math.sin(hourOffset * 0.26) * 6).toInt()
+            com.example.data.models.ForecastHour(
+                time = hourLabel,
+                temperature = info.temp + tempVariation,
+                condition = if (hour24 in 6..20) info.cond else WeatherCondition.PARTLY_CLOUDY,
+                precipitationChance = 15,
+                timestampEpochMillis = hourMillis,
+                isNight = hour24 !in 6..20
+            )
+        }
+
+        val dailyList = (0..6).map { dayIndex ->
+            val dayMillis = now + (dayIndex * 86400000L)
+            val sdf = SimpleDateFormat("EEE", Locale.US)
+            val dayLabel = if (dayIndex == 0) "Today" else sdf.format(Date(dayMillis))
+            com.example.data.models.ForecastDay(
+                dayName = dayLabel,
+                condition = if (dayIndex % 2 == 0) info.cond else WeatherCondition.PARTLY_CLOUDY,
+                highTemp = info.high + (dayIndex % 3) - 1,
+                lowTemp = info.low + (dayIndex % 2) - 1,
+                precipitationChance = (dayIndex * 10) % 40
+            )
+        }
+
+        return CityWeather(
+            cityName = cleanName.replaceFirstChar { if (it.isLowerCase()) it.titlecase(Locale.US) else it.toString() },
+            country = info.country,
+            region = info.region,
+            isFavorite = true,
+            weatherDetails = WeatherDetails(
+                currentTemp = info.temp,
+                feelsLike = info.temp - 2,
+                condition = info.cond,
+                highTemp = info.high,
+                lowTemp = info.low,
+                humidity = 58,
+                windSpeed = info.wind,
+                uvIndex = 5,
+                visibilityKm = 10.0,
+                pressureHpa = 1015,
+                sunrise = "06:15 AM",
+                sunset = "08:30 PM",
+                airQuality = AirQuality(32, "Good", "", ""),
+                hourlyForecast = hourlyList,
+                dailyForecast = dailyList,
+                aiSummary = "Atmospheric conditions for $cleanName show comfortable temperatures and mild winds."
+            )
+        )
+    }
+
     private suspend fun seedDefaultCities() {
         val defaults = listOf("London", "New York", "Tokyo", "Paris")
         val seeded = mutableListOf<CityWeather>()
@@ -628,6 +709,13 @@ class WeatherRepository(private val context: Context) {
                 seeded.add(withFav)
             }.onFailure {
                 it.printStackTrace()
+            }
+        }
+        if (seeded.isEmpty()) {
+            for (cityName in defaults) {
+                val fallback = createFallbackCityWeather(cityName)
+                saveCityToCache(fallback)
+                seeded.add(fallback)
             }
         }
         if (seeded.isNotEmpty()) {
@@ -987,10 +1075,14 @@ class WeatherRepository(private val context: Context) {
 
     suspend fun forceRefreshActiveCity() {
         val active = _selectedCity.value
-        if (active.cityName == "Loading...") return
+        val targetCityName = if (active.cityName == "Loading..." || active.cityName.isBlank()) {
+            prefs.getString("last_selected_city", "London") ?: "London"
+        } else {
+            active.cityName
+        }
         _isUpdating.value = true
         try {
-            val result = fetchWeatherFromApi(active.cityName, forceRefresh = true)
+            val result = fetchWeatherFromApi(targetCityName, forceRefresh = true)
             result.onSuccess { fullCityWeather ->
                 val alignedDetails = alignWeatherDetailsHourly(fullCityWeather.weatherDetails)
                 val finalHourly = if (alignedDetails.hourlyForecast.isNotEmpty()) {
@@ -1005,7 +1097,7 @@ class WeatherRepository(private val context: Context) {
                 }
 
                 val refreshedCity = fullCityWeather.copy(
-                    isFavorite = active.isFavorite,
+                    isFavorite = active.isFavorite || true,
                     weatherDetails = alignedDetails.copy(
                         hourlyForecast = finalHourly,
                         dailyForecast = finalDaily
@@ -1016,9 +1108,19 @@ class WeatherRepository(private val context: Context) {
                 updateUnitForCountryIfNeeded(refreshedCity.country)
             }
             result.onFailure { error ->
-                _repositoryError.value = "Failed to refresh weather for ${active.cityName}: ${error.localizedMessage ?: "Network connection error"}"
+                if (_selectedCity.value.cityName == "Loading...") {
+                    val fallback = createFallbackCityWeather(targetCityName)
+                    saveCityToCache(fallback)
+                    updateSelectedCity(fallback, "ForceRefreshFallback")
+                }
+                _repositoryError.value = "Failed to refresh weather for $targetCityName: ${error.localizedMessage ?: "Network connection error"}"
             }
         } catch (e: Exception) {
+            if (_selectedCity.value.cityName == "Loading...") {
+                val fallback = createFallbackCityWeather(targetCityName)
+                saveCityToCache(fallback)
+                updateSelectedCity(fallback, "ForceRefreshFallback")
+            }
             _repositoryError.value = "Refresh error: ${e.localizedMessage ?: "Unable to update weather"}"
         } finally {
             _isUpdating.value = false

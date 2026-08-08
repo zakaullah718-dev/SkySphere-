@@ -123,8 +123,10 @@ class WeatherTilesOverlay(
     fun updateFrame(frame: TimeLapseFrame?, mapView: MapView? = null) {
         if (moduleProvider is RainRadarTileModuleProvider) {
             moduleProvider.customRadarFrame = frame?.radarFrame
+            if (mapView != null) moduleProvider.mapView = mapView
         } else if (moduleProvider is OwmTileModuleProvider) {
             moduleProvider.currentFrame = frame
+            if (mapView != null) moduleProvider.mapView = mapView
         }
 
         val overlayId = System.identityHashCode(this)
@@ -151,13 +153,11 @@ class WeatherTilesOverlay(
             pTileProvider.setTileSource(tileSource)
         }
 
+        pTileProvider.tileCache.clear()
+
         mapView?.overlayManager?.refresh()
         RadarDiag.logMapInvalidate("WeatherTilesOverlay.updateFrame")
         mapView?.postInvalidate()
-
-        // Clear osmdroid's tileCache so old frame tiles are not retained
-        RadarDiag.logCacheClear("OSMDroid pTileProvider.tileCache", "Frame update (${frame?.index})")
-        pTileProvider.clearTileCache()
 
         // Pre-populate osmdroid's tileCache for visible tiles if already present in RAM/Disk cache
         var tilesSubmitted = 0
@@ -399,7 +399,7 @@ class RainRadarTileModuleProvider(
 
     private fun fetchProviderTileBitmap(zoom: Int, x: Int, y: Int): Pair<Bitmap?, String> {
         val clampedZoom = zoom.coerceIn(FutureWeatherLayerManager.PROVIDER_MIN_ZOOM, FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM)
-        var frame = customRadarFrame ?: radarRepository.getLatestRadarFrameSync()
+        var frame = customRadarFrame ?: radarRepository.cachedFrame ?: RadarFrame(time = radarRepository.getFallbackTimestamp())
         val cacheKey = "RainViewer_Radar_${frame.time}_${clampedZoom}_${x}_${y}"
 
         val ramHit = TileRamCache.get(cacheKey)
@@ -413,11 +413,6 @@ class RainRadarTileModuleProvider(
             TileRamCache.put(cacheKey, diskHit)
             Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y DISK playback hit ACTION=LOAD_TO_RAM")
             return Pair(diskHit, "Disk Cache Hit")
-        }
-
-        if (isPlaybackActive || RadarDiag.isPlaybackActive) {
-            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=MISS ACTION=PLAYBACK_MISS_NO_NETWORK")
-            return Pair(RadarPreloader.emptyTransparentBitmap, "Playback Miss - Network Blocked")
         }
 
         Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${frame.time} ZOOM=$clampedZoom X=$x Y=$y NETWORK download KEY=$cacheKey ACTION=NETWORK_DOWNLOAD")
@@ -437,7 +432,7 @@ class RainRadarTileModuleProvider(
                     httpCode = response.code
                     if (httpCode == 410) {
                         radarRepository.invalidateCache()
-                        frame = radarRepository.getLatestRadarFrameSync(forceRefresh = true)
+                        frame = radarRepository.cachedFrame ?: RadarFrame(time = radarRepository.getFallbackTimestamp())
                         tileUrl = frame.buildTileUrl(clampedZoom, x, y)
                         RadarApiTracker.logRainViewerRequest(tileUrl)
                         val retryReq = Request.Builder()
@@ -458,18 +453,23 @@ class RainRadarTileModuleProvider(
                 Log.e("RainRadarTile", "Network error fetching provider tile [Z=$clampedZoom, X=$x, Y=$y]: ${e.localizedMessage}")
             }
 
-            if (httpCode == 404 || httpCode == 204) {
+            val decodedBmp = if (httpCode == 404 || httpCode == 204) {
                 RadarPreloader.emptyTransparentBitmap
             } else if (tileBytes != null && tileBytes!!.isNotEmpty()) {
                 try {
                     val bmp = BitmapFactory.decodeByteArray(tileBytes, 0, tileBytes!!.size)
                     bmp ?: RadarPreloader.emptyTransparentBitmap
                 } catch (e: Exception) {
-                    RadarPreloader.emptyTransparentBitmap
+                    null
                 }
             } else if (httpCode == 200 && (tileBytes == null || tileBytes!!.isEmpty())) {
                 RadarPreloader.emptyTransparentBitmap
             } else null
+
+            if (decodedBmp != null) {
+                mapView?.postInvalidate()
+            }
+            decodedBmp
         }
 
         return Pair(bitmap, if (bitmap != null) "Loaded" else "Failed")
@@ -479,7 +479,7 @@ class RainRadarTileModuleProvider(
         override fun loadTile(pMapTileIndex: Long): Drawable? {
             val rawZoom = MapTileIndex.getZoom(pMapTileIndex)
             if (rawZoom < FutureWeatherLayerManager.PROVIDER_MIN_ZOOM || rawZoom > 20) {
-                return FutureWeatherLayerManager.emptyTransparentTile
+                return null
             }
 
             val mapZoom = rawZoom.coerceIn(
@@ -489,15 +489,13 @@ class RainRadarTileModuleProvider(
             val tileX = MapTileIndex.getX(pMapTileIndex)
             val tileY = MapTileIndex.getY(pMapTileIndex)
 
-            Log.d("RadarDraw", "Drawing tile at $tileX,$tileY (zoom=$mapZoom)")
-
             val providerMaxZoom = FutureWeatherLayerManager.RAIN_RADAR_PROVIDER_MAX_ZOOM
 
-            val drawableResult: Drawable = if (mapZoom <= providerMaxZoom) {
+            val drawableResult: Drawable? = if (mapZoom <= providerMaxZoom) {
                 val (bitmap, _) = fetchProviderTileBitmap(mapZoom, tileX, tileY)
-                if (bitmap != null) {
+                if (bitmap != null && !bitmap.isRecycled) {
                     BitmapDrawable(null, bitmap)
-                } else BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
+                } else null
             } else {
                 val parentZoom = providerMaxZoom
                 val deltaZ = mapZoom - parentZoom
@@ -506,12 +504,10 @@ class RainRadarTileModuleProvider(
 
                 val (parentBitmap, _) = fetchProviderTileBitmap(parentZoom, parentX, parentY)
                 if (parentBitmap == null || parentBitmap.isRecycled) {
-                    BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
+                    null
                 } else if (parentBitmap == RadarPreloader.emptyTransparentBitmap) {
                     BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
                 } else {
-                    Log.d("RadarDebug", "RENDER: loadTile returned bitmap with width=${parentBitmap.width} and pixel count=${parentBitmap.byteCount}")
-
                     try {
                         val scale = 1 shl deltaZ
                         val subSize = (256 / scale).coerceAtLeast(1)
@@ -530,7 +526,7 @@ class RainRadarTileModuleProvider(
                         }
                     } catch (e: Exception) {
                         Log.e("RainRadarZoom", "Error cropping/scaling radar tile [MapZoom=$mapZoom, X=$tileX, Y=$tileY]: ${e.localizedMessage}")
-                        BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
+                        null
                     }
                 }
             }
@@ -548,7 +544,8 @@ class OwmTileModuleProvider(
     private val owmApiKey: String,
     private val isCloudsDark: Boolean = false,
     @Volatile var isPlaybackActive: Boolean = false,
-    @Volatile var currentFrame: TimeLapseFrame? = null
+    @Volatile var currentFrame: TimeLapseFrame? = null,
+    @Volatile var mapView: MapView? = null
 ) : MapTileModuleProviderBase(8, 200) {
 
     private val client = OkHttpClient.Builder()
@@ -586,11 +583,6 @@ class OwmTileModuleProvider(
             return diskHit
         }
 
-        if (isPlaybackActive || RadarDiag.isPlaybackActive) {
-            Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y RAM=MISS DISK=MISS ACTION=PLAYBACK_MISS_NO_NETWORK")
-            return RadarPreloader.emptyTransparentBitmap
-        }
-
         Log.d("SKYSPHERE_TIMELAPSE", "FRAME=${currentFrame?.timestamp ?: 0} ZOOM=$clampedZoom X=$x Y=$y NETWORK download KEY=$cacheKey ACTION=NETWORK_DOWNLOAD")
 
         return RadarTileFetcher.fetchOrDeduplicateTile(cacheKey) {
@@ -614,7 +606,7 @@ class OwmTileModuleProvider(
                 Log.e("OwmTile", "Network error fetching OWM tile [$layerEndpoint Z=$clampedZoom X=$x Y=$y]: ${e.localizedMessage}")
             }
 
-            if (httpCode == 404 || httpCode == 204) {
+            val decodedBmp = if (httpCode == 404 || httpCode == 204) {
                 RadarPreloader.emptyTransparentBitmap
             } else if (tileBytes != null && tileBytes!!.isNotEmpty()) {
                 try {
@@ -630,6 +622,11 @@ class OwmTileModuleProvider(
             } else if (httpCode == 200 && (tileBytes == null || tileBytes!!.isEmpty())) {
                 RadarPreloader.emptyTransparentBitmap
             } else null
+
+            if (decodedBmp != null) {
+                mapView?.postInvalidate()
+            }
+            decodedBmp
         }
     }
 
@@ -672,7 +669,9 @@ class OwmTileModuleProvider(
 
             val res = if (mapZoom <= providerMaxZoom) {
                 val bitmap = fetchProviderTileBitmap(mapZoom, tileX, tileY)
-                BitmapDrawable(null, bitmap ?: RadarPreloader.emptyTransparentBitmap)
+                if (bitmap != null && !bitmap.isRecycled) {
+                    BitmapDrawable(null, bitmap)
+                } else null
             } else {
                 val deltaZ = mapZoom - providerMaxZoom
                 val parentX = tileX shr deltaZ
@@ -680,7 +679,7 @@ class OwmTileModuleProvider(
 
                 val parentBitmap = fetchProviderTileBitmap(providerMaxZoom, parentX, parentY)
                 if (parentBitmap == null || parentBitmap.isRecycled) {
-                    BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
+                    null
                 } else if (parentBitmap == RadarPreloader.emptyTransparentBitmap) {
                     BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
                 } else {
@@ -701,7 +700,7 @@ class OwmTileModuleProvider(
                         }
                     } catch (e: Exception) {
                         Log.e("OwmTileZoom", "Error cropping OWM tile: ${e.localizedMessage}")
-                        BitmapDrawable(null, RadarPreloader.emptyTransparentBitmap)
+                        null
                     }
                 }
             }

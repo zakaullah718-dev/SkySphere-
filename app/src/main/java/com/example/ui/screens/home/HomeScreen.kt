@@ -156,38 +156,31 @@ fun HomeScreen(
                 modifier = modifier
             )
         } else {
-            // Smooth entry transition
-            AnimatedVisibility(
-                visible = true,
-                enter = fadeIn() + slideInVertically(initialOffsetY = { 50 }),
-                modifier = modifier.fillMaxSize()
-            ) {
-                HomeScreenContent(
-                    cityWeather = cityWeather,
-                    isCelsius = isCelsius,
-                    isUpdating = isUpdating,
-                    windUnit = windUnit,
-                    errorState = errorState,
-                    onClearError = { viewModel.clearError() },
-                    onToggleFavorite = { viewModel.toggleFavorite(cityWeather.cityName) },
-                    onGpsClick = {
-                        val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                        val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
-                        if (fineGranted || coarseGranted) {
-                            fetchGpsLocation(context, locationManager, viewModel)
-                        } else {
-                            permissionLauncher.launch(
-                                arrayOf(
-                                    Manifest.permission.ACCESS_FINE_LOCATION,
-                                    Manifest.permission.ACCESS_COARSE_LOCATION
-                                )
+            HomeScreenContent(
+                cityWeather = cityWeather,
+                isCelsius = isCelsius,
+                isUpdating = isUpdating,
+                windUnit = windUnit,
+                errorState = errorState,
+                onClearError = { viewModel.clearError() },
+                onToggleFavorite = { viewModel.toggleFavorite(cityWeather.cityName) },
+                onGpsClick = {
+                    val fineGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    val coarseGranted = ContextCompat.checkSelfPermission(context, Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+                    if (fineGranted || coarseGranted) {
+                        fetchGpsLocation(context, locationManager, viewModel)
+                    } else {
+                        permissionLauncher.launch(
+                            arrayOf(
+                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                Manifest.permission.ACCESS_COARSE_LOCATION
                             )
-                        }
-                    },
-                    onRefresh = { viewModel.refreshActiveCity() },
-                    onOpenHub = { showIntelligentHub = true }
-                )
-            }
+                        )
+                    }
+                },
+                onRefresh = { viewModel.refreshActiveCity() },
+                onOpenHub = { showIntelligentHub = true }
+            )
         }
     }
 }

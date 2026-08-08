@@ -78,7 +78,7 @@ class FutureRadarRepository(private val context: Context? = null) {
         .build()
 
     @Volatile
-    private var cachedFrame: RadarFrame? = null
+    var cachedFrame: RadarFrame? = null
 
     @Volatile
     private var lastFetchTime: Long = 0L
@@ -475,6 +475,27 @@ class FutureRadarRepository(private val context: Context? = null) {
 
     fun getFallbackTimestamp(): Long {
         return cachedFrame?.time ?: (((System.currentTimeMillis() - 600_000L) / 600_000L) * 600L)
+    }
+
+    suspend fun downloadTileBitmap(tileUrl: String): Bitmap? = withContext(Dispatchers.IO) {
+        try {
+            val req = Request.Builder()
+                .url(tileUrl)
+                .header("User-Agent", "SkySphereApp/1.0")
+                .build()
+            client.newCall(req).execute().use { response ->
+                if (response.isSuccessful) {
+                    val bytes = response.body?.bytes()
+                    if (bytes != null && bytes.isNotEmpty()) {
+                        val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                        if (bmp != null) return@withContext bmp
+                    }
+                }
+            }
+        } catch (e: Exception) {
+            Log.w("RainRadarRepo", "Failed to download tile from $tileUrl: ${e.message}")
+        }
+        null
     }
 
     suspend fun runPipelineAudit(

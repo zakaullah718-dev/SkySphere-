@@ -287,6 +287,10 @@ fun MapScreen(
                             ) { frame ->
                                 weatherOverlayRef[0]?.updateFrame(frame, this@mapApply)
                             }
+                            val currentFrame = timeLapseState.currentFrame
+                            if (currentFrame != null) {
+                                weatherOverlayRef[0]?.updateFrame(currentFrame, this@mapApply)
+                            }
                         }
                     }
 
